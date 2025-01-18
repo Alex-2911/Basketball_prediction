@@ -1,0 +1,7 @@
+pandas==1.5.3
+numpy==1.23.5
+beautifulsoup4==4.11.2
+selenium==4.7.0
+webdriver-manager==3.8.5
+
+pip install -r requirements.txt
