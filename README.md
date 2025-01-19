@@ -1,5 +1,5 @@
 # Basketball_prediction
-Automates basketball game data scraping, parsing, and processing from basketball-reference.com. Updates datasets with new stats, handles dynamic season logic, and manages files efficiently. Features include Selenium/BeautifulSoup integration, advanced stats aggregation, error logging, and scalability for sports data analysis.
+Automates basketball game data scraping, parsing, and processing from basketball-reference.com. Detects next game date, updates datasets with new stats, handles dynamic season logic, and manages files efficiently. Features Selenium/BeautifulSoup integration, advanced stats aggregation, error logging, and scalability for sports data analysis.
 
 ## Execution Workflow
 
@@ -13,5 +13,5 @@ This project consists of two scripts that must be executed sequentially:
    - Collects game data for the upcoming game day(s).
    - Saves the data to the next game folder and updates the dataset.
 
-**Important**: Run _1. 03012025_get_data_previous_game_day and parse to statistics.ipynb` first to ensure all previous game data is processed before running `02_collec_2. 03012025_get_data_next_game_day.ipynb`.
+**Important**: Run _1. 03012025_get_data_previous_game_day and parse to statistics.ipynb` first to ensure all previous game data is processed before running `2. 03012025_get_data_next_game_day.ipynb`.
 
