@@ -5,3 +5,5 @@ selenium==4.7.0
 webdriver-manager==3.8.5
 
 pip install -r requirements.txt
+
+pip list
