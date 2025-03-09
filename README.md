@@ -19,11 +19,11 @@ Integrates **Selenium/BeautifulSoup** for web scraping, calculates rolling avera
 - **Purpose**: Computes predictions for the upcoming game day using historical data, rolling averages, and LightGBM.  
 - **Output**: Generates predictions with probabilities, saved to the “prediction” directory.
 
-### 4. Script 4: `_4. 03012025_calculate_betting_statistics.ipynb`
+### 4. Script 4: `_4_03012025_calculate_betting_statistics.ipynb`
 - **Purpose**: Merges actual outcomes with predicted results to evaluate betting performance.  
 - **Output**: Calculates overall and subset accuracies (e.g., home-favored vs. away-favored), updating a combined CSV.
 
-### 5. Script 5: `_5. 03012025_grid_search_for_best_betting_parameters.ipynb`
+### 5. Script 5: `_5_09032025_GRID SEARCH FOR BEST BETTING PARAMETERS.ipynb`
 - **Purpose**: Performs a grid search to find optimal betting parameters (home win rates, odds thresholds, etc.).  
 - **Output**: Displays and saves a summary of the best parameters and filters today’s games to highlight top home teams.
 
