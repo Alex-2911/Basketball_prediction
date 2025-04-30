@@ -88,6 +88,7 @@ def get_html(url, selector, sleep=5, retries=3, headless=True):
             chrome_options.add_argument("--headless")
 
         # Initialize WebDriver with webdriver-manager (auto-downloads appropriate chromedriver)
+        logging.getLogger('webdriver_manager').setLevel(logging.ERROR)
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=chrome_options)
 
