@@ -41,21 +41,20 @@ yesterday = datetime.now() - timedelta(days=1)
 print(f"Today's date: {today_str}")
 
 # Directories
-DATA_DIR = os.path.join("D:\\", "1. Python", "1. NBA Script", "2025", "Gathering_Data")
+DATA_DIR = os.path.join("output", "Gathering_Data")
 STAT_DIR = os.path.join(DATA_DIR, "Whole_Statistic")
 STANDINGS_DIR = os.path.join(DATA_DIR, "data", f"{current_season}_standings")
 SCORES_DIR = os.path.join(DATA_DIR, "data", f"{current_season}_scores")
-DST_DIR = os.path.join("D:\\", "_Laufwerk C", "11. Sorare", "NBA", "2025", "Gathering_Data", "Whole_Statistic")
+DST_DIR = os.path.join("Gathering_Data", "Whole_Statistic")
 
-# Path to chromedriver
-chromedriver_path = r"D:\1. Python\3. chromedriver-win64\chromedriver-win64\chromedriver.exe"
+# Configure Chrome options
 chrome_options = Options()
 chrome_options.add_argument("--headless")
 
 # Configure month information
 if today.day == 1:
     current_month = today.month - 1
-    
+
     if current_month == 0:
         current_month = 12
         current_year = today.year - 1
@@ -89,10 +88,10 @@ def get_html(url, selector, sleep=5, retries=3, headless=True):
         if headless:
             chrome_options.add_argument("--headless")
 
-        # Initialize WebDriver with Service
-        service = Service(chromedriver_path)
+        # Initialize WebDriver with webdriver-manager (auto-downloads appropriate chromedriver)
+        service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=chrome_options)
-        
+
         for attempt in range(retries):
             try:
                 driver.get(url)
@@ -125,9 +124,9 @@ def scrape_season_for_month(season, month, month_name, standings_dir, get_html_f
         standings_dir (str): Directory path to save the scraped data.
         get_html_function (function): Function to get HTML content from a URL.
     """
-    if season < current_year or (season == current_year and month < current_month):
-        logging.warning("Invalid year or month already passed.")
-        return
+    # if season < current_year or (season == current_year and month < current_month):
+    #     logging.warning("Invalid year or month already passed.")
+    #     return
 
     logging.info(f"Scraping games for: {season}, {month_name.title()}")
     url = f"https://www.basketball-reference.com/leagues/NBA_{season}_games.html"
@@ -171,7 +170,7 @@ def scrape_game(standings_file, scores_dir, get_html_function):
     """
     # Calculate the date of yesterday
     yesterday_date = yesterday.strftime("%Y%m%d")  # Format: YYYYMMDD
-    
+
     with open(standings_file, 'r', encoding='utf-8') as f:
         html = f.read()
 
@@ -184,12 +183,12 @@ def scrape_game(standings_file, scores_dir, get_html_function):
 
     for url in filtered_urls:
         save_path = os.path.join(scores_dir, url.split("/")[-1])
-        
+
         if os.path.exists(save_path):
             continue
 
         html = get_html_function(url, "#content")
-        
+
         if not html:
             continue
 
@@ -220,10 +219,10 @@ def process_standings_files(standings_dir, current_season):
 def get_first_game_date(standings_file):
     """
     Extract the date of the first game day from the standings file.
-    
+
     Args:
         standings_file (str): Path to the standings HTML file.
-    
+
     Returns:
         str: The date of the first game, formatted as 'Day, Month Date, Year'.
     """
@@ -231,10 +230,10 @@ def get_first_game_date(standings_file):
         html = f.read()
 
     soup = BeautifulSoup(html, 'html.parser')
-    
+
     # Find the first game date in the standings table
     table = soup.find("table", {"id": "schedule"})
-    
+
     if not table:
         print(f"No schedule table found in {standings_file}.")
         return None
@@ -245,16 +244,16 @@ def get_first_game_date(standings_file):
         game_date_tag = first_game_row.find("th", {"data-stat": "date_game"})
         if game_date_tag:
             return game_date_tag.text.strip()  # Returns the date of the first game
-    
+
     return None
 
 def find_most_recent_file(max_days=150):
     """
     Find the most recent statistics file within the specified number of days.
-    
+
     Args:
         max_days (int): Maximum number of days to look back.
-        
+
     Returns:
         str: Date string of the most recent file in YYYY-MM-DD format.
     """
@@ -267,10 +266,10 @@ def find_most_recent_file(max_days=150):
 def file_exists(date_str):
     """
     Check if a file exists for the given date.
-    
+
     Args:
         date_str (str): Date string in YYYY-MM-DD format.
-        
+
     Returns:
         bool: True if the file exists, False otherwise.
     """
@@ -440,13 +439,35 @@ def process_nba_data():
     # Copy any missing files
     copy_missing_files(STAT_DIR, DST_DIR)
 
+def ensure_october_data_exists():
+    """
+    Ensure that October data exists for the current season.
+    This is important because October data contains the first game of the season.
+    """
+    october_file = os.path.join(STANDINGS_DIR, f'NBA_{current_season}_games-october.html')
+
+    if not os.path.exists(october_file):
+        logging.info(f"October data file does not exist. Attempting to scrape it now.")
+        scrape_season_for_month(current_season, 10, "october", STANDINGS_DIR, get_html)
+
+        # Check if the file was successfully created
+        if os.path.exists(october_file):
+            logging.info(f"Successfully created October data file.")
+            return True
+        else:
+            logging.warning(f"Failed to create October data file. Season data may be incomplete.")
+            return False
+    else:
+        logging.info(f"October data file already exists.")
+        return True
+
 def main():
     """Main execution function."""
     # Create directories if they don't exist
     os.makedirs(STANDINGS_DIR, exist_ok=True)
     os.makedirs(SCORES_DIR, exist_ok=True)
     os.makedirs(STAT_DIR, exist_ok=True)
-    
+
     next_month = current_month + 1 if current_month < 12 else 1
     next_year = current_year if next_month != 1 else current_year + 1
     current_month_name = calendar.month_name[current_month].lower()
@@ -472,25 +493,36 @@ def main():
     else:
         scrape_season_for_month(current_season, current_month, current_month_name, STANDINGS_DIR, get_html)
 
+    # Ensure October data exists
+    ensure_october_data_exists()
+
     # Process standings files
     process_standings_files(STANDINGS_DIR, current_season)
-    
+
     # Get first game date to determine season start
     standings_file = os.path.join(STANDINGS_DIR, f'NBA_{current_season}_games-october.html')
-    first_game_date_str = get_first_game_date(standings_file)
-    
-    if first_game_date_str:
-        print(f"The first game is scheduled on: {first_game_date_str}")
-        first_game_date = datetime.strptime(first_game_date_str, "%a, %b %d, %Y").date()
-        
-        # Check if season has started
-        if today.date() >= first_game_date:
-            # Process NBA data
-            process_nba_data()
+
+    # Check if the file exists before trying to read it
+    if os.path.exists(standings_file):
+        first_game_date_str = get_first_game_date(standings_file)
+
+        if first_game_date_str:
+            print(f"The first game is scheduled on: {first_game_date_str}")
+            first_game_date = datetime.strptime(first_game_date_str, "%a, %b %d, %Y").date()
+
+            # Check if season has started
+            if today.date() >= first_game_date:
+                # Process NBA data
+                process_nba_data()
+            else:
+                print(f"Season has not started yet. Today: {today.date()}, First game: {first_game_date}")
         else:
-            print(f"Season has not started yet. Today: {today.date()}, First game: {first_game_date}")
+            print("Could not determine first game date. Processing NBA data anyway.")
+            process_nba_data()
     else:
-        print("Could not determine first game date.")
+        print(f"October standings file not found at {standings_file}. Processing NBA data anyway.")
+        # Process NBA data even without knowing the first game date
+        process_nba_data()
 
 if __name__ == "__main__":
     main()
