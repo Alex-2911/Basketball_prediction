@@ -1,9 +1,9 @@
-setuptools==65.5.0
-pandas==1.5.3
-numpy==1.23.5
+setuptools==80.1.0
+pandas==2.2.3
+numpy==2.2.5
 beautifulsoup4==4.11.2
 selenium==4.7.0
-webdriver-manager==3.8.5
-lightgbm==3.3.5
+webdriver-manager==4.0.2
+lightgbm==4.6.0
 scikit-learn==1.2.0
 xlsxwriter==3.1.2
