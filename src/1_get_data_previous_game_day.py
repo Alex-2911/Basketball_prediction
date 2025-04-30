@@ -34,7 +34,7 @@ current_season = 2025
 # Configure today's date
 today = datetime.now()
 today_str = today.strftime("%a, %b ") + str(int(today.strftime("%d"))) + today.strftime(", %Y")
-today_date = datetime.strptime(today_str, "%a, %b %d, %Y")
+today_date = today.date()
 today_str_format = today_date.strftime("%Y-%m-%d")
 yesterday = datetime.now() - timedelta(days=1)
 
@@ -45,7 +45,7 @@ DATA_DIR = os.path.join("output", "Gathering_Data")
 STAT_DIR = os.path.join(DATA_DIR, "Whole_Statistic")
 STANDINGS_DIR = os.path.join(DATA_DIR, "data", f"{current_season}_standings")
 SCORES_DIR = os.path.join(DATA_DIR, "data", f"{current_season}_scores")
-DST_DIR = os.path.join("Gathering_Data", "Whole_Statistic")
+DST_DIR = os.path.join("output", "Gathering_Data", "Whole_Statistic")
 
 # Configure Chrome options
 chrome_options = Options()
