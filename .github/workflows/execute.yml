@@ -3,6 +3,9 @@ name: Python Script Execution
 on:
   pull_request:
   workflow_dispatch:
+  
+permissions:
+  contents: write  # ✅ allow bot to push files
 
 jobs:
   run-script:
