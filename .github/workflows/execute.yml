@@ -33,9 +33,6 @@ jobs:
     - name: Run script
       run: python src/1_get_data_previous_game_day.py
 
-          - name: Run script
-      run: python src/1_get_data_previous_game_day.py
-
     - name: Commit and push output files
       run: |
         git config user.name "github-actions[bot]"
