@@ -32,3 +32,15 @@ jobs:
     # Run your Python script
     - name: Run script
       run: python src/1_get_data_previous_game_day.py
+
+          - name: Run script
+      run: python src/1_get_data_previous_game_day.py
+
+    - name: Commit and push output files
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add output/Gathering_Data/Whole_Statistic/nba_games_*.csv
+        git commit -m "Add updated stats CSV for $(date +'%Y-%m-%d')" || echo "No changes to commit"
+        git push
+
