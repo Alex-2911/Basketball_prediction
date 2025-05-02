@@ -18,6 +18,13 @@ import shutil
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import TimeoutException, WebDriverException
+from webdriver_manager.chrome import ChromeDriverManager
+
 # Define the current season
 current_season = 2025
 
