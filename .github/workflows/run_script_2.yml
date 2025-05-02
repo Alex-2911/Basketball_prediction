@@ -24,10 +24,14 @@ jobs:
     - name: Run next game script
       run: python src/2_get_data_next_game_day.py
 
-    - name: Commit and push games_df CSV
+    - name: Commit and push output files
+      env:
+        GH_TOKEN: ${{ secrets.GH_PAT }}
       run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git config user.name "github-actions"
+        git config user.email "github-actions@github.com"
+        git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}
         git add output/Gathering_Data/Next_Game/games_df_*.csv
         git commit -m "Add next game CSV for $(date +'%Y-%m-%d')" || echo "No changes to commit"
-        git push
+        git push origin HEAD:${{ github.ref_name }}
+
