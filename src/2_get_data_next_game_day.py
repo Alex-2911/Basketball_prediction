@@ -38,6 +38,7 @@ print(month_name_for_coming_games)
 DATA_DIR = os.path.join("output", "Gathering_Data")
 STANDINGS_DIR = os.path.join(DATA_DIR, "data", f"{current_season}_standings")
 target_folder = os.path.join(DATA_DIR, "Next_Game")
+dst_dir = os.path.join(DATA_DIR, "Next_Game")  # Add this line
 
 # Define file paths
 file_name = f"NBA_{current_season}_games-{month_name_for_coming_games}.html"
