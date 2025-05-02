@@ -35,10 +35,9 @@ month_name_for_coming_games = calendar.month_name[month_for_coming_games].lower(
 print(month_name_for_coming_games)
 
 # Directories
-DATA_DIR = os.path.join("D:\\", "1. Python", "1. NBA Script", "2025", "Gathering_Data", "data")
-STANDINGS_DIR = os.path.join(DATA_DIR, f"{current_season}_standings")
-target_folder = r'D:\1. Python\1. NBA Script\2025\Gathering_Data\Next_Game'
-dst_dir = r'D:\_Laufwerk C\11. Sorare\NBA\2025\Gathering_Data\Next_Game'
+DATA_DIR = os.path.join("output", "Gathering_Data")
+STANDINGS_DIR = os.path.join(DATA_DIR, "data", f"{current_season}_standings")
+target_folder = os.path.join(DATA_DIR, "Next_Game")
 
 # Define file paths
 file_name = f"NBA_{current_season}_games-{month_name_for_coming_games}.html"
