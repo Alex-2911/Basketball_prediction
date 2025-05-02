@@ -1,17 +1,17 @@
-name: Get Next Game Day Data
+name: Run Script 2 - Next Game Data
 
 on:
-  workflow_dispatch:  # Enables manual trigger from the Actions tab
+  workflow_dispatch:
 
 jobs:
-  run-next-game-script:
+  run-script:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
+    - name: Checkout repository
       uses: actions/checkout@v3
 
-    - name: Set up Python
+    - name: Set up Python 3.10
       uses: actions/setup-python@v4
       with:
         python-version: '3.10'
@@ -20,13 +20,20 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        pip install beautifulsoup4 pandas
 
-    - name: Run script 2 - Get next game day data
+    - name: Run next game script
       run: python src/2_get_data_next_game_day.py
 
-    - name: Upload generated CSV as artifact
+    - name: Upload result CSV as artifact
       uses: actions/upload-artifact@v3
       with:
         name: next-game-csv
         path: output/Gathering_Data/Next_Game/games_df_*.csv
+
+    - name: Commit and push games_df CSV
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add output/Gathering_Data/Next_Game/games_df_*.csv
+        git commit -m "Add next game CSV for $(date +'%Y-%m-%d')" || echo "No changes to commit"
+        git push
