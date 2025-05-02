@@ -24,12 +24,6 @@ jobs:
     - name: Run next game script
       run: python src/2_get_data_next_game_day.py
 
-    - name: Upload result CSV as artifact
-      uses: actions/upload-artifact@v3.1.3
-      with:
-        name: next-game-csv
-        path: output/Gathering_Data/Next_Game/games_df_*.csv
-
     - name: Commit and push games_df CSV
       run: |
         git config user.name "github-actions[bot]"
