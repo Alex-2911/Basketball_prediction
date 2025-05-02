@@ -41,6 +41,7 @@ jobs:
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
         git add output/Gathering_Data/Whole_Statistic/nba_games_*.csv
-        git commit -m "Add updated stats CSV for $(date +'%Y-%m-%d')" || echo "No changes to commit"
+        git add output/Gathering_Data/data/2025_standings/*.html
+        git commit -m "Add updated stats and HTML for $(date +'%Y-%m-%d')" || echo "No changes to commit"
         git push
 
