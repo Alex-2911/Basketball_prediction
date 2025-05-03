@@ -35,10 +35,11 @@ STAT_DIR        = os.path.join(DATA_DIR, "Whole_Statistic")
 target_folder   = os.path.join(DATA_DIR, "Next_Game")
 directory_path  = os.path.join(BASE_DIR, "output", "LightGBM", "1_2025_Prediction")
 
-df_path = os.path.join(STAT_DIR, f"nba_games_{today}.csv")
+df_path_stat = os.path.join(STAT_DIR, f"nba_games_{today}.csv")
 
 # Historical stats file (contains full-season stats with 'team', 'date', 'won', etc.)
-stats_df_path   = os.path.join(STAT_DIR, f"nba_games_{today}.csv")
+#stats_df_path   = os.path.join(STAT_DIR, f"nba_games_{today}.csv")
+
 # Next-game file (contains only home_team, away_team, game_date)
 def get_latest_file(folder, prefix, ext):
     files = glob.glob(os.path.join(folder, f"{prefix}*{ext}"))
@@ -51,8 +52,22 @@ if not games_df_path:
 # ──────────────────────────────────────────────────────────────────────────
 # LOAD NEXT-GAME LINEUP
 # ──────────────────────────────────────────────────────────────────────────
-games_df = pd.read_csv(games_df_path, index_col=0)
-print(f"Loaded games_df ({len(games_df)} rows) from {games_df_path}")
+# Define directory and date format
+# Check if file exists
+file_path_today_games = f"{target_folder}/games_df_{today}.csv"
+if not os.path.exists(file_path_today_games):
+    # List files and pick the latest one
+    files = sorted(glob.glob(f"{target_folder}/games_df_*.csv"))
+    if files:
+        file_path_today_games = files[-1]  # Use the latest available file
+        print(f"Using the latest file: {file_path_today_games}")
+    else:
+        print("No files found in the directory.")
+        exit()
+
+# Proceed to read the file
+games_df = pd.read_csv(file_path_today_games, index_col=0)
+print(games_df.head(60).to_string(index=False))
 
 # ──────────────────────────────────────────────────────────────────────────
 # PREPROCESS HISTORICAL STATS
@@ -63,7 +78,7 @@ def add_target(group):
 
 
 def preprocess_nba_data():
-    df = pd.read_csv(stats_df_path, index_col=0)
+    df = pd.read_csv(df_path_stat, index_col=0)
     # ensure 'date'
     if 'game_date' in df.columns:
         df = df.rename(columns={'game_date':'date'})
