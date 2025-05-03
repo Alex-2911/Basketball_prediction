@@ -31,7 +31,7 @@ jobs:
 
       # 4) Run your LightGBM script
       - name: Run LightGBM prediction
-        run: python src/3_ightgbm.py
+        run: python src/3_lightgbm.py
 
       # 5) Commit & push any new CSVs
       - name: Commit and push prediction outputs
