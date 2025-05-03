@@ -87,7 +87,7 @@ if __name__ == "__main__":
 
     # rolling features
     rolling_cols = hist_df[features].rolling(ROLLING_WINDOW_SIZE, min_periods=1).mean()
-    rolling_cols.columns = [f"{c}_w{ROLLING_WINDOW_SIZE}" for c in roll.columns]
+    rolling_cols.columns = [f"{c}_w{ROLLING_WINDOW_SIZE}" for c in rolling_cols.columns]
     rolling_cols.columns = [f"{c}_8" for c in roll.columns]
     rolling_cols    = rolling_cols.reset_index(drop=True)
     
