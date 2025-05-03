@@ -138,24 +138,25 @@ def add_target(group):
     return group
 
 def preprocess_nba_data():
-    # Load the data
+    # load the next‐game file (which currently has 'game_date')
     df = pd.read_csv(df_path, index_col=0)
 
-    # Sort by date
+    # rename and parse the date column
+    if 'game_date' in df.columns:
+        df = df.rename(columns={'game_date': 'date'})
+    df['date'] = pd.to_datetime(df['date'], errors='coerce')
+
+    # now you can safely sort
     df = df.sort_values("date")
 
-    # Apply the preprocessing function to each team group
+    # add_target, fillna, drop null‐columns, etc…
     df = df.groupby('team').apply(add_target)
-
-    # Handle missing values
     df['target'].fillna(2, inplace=True)
     df['target'] = df['target'].astype(int)
 
-    # Identify and remove columns with null values
-    nulls = pd.isnull(df).sum()
-    nulls = nulls[nulls > 0]
-    valid_columns = df.columns[~df.columns.isin(nulls.index)]
-    df = df[valid_columns].copy()
+    # drop any columns with nulls
+    nulls = df.isna().sum()
+    df = df.loc[:, nulls == 0]
 
     return df
 
