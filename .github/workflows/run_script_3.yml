@@ -39,6 +39,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add output/LightGBM/1\.\*/nba_games_predict_*.csv
+          git add output/LightGBM/1_2025_Prediction\*/nba_games_predict_*.csv
           git commit -m "📈 Add LightGBM predictions for $(date +'%Y-%m-%d')" || echo "No changes to commit"
           git push origin HEAD:${{ github.ref_name }}
