@@ -101,8 +101,8 @@ if __name__ == "__main__":
     y = hist_df.loc[hist_df['target']!=2, 'target']
 
     # Merging DataFrames
-    full = df.merge(
-        df[list(rolling_cols.keys()) + ["team_opp_next", "date_next", "team"]],
+    full = hist_df.merge(
+        hist_df[list(rolling_cols.keys()) + ["team_opp_next", "date_next", "team"]],
         left_on=["team", "date_next"],
         right_on=["team_opp_next", "date_next"]
     )
