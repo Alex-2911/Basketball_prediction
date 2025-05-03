@@ -118,12 +118,88 @@ if __name__ == "__main__":
     full_pred = full_pred.rename(columns={'team':'home_team','team_opp':'away_team'})
 
     # fetch odds
-    import requests, logging
+    import logging
+    import requests
     from requests.adapters import HTTPAdapter
     from urllib3.util.retry import Retry
-    full_to_abbrev = { ... }  # same mapping
-    def fetch_odds(...): ...  # as before
-    odds_df = fetch_odds(full_pred[['home_team','away_team']], API_KEY, preferred=[...])
+    
+    # full-name → 3-letter abbr
+    full_to_abbrev = {
+        "Atlanta Hawks":"ATL","Boston Celtics":"BOS","Brooklyn Nets":"BRK",
+        "Charlotte Hornets":"CHA","Chicago Bulls":"CHI","Cleveland Cavaliers":"CLE",
+        "Dallas Mavericks":"DAL","Denver Nuggets":"DEN","Detroit Pistons":"DET",
+        "Golden State Warriors":"GSW","Houston Rockets":"HOU","Indiana Pacers":"IND",
+        "LA Clippers":"LAC","Los Angeles Clippers":"LAC","Los Angeles Lakers":"LAL",
+        "Memphis Grizzlies":"MEM","Miami Heat":"MIA","Milwaukee Bucks":"MIL",
+        "Minnesota Timberwolves":"MIN","New Orleans Pelicans":"NOP",
+        "New York Knicks":"NYK","Oklahoma City Thunder":"OKC","Orlando Magic":"ORL",
+        "Philadelphia 76ers":"PHI","Phoenix Suns":"PHX","Portland Trail Blazers":"POR",
+        "Sacramento Kings":"SAC","San Antonio Spurs":"SAS","Toronto Raptors":"TOR",
+        "Utah Jazz":"UTA","Washington Wizards":"WAS"
+    }
+    
+    def get_session():
+        s = requests.Session()
+        retries = Retry(total=3, backoff_factor=0.5,
+                        status_forcelist=[429,500,502,503,504])
+        s.mount("https://", HTTPAdapter(max_retries=retries))
+        return s
+    
+    def fetch_odds(games_df: pd.DataFrame, api_key: str,
+                   preferred: list=None) -> pd.DataFrame:
+        """
+        Fetch moneyline odds from The Odds API and return a DataFrame
+        with columns: home_team, away_team, odds 1 (American), odds 2 (American).
+        """
+        sess = get_session()
+        r = sess.get(
+          "https://api.the-odds-api.com/v4/sports/basketball_nba/odds",
+          params={"apiKey": api_key, "regions": "us", "markets": "h2h", "oddsFormat": "american"},
+          timeout=10
+        )
+        r.raise_for_status()
+        data = r.json()
+    
+        # build lookup (home_abbr,away_abbr) → (ml_home, ml_away)
+        lookup = {}
+        for ev in data:
+            h = full_to_abbrev.get(ev["home_team"])
+            a = full_to_abbrev.get(ev["away_team"])
+            if not h or not a or not ev.get("bookmakers"):
+                continue
+    
+            # pick preferred bookmaker or first one
+            bms = ev["bookmakers"]
+            bm = None
+            if preferred:
+                for key in preferred:
+                    bm = next((b for b in bms if b["key"] == key), None)
+                    if bm: break
+            if bm is None:
+                bm = bms[0]
+    
+            market = next((m for m in bm["markets"] if m["key"] == "h2h"), None)
+            if not market:
+                continue
+    
+            prices = {}
+            for out in market["outcomes"]:
+                abbr = full_to_abbrev.get(out["name"])
+                if abbr:
+                    prices[abbr] = out["price"]
+    
+            lookup[(h,a)] = (prices.get(h), prices.get(a))
+    
+        rows = []
+        for _, gm in games_df.iterrows():
+            h,a = gm.home_team, gm.away_team
+            o1,o2 = lookup.get((h,a), (None, None))
+            if o1 is None or o2 is None:
+                logging.warning(f"No odds found for {h} vs {a}")
+            rows.append({"home_team": h, "away_team": a, "odds 1": o1, "odds 2": o2})
+    
+        return pd.DataFrame(rows)
+
 
     # build final dataframe
     final = full_pred[['home_team','away_team','proba']].rename(columns={'proba':'home_team_prob'})
