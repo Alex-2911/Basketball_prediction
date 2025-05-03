@@ -1,4 +1,4 @@
-name: Python Script Execution
+name: Run Script 1 - Collect Previous Games Data
 
 on:
   pull_request:
