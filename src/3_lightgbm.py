@@ -86,18 +86,18 @@ if __name__ == "__main__":
     hist_df[features] = scaler.fit_transform(hist_df[features])
 
     # rolling features
-    roll = hist_df[features].rolling(ROLLING_WINDOW_SIZE, min_periods=1).mean()
-    roll.columns = [f"{c}_w{ROLLING_WINDOW_SIZE}" for c in roll.columns]
-    roll.columns = [f"{c}_8" for c in roll.columns]
-    roll    = roll   .reset_index(drop=True)
+    rolling_cols = hist_df[features].rolling(ROLLING_WINDOW_SIZE, min_periods=1).mean()
+    rolling_cols.columns = [f"{c}_w{ROLLING_WINDOW_SIZE}" for c in roll.columns]
+    rolling_cols.columns = [f"{c}_8" for c in roll.columns]
+    rolling_cols    = rolling_cols.reset_index(drop=True)
     
-    hist_df = pd.concat([hist_df.reset_index(drop=True), roll], axis=1).dropna()
+    hist_df = pd.concat([hist_df.reset_index(drop=True), rolling_cols], axis=1).dropna()
     hist_df = hist_df.reset_index(drop=True)
 
-    hist_df = pd.concat([hist_df, roll], axis=1).dropna()
+    hist_df = pd.concat([hist_df, rolling_cols], axis=1).dropna()
 
     # split train/test
-    X = hist_df.drop(columns=['target']).loc[hist_df['target']!=2, features.union(roll.columns)]
+    X = hist_df.drop(columns=['target']).loc[hist_df['target']!=2, features.union(rolling_cols.columns)]
     y = hist_df.loc[hist_df['target']!=2, 'target']
 
     # Merging DataFrames
