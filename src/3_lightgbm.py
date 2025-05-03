@@ -32,8 +32,10 @@ today = datetime.now().strftime("%Y-%m-%d")
 BASE_DIR        = os.getcwd()
 DATA_DIR        = os.path.join(BASE_DIR, "output", "Gathering_Data")
 STAT_DIR        = os.path.join(DATA_DIR, "Whole_Statistic")
-NEXT_DIR        = os.path.join(DATA_DIR, "Next_Game")
-PRED_DIR        = os.path.join(BASE_DIR, "output", "LightGBM", "1_2025_Prediction")
+target_folder   = os.path.join(DATA_DIR, "Next_Game")
+directory_path  = os.path.join(BASE_DIR, "output", "LightGBM", "1_2025_Prediction")
+
+df_path = os.path.join(STAT_DIR, f"nba_games_{today}.csv")
 
 # Historical stats file (contains full-season stats with 'team', 'date', 'won', etc.)
 stats_df_path   = os.path.join(STAT_DIR, f"nba_games_{today}.csv")
