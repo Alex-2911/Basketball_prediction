@@ -66,14 +66,17 @@ def preprocess_nba_data():
     if 'game_date' in df.columns:
         df = df.rename(columns={'game_date':'date'})
     df['date'] = pd.to_datetime(df['date'], errors='coerce')
+    
     df = df.sort_values('date')
+    
     # add target per team
     df = df.groupby('team', group_keys=False).apply(add_target)
     df['target'].fillna(2, inplace=True)
     df['target'] = df['target'].astype(int)
+    
     # drop any columns with nulls
-    nulls = df.isna().sum()
-    df = df.loc[:, nulls == 0]
+    #nulls = df.isna().sum()
+    #df = df.loc[:, nulls == 0]
     return df
 
 if __name__ == "__main__":
