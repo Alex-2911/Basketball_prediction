@@ -1,4 +1,3 @@
-# .github/workflows/run_script_3_lightgbm.yml
 name: 🏀 Run Script 3 – LightGBM prediction
 
 on:
@@ -11,29 +10,25 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1) Checkout
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      # 2) Setup Python
       - name: Set up Python 3.11
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
-      # 3) Install dependencies
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          # Pin numpy to avoid ABI break
+          pip install numpy==1.24.4
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
           fi
 
-      # 4) Run your LightGBM script
       - name: Run LightGBM prediction
         run: python src/3_lightgbm.py
 
-      # 5) Commit & push any new CSVs
       - name: Commit and push prediction outputs
         run: |
           git config user.name "github-actions[bot]"
