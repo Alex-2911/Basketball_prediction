@@ -29,19 +29,27 @@ jobs:
                       scikit-learn==1.2.2 \
                       lightgbm==3.3.5
 
-      - name: Run LightGBM prediction
+      # 4) Run data‐gathering script (must produce Next_Game CSV)
+      - name: Run Script 2 – Next Game Data
+        run: python src/2_get_data_next_game_day.py
+
+      # 5) Run prediction script (now sees the games_df CSV)
+      - name: Run Script 3 – LightGBM prediction
         run: python src/3_lightgbm.py
 
-      # 5. Commit and push any new CSV outputs
-      - name: Commit and push prediction outputs
+      # 6) Commit and push BOTH data and predictions
+      - name: Commit & push new CSVs
         env:
           GITHUB_REF_NAME: ${{ github.ref_name }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # your script writes to output/LightGBM/1_2025_Prediction
-          git add output/LightGBM/1_2025_Prediction/nba_games_predict_*.csv
+          # add raw next‐game data
+          git add output/Gathering_Data/Next_Game/games_df_*.csv || true
+          # add your model outputs
+          git add output/LightGBM/1_2025_Prediction/nba_games_predict_*.csv || true
 
-          git commit -m "📈 Add LightGBM predictions for $(date +'%Y-%m-%d')" || echo "No changes to commit"
+          git commit -m "🔄 Update next‐game data & predictions for $(date +'%Y-%m-%d')" \
+            || echo "No CSV changes to commit"
           git push origin HEAD:${GITHUB_REF_NAME}
