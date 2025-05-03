@@ -70,7 +70,7 @@ games_df = pd.read_csv(file_path_today_games, index_col=0)
 print(games_df.head(60).to_string(index=False))
 
 # Proceed with loading the data
-df = pd.read_csv(df_path, index_col=0)
+df = pd.read_csv(df_path_stat, index_col=0)
 print(df)#.tail())  # Display a portion of the data
 
 # Function to add a target column
@@ -81,7 +81,7 @@ def add_target(group):
 
 def preprocess_nba_data():
     # Load the data
-    df = pd.read_csv(df_path, index_col=0)
+    df = pd.read_csv(df_path_stat, index_col=0)
 
     # Sort by date
     df = df.sort_values("date")
@@ -115,10 +115,6 @@ if __name__ == "__main__":
 
     # Scale the selected columns and update the DataFrame
     df[selected_columns] = scaler.fit_transform(df[selected_columns])
-
-    #df.to_csv("D:\\1. Python\\1. NBA Script\\2025\\Gathering_Data\\Whole_Statistic\\df_orig.csv", index=False)
-
-
 
 # In[8]:
 
