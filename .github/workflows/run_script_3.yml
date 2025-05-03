@@ -1,10 +1,7 @@
 name: 🏀 Run Script 3 – LightGBM prediction
 
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+ workflow_dispatch:
 
 jobs:
   predict:
