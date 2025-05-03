@@ -32,10 +32,16 @@ jobs:
       - name: Run LightGBM prediction
         run: python src/3_lightgbm.py
 
+      # 5. Commit and push any new CSV outputs
       - name: Commit and push prediction outputs
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add output/LightGBM/1_2025_Prediction\*/nba_games_predict_*.csv
+
+          # your script writes to output/LightGBM/1_2025_Prediction
+          git add output/LightGBM/1_2025_Prediction/nba_games_predict_*.csv
+
           git commit -m "📈 Add LightGBM predictions for $(date +'%Y-%m-%d')" || echo "No changes to commit"
-          git push origin HEAD:${{ github.ref_name }}
+          git push origin HEAD:${GITHUB_REF_NAME}
