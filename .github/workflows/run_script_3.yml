@@ -22,18 +22,18 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # pin numpy to a 1.24.x wheel ABI to match sklearn/lightgbm
-          pip install numpy==1.24.4
-          # install sklearn and lightgbm wheels built against that numpy
-          pip install scikit-learn==1.2.2 lightgbm==3.3.5
-          # then any other deps you list in requirements.txt
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
           fi
 
+          # now uninstall any leftover wheels and force‐reinstall a matching trio
+          pip uninstall -y numpy scikit-learn lightgbm || true
+          pip install numpy==1.24.4  \
+                      scikit-learn==1.2.2 \
+                      lightgbm==3.3.5
+
       - name: Run LightGBM prediction
-        run: |
-          python src/3_lightgbm.py
+        run: python src/3_lightgbm.py
 
       - name: Commit and push prediction outputs
         run: |
