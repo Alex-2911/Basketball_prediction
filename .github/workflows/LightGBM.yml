@@ -1,4 +1,4 @@
-name: 🏀 LightGBM prediction script
+name: 🏀Run Script 3 - LightGBM prediction script
 
 # Run on every push to main, and also every day at 08:00 UTC
 on:
