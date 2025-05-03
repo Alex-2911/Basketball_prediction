@@ -78,22 +78,32 @@ dst_dir = os.path.join(DATA_DIR, "Next_Game")  # Add this line
 # In[6]:
 
 
-# Define directory and date format
-# Check if file exists
-file_path = f"{target_folder}games_df_{today}.csv"
-if not os.path.exists(file_path):
-    # List files and pick the latest one
-    files = sorted(glob.glob(f"{target_folder}games_df_*.csv"))
-    if files:
-        file_path = files[-1]  # Use the latest available file
-        print(f"Using the latest file: {file_path}")
-    else:
-        print("No files found in the directory.")
-        exit()
+# ──────────────────────────────────────────────────────────
+# 1) Locate the games_df CSV from script 2 (in Next_Game)
+# ──────────────────────────────────────────────────────────
+from glob import glob
 
-# Proceed to read the file
-games_df = pd.read_csv(file_path, index_col=0)
-print(games_df.head(60).to_string(index=False))
+target_folder = os.path.join("output", "Gathering_Data", "Next_Game")
+
+# 1a) try today's file first
+expected = os.path.join(target_folder, f"games_df_{today}.csv")
+
+if os.path.exists(expected):
+    df_path = expected
+    print(f"Using today’s file: {df_path}")
+else:
+    # 1b) fallback: pick the most recent
+    pattern = os.path.join(target_folder, "games_df_*.csv")
+    files = sorted(glob(pattern), key=os.path.getctime)
+    if not files:
+        raise FileNotFoundError(f"No games_df_*.csv found in {target_folder}")
+    df_path = files[-1]
+    print(f"No today’s file; using latest available: {df_path}")
+
+# 1c) finally load it
+games_df = pd.read_csv(df_path, index_col=0)
+print(f"Loaded games_df ({len(games_df)} rows) from\n  {df_path}")
+
 
 
 # In[7]:
