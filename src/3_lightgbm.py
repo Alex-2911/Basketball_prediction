@@ -100,13 +100,26 @@ if __name__ == "__main__":
     X = hist_df.drop(columns=['target']).loc[hist_df['target']!=2, features.union(roll.columns)]
     y = hist_df.loc[hist_df['target']!=2, 'target']
 
+    # Merging DataFrames
+    full = df.merge(
+        df[list(rolling_cols.keys()) + ["team_opp_next", "date_next", "team"]],
+        left_on=["team", "date_next"],
+        right_on=["team_opp_next", "date_next"]
+    )
+
     # drop any duplicate columns that snuck in during the concat
     full = full.loc[:, ~full.columns.duplicated()]
-    
-    # then rebuild your feature list
+
+    # now build your feature list off the cleaned-up `full`
+    removed_columns = ["season","date","won","target","team","team_opp"]
+      
     selected_columns = [c for c in full.columns
                         if c not in ["season","date","won","target","team","team_opp"]]
     selected_features = selected_columns  # now guaranteed unique
+
+    # split full into train/predict
+    full_train = full[full["target"] != 2]
+    full_pred  = full[full["target"] == 2]    
     
     X = full_train[selected_features].values
     y = full_train["target"].values
