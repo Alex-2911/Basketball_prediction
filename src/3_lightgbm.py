@@ -64,7 +64,7 @@ today = (datetime.now()- timedelta(days=0)).strftime("%Y-%m-%d")
 
 # Directories
 
-directory_path = os.path.join("output", "LightGBM","1. 2025_Prediction")
+directory_path = os.path.join("output", "LightGBM","1_2025_Prediction")
 
 DATA_DIR = os.path.join("output", "Gathering_Data")
 STAT_DIR = os.path.join(DATA_DIR, "Whole_Statistic")
