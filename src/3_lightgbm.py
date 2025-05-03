@@ -46,7 +46,7 @@ def get_latest_file(folder, prefix, ext):
 
 games_df_path  = get_latest_file(NEXT_DIR, prefix="games_df_", ext=".csv")
 if not games_df_path:
-    raise FileNotFoundError(f"No games_df_*.csv found in {NEXT_DIR}")
+    raise FileNotFoundError(f"No games_df_*.csv found in {target_folder}")
 
 # ──────────────────────────────────────────────────────────────────────────
 # LOAD NEXT-GAME LINEUP
