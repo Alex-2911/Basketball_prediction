@@ -99,6 +99,18 @@ if __name__ == "__main__":
     # split train/test
     X = hist_df.drop(columns=['target']).loc[hist_df['target']!=2, features.union(roll.columns)]
     y = hist_df.loc[hist_df['target']!=2, 'target']
+
+    # drop any duplicate columns that snuck in during the concat
+    full = full.loc[:, ~full.columns.duplicated()]
+    
+    # then rebuild your feature list
+    selected_columns = [c for c in full.columns
+                        if c not in ["season","date","won","target","team","team_opp"]]
+    selected_features = selected_columns  # now guaranteed unique
+    
+    X = full_train[selected_features].values
+    y = full_train["target"].values
+    
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
     # train LightGBM
