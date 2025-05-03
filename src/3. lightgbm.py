@@ -62,17 +62,17 @@ today = (datetime.now()- timedelta(days=0)).strftime("%Y-%m-%d")
 
 # In[5]:
 
+# Directories
 
-# Constants
-target_folder = "D:\\1. Python\\1. NBA Script\\2025\\Gathering_Data\\Next_Game\\"
-STAT_DIR = "D:\\1. Python\\1. NBA Script\\2025\\Gathering_Data\\Whole_Statistic\\"
+directory_path = os.path.join("output", "LightGBM","1. 2025_Prediction")
 
+DATA_DIR = os.path.join("output", "Gathering_Data")
+STAT_DIR = os.path.join(DATA_DIR, "Whole_Statistic")
 df_path = os.path.join(STAT_DIR, f"nba_games_{today}.csv")
 
-directory_path = r"D:\1. Python\1. NBA Script\2025\LightGBM\1. 2025_Prediction"
-dst_dir = r'C:\_Laufwerk C\11. Sorare\NBA\2025\LightGBM'
-
-open_office_path = "C:\Program Files (x86)\OpenOffice 4\program/scalc"
+STANDINGS_DIR = os.path.join(DATA_DIR, "data", f"{current_season}_standings")
+target_folder = os.path.join(DATA_DIR, "Next_Game")
+dst_dir = os.path.join(DATA_DIR, "Next_Game")  # Add this line
 
 
 # In[6]:
