@@ -39,12 +39,13 @@ print(yesterday_str)
 
 # In[ ]:
 
+# Directories
+DATA_DIR_PRED = os.path.join("output", "LightGBM")
+target_folder = os.path.join(DATA_DIR_PRED,"1. 2025_Prediction")
 
-directory_path = r'D:\1. Python\1. NBA Script\2025\LightGBM\1. 2025_Prediction'
 print(directory_path)
-
-target_folder = r'D:\1. Python\1. NBA Script\2025\Gathering_Data\Next_Game'
 print(target_folder)
+
 
 
 # In[ ]:
