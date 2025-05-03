@@ -1,27 +1,27 @@
-name: 🏀Run Script 3 - LightGBM prediction script
+# .github/workflows/run_script_3_lightgbm.yml
+name: 🏀 Run Script 3 – LightGBM prediction
 
-# Run on every push to main, and also every day at 08:00 UTC
 on:
   push:
     branches:
       - main
-  schedule:
-    - cron: '0 8 * * *'
 
 jobs:
   predict:
     runs-on: ubuntu-latest
-    steps:
-      # 1. Pull down your repository
-      - uses: actions/checkout@v3
 
-      # 2. Set up Python
+    steps:
+      # 1) Checkout
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # 2) Setup Python
       - name: Set up Python 3.11
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
-      # 3. Install dependencies, if you have a requirements.txt
+      # 3) Install dependencies
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -29,7 +29,15 @@ jobs:
             pip install -r requirements.txt
           fi
 
-      # 4. Run your prediction script
+      # 4) Run your LightGBM script
       - name: Run LightGBM prediction
+        run: python src/3_03052025_lightgbm.py
+
+      # 5) Commit & push any new CSVs
+      - name: Commit and push prediction outputs
         run: |
-          python src/3_03052025_lightgbm.py
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add output/LightGBM/1\.\*/nba_games_predict_*.csv
+          git commit -m "📈 Add LightGBM predictions for $(date +'%Y-%m-%d')" || echo "No changes to commit"
+          git push origin HEAD:${{ github.ref_name }}
