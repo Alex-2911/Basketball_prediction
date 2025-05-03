@@ -44,7 +44,7 @@ def get_latest_file(folder, prefix, ext):
     files = glob.glob(os.path.join(folder, f"{prefix}*{ext}"))
     return max(files, key=os.path.getctime) if files else None
 
-games_df_path  = get_latest_file(NEXT_DIR, prefix="games_df_", ext=".csv")
+games_df_path  = get_latest_file(target_folder, prefix="games_df_", ext=".csv")
 if not games_df_path:
     raise FileNotFoundError(f"No games_df_*.csv found in {target_folder}")
 
