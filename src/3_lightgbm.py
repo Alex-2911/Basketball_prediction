@@ -94,7 +94,12 @@ if __name__ == "__main__":
     hist_df = pd.concat([hist_df.reset_index(drop=True), rolling_cols], axis=1).dropna()
     hist_df = hist_df.reset_index(drop=True)
 
-    hist_df = pd.concat([hist_df, rolling_cols], axis=1).dropna()
+    # ──────────────────────────────────────────────────────────
+    #  —  Compute next‐game lookup columns
+    # ──────────────────────────────────────────────────────────
+    hist_df = hist_df.sort_values(['team','date']).reset_index(drop=True)
+    hist_df['date_next']      = hist_df.groupby('team')['date'    ].shift(-1)
+    hist_df['team_opp_next']  = hist_df.groupby('team')['team_opp'].shift(-1)
 
     # split train/test
     X = hist_df.drop(columns=['target']).loc[hist_df['target']!=2, features.union(rolling_cols.columns)]
