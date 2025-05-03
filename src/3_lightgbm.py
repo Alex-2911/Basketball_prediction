@@ -712,39 +712,6 @@ else:
     print(f"💾 Saved predictions to {full_path}")
 
 
-# In[34]:
-
-
-# Open folder using subprocess on Windows
-if os.name == 'nt':
-    subprocess.Popen(f'explorer {directory_path}')
-print(directory_path)
-file_path = directory_path + "/" + file_name
-
-src_files = set(os.listdir(directory_path))
-dst_files = set(os.listdir(dst_dir))
-
-diff = src_files - dst_files
-diff_ = {file for file in diff if not file.startswith('.')}
-
-print('Files in source but not in destination:')
-
-
-# In[35]:
-
-
-if diff_:
-    for file_name in diff_:
-        file_to_copy = os.path.join(directory_path, file_name)
-        shutil.copy2(file_to_copy, dst_dir)
-        print(f"Copied {file_name} to {dst_dir}")
-else:
-    print('No files to copy')
-
-
-
-
-
 # In[ ]:
 
 
