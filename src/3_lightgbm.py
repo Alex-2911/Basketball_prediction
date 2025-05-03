@@ -88,7 +88,13 @@ if __name__ == "__main__":
     # rolling features
     roll = hist_df[features].rolling(ROLLING_WINDOW_SIZE, min_periods=1).mean()
     roll.columns = [f"{c}_w{ROLLING_WINDOW_SIZE}" for c in roll.columns]
+    roll.columns = [f"{c}_8" for c in roll.columns]
+    roll    = roll   .reset_index(drop=True)
+    
     hist_df = pd.concat([hist_df.reset_index(drop=True), roll], axis=1).dropna()
+    hist_df = hist_df.reset_index(drop=True)
+
+    hist_df = pd.concat([hist_df, roll], axis=1).dropna()
 
     # split train/test
     X = hist_df.drop(columns=['target']).loc[hist_df['target']!=2, features.union(roll.columns)]
