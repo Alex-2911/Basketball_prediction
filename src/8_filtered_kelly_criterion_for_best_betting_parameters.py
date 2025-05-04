@@ -263,12 +263,12 @@ os.makedirs(out_folder, exist_ok=True)
 
 # Save to CSV
 #out_path = os.path.join(out_folder, f"kelly_stakes_{today_str}.csv")
-final_df.to_csv(out_path_kelly, index=False)
+final_df.to_csv(out_path_kelly, index=False, float_format='%.2f')
 
 print(f"✅ Kelly stakes summary saved to {out_path_kelly}")
 ##############################################################################################################################
-# In[7]:
 
+# Calculation of statistics of the season
 
 #odds_min     = 1.2
 #odds_max     = 2.8
