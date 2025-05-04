@@ -252,11 +252,6 @@ full = df.merge(df[list(rolling_cols.keys()) + ["team_opp_next", "date_next", "t
                 right_on=["team_opp_next", "date_next"])
 
 
-# Save the merged DataFrame
-output_path = "D:\\1. Python\\1. NBA Script\\2025\\Gathering_Data\\Whole_Statistic\\full_new.csv"
-full.to_csv(output_path, index=False)
-#print(f"Merged data saved to: {output_path}")
-
 # Display basic info and first few rows of the merged DataFrame
 print("Full DataFrame Info:")
 print(full.info())
