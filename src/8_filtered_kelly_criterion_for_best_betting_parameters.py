@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
-
-
 #########################################################################################################################
 # KELLY CRITERION FOR BEST BETTING PARAMETERS
 
@@ -15,9 +12,6 @@
 #########################################################################################################################
 
 
-# In[2]:
-
-
 import pandas as pd
 import os
 import glob
@@ -27,8 +21,10 @@ from datetime import datetime, timedelta
 from itertools import product
 import shutil  # Make sure to import shutil
 
-
-# In[3]:
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LogisticRegression
+from sklearn.isotonic import IsotonicRegression
+from sklearn.model_selection import train_test_split
 
 
 days_back = 0
@@ -42,7 +38,9 @@ yesterday_str = (datetime.now() - timedelta(days=days_back+1)).strftime("%Y-%m-%
 print(yesterday_str)
 
 
-# In[4]:
+# ──────────────────────────────────────────────────────────────
+# CONFIGURATION
+# ──────────────────────────────────────────────────────────────
 
 BASE_DIR        = os.getcwd()
 DATA_DIR        = os.path.join(BASE_DIR, "output", "Gathering_Data")
@@ -50,14 +48,16 @@ target_folder   = os.path.join(DATA_DIR, "Next_Game")
 
 directory_path  = os.path.join(BASE_DIR, "output", "LightGBM", "1_2025_Prediction")
 
-# In[5]:
+# today's raw predictions
+PRED_FILE     = os.path.join(directory_path, f"nba_games_predict_{today_str }.csv")
+# home-win rates lookup
+HWR_FILE      = os.path.join(directory_path, f"home_win_rates_sorted_{today_str}.csv")
+# historical combined preds (for Platt + iso)
+HIST_FILE     = os.path.join(directory_path, f"combined_nba_predictions_acc_{today_str}.csv")
 
-
-# Set directory path
-read_file_path = os.path.join(directory_path, f'combined_nba_predictions_acc_{today_str}.csv')
 
 # Load the dataset
-df = pd.read_csv(read_file_path,encoding="utf-7")
+df = pd.read_csv(HIST_FILE,encoding="utf-7")
 
 # Ensure the date column is in datetime format
 df['date'] = pd.to_datetime(df['date'])
@@ -105,29 +105,6 @@ print(home_win_rates_all_teams_sorted)
 # Save to CSV (Optional)
 output_file = os.path.join(directory_path, f'home_win_rates_sorted_{today_str}.csv')
 
-
-# In[6]:
-
-
-#!/usr/bin/env python3
-import os
-import pandas as pd
-from sklearn.linear_model import LogisticRegression
-from sklearn.isotonic import IsotonicRegression
-from sklearn.model_selection import train_test_split
-
-# ──────────────────────────────────────────────────────────────
-# CONFIGURATION
-# ──────────────────────────────────────────────────────────────
-BASE_DIR      = r"D:\1. Python\1. NBA Script\2025\LightGBM\1. 2025_Prediction"
-TODAY_STR     = pd.Timestamp.now().strftime("%Y-%m-%d")
-
-# today's raw predictions
-PRED_FILE     = os.path.join(BASE_DIR, f"nba_games_predict_{TODAY_STR}.csv")
-# home-win rates lookup
-HWR_FILE      = os.path.join(BASE_DIR, f"home_win_rates_sorted_{TODAY_STR}.csv")
-# historical combined preds (for Platt + iso)
-HIST_FILE     = os.path.join(BASE_DIR, f"combined_nba_predictions_acc_{TODAY_STR}.csv")
 
 # strategy thresholds
 odds_min      = 1.2
@@ -222,11 +199,6 @@ for idx, r in sel.iterrows():
             print(f"   → Kelly frac: {kf:.4f}, Stake on €{starting_bank:.2f}: €{stake:.2f}")
     print()
 
-# done
-
-
-# In[16]:
-
 
 # Prepare a list to accumulate rows
 rows = []
@@ -269,33 +241,13 @@ out_folder = os.path.join(BASE_DIR)
 os.makedirs(out_folder, exist_ok=True)
 
 # Save to CSV
-out_path = os.path.join(out_folder, f"kelly_stakes_{TODAY_STR}.csv")
+out_path = os.path.join(out_folder, f"kelly_stakes_{today_str}.csv")
 final_df.to_csv(out_path, index=False)
 
 print(f"✅ Kelly stakes summary saved to {out_path}")
 ##############################################################################################################################
-
-
-
 # In[7]:
 
-
-import os
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.linear_model import LogisticRegression
-from sklearn.isotonic import IsotonicRegression
-
-# ──────────────────────────────────────────────────────────────
-# CONFIGURATION
-# ──────────────────────────────────────────────────────────────
-BASE_DIR     = r"D:\1. Python\1. NBA Script\2025\LightGBM\1. 2025_Prediction"
-TODAY_STR    = today_str
-INPUT_FILE   = os.path.join(BASE_DIR, f"combined_nba_predictions_acc_{TODAY_STR}.csv")
-HWR_FILE     = os.path.join(BASE_DIR, f"home_win_rates_sorted_{TODAY_STR}.csv")
-OUTPUT_FILE  = os.path.join(BASE_DIR, f"combined_nba_predictions_enriched_{TODAY_STR}.csv")
-OUTPUT_FILE_filtered = os.path.join(BASE_DIR, f"combined_nba_predictions_enriched_filtered_{TODAY_STR}.csv")
 
 odds_min     = 1.2
 odds_max     = 2.8
@@ -319,7 +271,7 @@ def kelly_frac(p, o, frac=1.0):
 # ──────────────────────────────────────────────────────────────
 # 1) LOAD & CLEAN
 # ──────────────────────────────────────────────────────────────
-df = pd.read_csv(INPUT_FILE, encoding="utf-7", decimal=",")
+df = pd.read_csv(HIST_FILE, encoding="utf-7", decimal=",")
 df.columns = (df.columns
     .str.strip()
     .str.lower()
@@ -425,4 +377,3 @@ plt.title("Raw vs Platt vs Iso-Kelly Bankroll Paths")
 plt.legend()
 plt.tight_layout()
 plt.show()
-
