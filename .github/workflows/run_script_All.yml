@@ -44,6 +44,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name: Set up Python 3.10
         uses: actions/setup-python@v4
@@ -58,12 +60,13 @@ jobs:
       - name: Run Script 2 – Next Game Data
         run: python src/2_get_data_next_game_day.py
 
-      - name: Commit & push next-game CSV
+      - name: name: Commit, rebase & push next-game CSV
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add output/Gathering_Data/Next_Game/games_df_*.csv
           git commit -m "Add next game CSV for $(date +'%Y-%m-%d')" || echo "No changes to commit"
+          git pull --rebase origin ${{ github.ref_name }} || true
           git push origin HEAD:${{ github.ref_name }}
 
   predict:
