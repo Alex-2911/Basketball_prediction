@@ -37,23 +37,39 @@ yesterday_str = (datetime.now() - timedelta(days=days_back+1)).strftime("%Y-%m-%
 
 print(yesterday_str)
 
-
 # ──────────────────────────────────────────────────────────────
-# CONFIGURATION
+# GLOBAL CONFIG
 # ──────────────────────────────────────────────────────────────
 
-BASE_DIR        = os.getcwd()
-DATA_DIR        = os.path.join(BASE_DIR, "output", "Gathering_Data")
-target_folder   = os.path.join(DATA_DIR, "Next_Game")
+(BASE_DIR
+    ) = os.getcwd()  # or wherever your repo root is on CI
+directory_path = os.path.join(
+    BASE_DIR, "LightGBM", "1_2025_Prediction"
+)
 
-directory_path  = os.path.join(BASE_DIR, "output", "LightGBM", "1_2025_Prediction")
+# input files
+HIST_FILE = os.path.join(
+    directory_path,
+    f"combined_nba_predictions_acc_{today_str}.csv"
+)
+PRED_FILE = os.path.join(
+    directory_path,
+    f"nba_games_predict_{today_str}.csv"
+)
+HWR_FILE = os.path.join(
+    directory_path,
+    f"home_win_rates_sorted_{today_str}.csv"
+)
 
-# today's raw predictions
-PRED_FILE     = os.path.join(directory_path, f"nba_games_predict_{today_str }.csv")
-# home-win rates lookup
-HWR_FILE      = os.path.join(directory_path, f"home_win_rates_sorted_{today_str}.csv")
-# historical combined preds (for Platt + iso)
-HIST_FILE     = os.path.join(directory_path, f"combined_nba_predictions_acc_{today_str}.csv")
+# output files
+OUTPUT_FILE = os.path.join(
+    directory_path,
+    f"combined_nba_predictions_enriched_{today_str}.csv"
+)
+OUTPUT_FILE_filtered = os.path.join(
+    directory_path,
+    f"combined_nba_predictions_enriched_filtered_{today_str}.csv"
+)
 
 
 # Load the dataset
