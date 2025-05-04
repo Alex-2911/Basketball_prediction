@@ -44,13 +44,11 @@ print(yesterday_str)
 
 # In[4]:
 
+BASE_DIR        = os.getcwd()
+DATA_DIR        = os.path.join(BASE_DIR, "output", "Gathering_Data")
+target_folder   = os.path.join(DATA_DIR, "Next_Game")
 
-directory_path = r'D:\1. Python\1. NBA Script\2025\LightGBM\1. 2025_Prediction'
-print(directory_path)
-
-target_folder = r'D:\1. Python\1. NBA Script\2025\Gathering_Data\Next_Game'
-print(target_folder)
-
+directory_path  = os.path.join(BASE_DIR, "output", "LightGBM", "1_2025_Prediction")
 
 # In[5]:
 
