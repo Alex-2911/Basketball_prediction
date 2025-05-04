@@ -60,7 +60,7 @@ jobs:
       - name: Run Script 2 – Next Game Data
         run: python src/2_get_data_next_game_day.py
 
-      - name: name: Commit, rebase & push next-game CSV
+      - name: Commit, rebase & push next-game CSV
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
