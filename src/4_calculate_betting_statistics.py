@@ -43,15 +43,14 @@ yesterday = today - timedelta(days=1)
 print(yesterday)
 
 # Directory paths
-directory_path = r'D:\1. Python\1. NBA Script\2025\LightGBM\1. 2025_Prediction'
-print(directory_path)
-
-STAT_DIR = r'D:\1. Python\1. NBA Script\2025\Gathering_Data\Whole_Statistic'
+BASE_DIR        = os.getcwd()
+DATA_DIR        = os.path.join(BASE_DIR, "output", "Gathering_Data")
+STAT_DIR        = os.path.join(DATA_DIR, "Whole_Statistic")
+target_folder   = os.path.join(DATA_DIR, "Next_Game")
+directory_path  = os.path.join(BASE_DIR, "output", "LightGBM", "1_2025_Prediction")
 
 # Use a wildcard to find all files in the directory
 files = glob.glob(os.path.join(directory_path, "*"))  # "*" will match any file in the directory
-
-target_folder = r'D:\1. Python\1. NBA Script\2025\Gathering_Data\Next_Game'
 
 def file_exists(date_str, file_path):
     """Check if a specific file exists based on the date string."""
