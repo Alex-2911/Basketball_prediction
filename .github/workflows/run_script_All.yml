@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write  # allow pushing updated CSV/HTML files
+  contents: write
 
 jobs:
   get-previous:
@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name: Set up Python 3.10
         uses: actions/setup-python@v4
@@ -28,14 +30,15 @@ jobs:
       - name: Run Script 1 – Previous Games Data
         run: python src/1_get_data_previous_game_day.py
 
-      - name: Commit & push updated stats and HTML
+      - name: Commit, rebase & push updated stats and HTML
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add output/Gathering_Data/Whole_Statistic/nba_games_*.csv
           git add output/Gathering_Data/data/2025_standings/*.html
           git commit -m "Add updated stats & HTML for $(date +'%Y-%m-%d')" || echo "No changes to commit"
-          git push
+          git pull --rebase origin ${{ github.ref_name }} || true
+          git push origin HEAD:${{ github.ref_name }}
 
   get-next:
     name: Run Script 2 – Next Game Data
@@ -76,6 +79,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v4
@@ -95,13 +100,14 @@ jobs:
       - name: Run Script 3 – LightGBM prediction
         run: python src/3_lightgbm.py
 
-      - name: Commit & push predictions
+      - name: Commit, rebase & push predictions
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add output/Gathering_Data/Next_Game/games_df_*.csv || true
           git add output/LightGBM/1_2025_Prediction/nba_games_predict_*.csv || true
           git commit -m "🔄 Update next-game data & predictions for $(date +'%Y-%m-%d')" || echo "No CSV changes to commit"
+          git pull --rebase origin ${{ github.ref_name }} || true
           git push origin HEAD:${{ github.ref_name }}
 
   calc-stats:
@@ -111,6 +117,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v4
@@ -130,10 +138,11 @@ jobs:
             --pred-dir output/LightGBM/1_2025_Prediction \
             --stat-dir output/Gathering_Data/Whole_Statistic
 
-      - name: Commit & push updated stats CSV
+      - name: Commit, rebase & push updated stats CSV
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add output/LightGBM/1_2025_Prediction/combined_nba_predictions_acc_*.csv || true
           git commit -m "🔄 Update combined betting stats for $(date +'%Y-%m-%d')" || echo "No combined CSV changes to commit"
+          git pull --rebase origin ${{ github.ref_name }} || true
           git push origin HEAD:${{ github.ref_name }}
