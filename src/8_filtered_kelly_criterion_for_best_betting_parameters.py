@@ -64,6 +64,11 @@ OUTPUT_FILE_filtered = os.path.join(
     f"combined_nba_predictions_enriched_filtered_{today_str}.csv"
 )
 
+output_file_home = os.path.join(directory_path, f'home_win_rates_sorted_{today_str}.csv')
+
+out_path_kelly = os.path.join(directory_path, f"kelly_stakes_{today_str}.csv")
+
+
 
 # Load the dataset
 df = pd.read_csv(HIST_FILE,encoding="utf-7")
@@ -112,7 +117,14 @@ print("\n🏀 Home Win Rates (Sorted) for All Teams:")
 print(home_win_rates_all_teams_sorted)
 
 # Save to CSV (Optional)
-output_file = os.path.join(directory_path, f'home_win_rates_sorted_{today_str}.csv')
+#output_file = os.path.join(directory_path, f'home_win_rates_sorted_{today_str}.csv')
+
+home_win_rates_all_teams_sorted.to_csv(
+    output_file_home,
+    index=True,  # <— preserve the team names in the CSV’s first column
+    index_label="team",
+    float_format="%.4f"
+)
 
 
 # strategy thresholds
@@ -250,18 +262,18 @@ out_folder = os.path.join(BASE_DIR)
 os.makedirs(out_folder, exist_ok=True)
 
 # Save to CSV
-out_path = os.path.join(out_folder, f"kelly_stakes_{today_str}.csv")
-final_df.to_csv(out_path, index=False)
+#out_path = os.path.join(out_folder, f"kelly_stakes_{today_str}.csv")
+final_df.to_csv(out_path_kelly, index=False)
 
-print(f"✅ Kelly stakes summary saved to {out_path}")
+print(f"✅ Kelly stakes summary saved to {out_path_kelly}")
 ##############################################################################################################################
 # In[7]:
 
 
-odds_min     = 1.2
-odds_max     = 2.8
-prob_thresh  = 0.40
-home_win_cut = 0.55
+#odds_min     = 1.2
+#odds_max     = 2.8
+#prob_thresh  = 0.40
+#home_win_cut = 0.55
 
 starting_bank = 1000.0
 bet_frac      = 0.5
@@ -334,7 +346,7 @@ for i,row in df.sort_values('date').iterrows():
                        ('platt','prob_platt'),
                        ('iso','prob_iso')]:
         p = row[p_col]
-        if is_home and odds_min<=o<=odds_max and p>=prob_thresh:
+        if is_home and odds_min<=o<=odds_max and p>=raw_prob_cut:
             kf    = kelly_frac(p, o, bet_frac)
             stake = min(kf*bank[lbl], cap_frac*bank[lbl], abs_cap)
             won   = bool(row['win'])
