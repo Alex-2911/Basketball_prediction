@@ -28,7 +28,7 @@ jobs:
 
       - name: Run Script 4 – Calculate Betting Statistics
         run: |
-          python 4_calculate_betting_statistics.py \
+          python src/4_calculate_betting_statistics.py \
             --pred-dir output/LightGBM/1_2025_Prediction \
             --stat-dir output/Gathering_Data/Whole_Statistic
 
