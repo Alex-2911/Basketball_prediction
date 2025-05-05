@@ -1,0 +1,54 @@
+name: 🏀 Run Script 8 – Filtered Kelly Criterion
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  filtered-kelly:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          # pin core libs if needed
+          pip uninstall -y numpy pandas scikit-learn lightgbm || true
+          pip install numpy==1.24.4 pandas==2.0.3 scikit-learn==1.2.2 lightgbm==3.3.5
+
+      - name: Run Script 8 – Filtered Kelly Criterion
+        run: |
+          python src/8_filtered_kelly_criterion_for_best_betting_parameters.py
+
+      - name: Commit & push output files
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # adjust these paths to match wherever your script writes its CSVs
+          git add output/**/*filtered_*.csv || true
+          git add output/**/*home_win_rates_sorted_*.csv || true
+          git add output/**/*kelly_stakes*.csv || true
+
+          git commit -m "🔄 Update filtered Kelly outputs for $(date +'%Y-%m-%d')" \
+            || echo "No filtered‐Kelly changes to commit"
+
+          git pull --rebase origin ${{ github.ref_name }} || true
+          git push origin HEAD:${{ github.ref_name }}
