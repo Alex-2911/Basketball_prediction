@@ -10,7 +10,6 @@ across the NBA prediction scripts.
 
 import os
 import glob
-import time
 import pandas as pd
 import numpy as np
 import logging
@@ -22,7 +21,11 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, WebDriverException
-from webdriver_manager.chrome import ChromeDriverManager
+try:
+    from webdriver_manager.chrome import ChromeDriverManager
+except ImportError:
+    print("webdriver_manager not installed. Some functions may not work.")
+    ChromeDriverManager = None
 
 # ============================================================================
 # GLOBAL CONFIGURATIONS
@@ -33,7 +36,7 @@ CURRENT_SEASON = 2025
 ROLLING_WINDOW_SIZE = 8
 
 # Date Utilities
-def get_current_date(days_offset=0):
+def get_current_date(days_offset=1):
     """
     Returns the current date with optional offset of days.
 
@@ -88,7 +91,7 @@ def get_team_codes():
         'Atlanta Hawks': 'ATL',
         'Boston Celtics': 'BOS',
         'Brooklyn Nets': 'BRK',
-        'Charlotte Hornets': 'CHO',
+        'Charlotte Hornets': 'CHA',
         'Chicago Bulls': 'CHI',
         'Cleveland Cavaliers': 'CLE',
         'Dallas Mavericks': 'DAL',
@@ -205,12 +208,17 @@ def get_html(url, selector, sleep=5, retries=3, headless=True):
 
         # Initialize WebDriver with webdriver-manager
         logging.getLogger('webdriver_manager').setLevel(logging.ERROR)
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=chrome_options)
+        if ChromeDriverManager:
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+        else:
+            # Fallback to default Chrome service
+            driver = webdriver.Chrome(options=chrome_options)
 
         for attempt in range(retries):
             try:
                 driver.get(url)
+                import time
                 time.sleep(sleep * (2 ** attempt))  # Exponential backoff
                 element = driver.find_element(By.CSS_SELECTOR, selector)
                 html = element.get_attribute("innerHTML")
@@ -289,13 +297,19 @@ def preprocess_nba_data(stats_path):
     # Sort by date
     df = df.sort_values("date")
 
-    # Apply the preprocessing function to each team group
-    df = df.groupby('team').apply(lambda group: group.assign(
-        target=group['won'].shift(-1)
-    ))
+    # Define function to add target column
+    def add_target(group):
+        """Adds a target column to the DataFrame group based on the 'won' column."""
+        group = group.copy()  # Create a copy to avoid SettingWithCopyWarning
+        group['target'] = group['won'].shift(-1)
+        return group
 
-    # Handle missing values
-    df['target'].fillna(2, inplace=True)
+    # Apply the preprocessing function to each team group
+    df = df.groupby('team', as_index=False).apply(add_target)
+
+    # Handle missing values - avoid inplace with chained assignment
+    df = df.copy()
+    df['target'] = df['target'].fillna(2)
     df['target'] = df['target'].astype(int)
 
     # Identify and remove columns with null values
@@ -317,30 +331,45 @@ def calculate_rolling_averages(df, window_size=ROLLING_WINDOW_SIZE):
     Returns:
         DataFrame: DataFrame with rolling averages
     """
-    # Select numeric columns plus grouping columns
-    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-    keep_cols = numeric_cols + ['team', 'season']
-    df_rolling = df[keep_cols].copy()
+    # Create a copy to avoid warnings
+    df_copy = df.copy()
+
+    # Ensure season is converted to a string to avoid dimensionality issues
+    df_copy['season'] = df_copy['season'].astype(str)
 
     # Define function to calculate rolling averages for a team
     def find_team_averages(team_df):
-        numeric_columns = team_df.select_dtypes(include=[np.number])
-        rolling = numeric_columns.rolling(window_size, min_periods=1).mean()
+        # Select only numeric columns to avoid errors with non-numeric data
+        numeric_cols = team_df.select_dtypes(include=[np.number]).columns
+        team_numeric = team_df[numeric_cols]
+
+        # Calculate rolling averages
+        rolling = team_numeric.rolling(window_size, min_periods=1).mean()
+
+        # Add back any non-numeric columns that should be preserved
+        for col in team_df.columns:
+            if col not in numeric_cols:
+                rolling[col] = team_df[col]
+
         return rolling
 
-    # Apply rolling average
-    df_rolling.reset_index(drop=True, inplace=True)
-    df_rolling = df_rolling.groupby(['team', 'season'], group_keys=False).apply(find_team_averages)
+    # Apply rolling average by team and season
+    result = pd.DataFrame()
 
-    # Rename columns with _7 suffix for numeric columns
-    rolling_cols = {col: f"{col}_7" for col in df_rolling.columns if col not in ['team', 'season']}
-    df_rolling.rename(columns=rolling_cols, inplace=True)
+    # Group by team first
+    for team, team_data in df_copy.groupby('team'):
+        # Then by season within each team
+        for season, season_data in team_data.groupby('season'):
+            # Calculate rolling averages
+            rolling_data = find_team_averages(season_data)
+            # Append to result
+            result = pd.concat([result, rolling_data], ignore_index=True)
 
-    return df_rolling.reset_index(drop=True)
+    return result
 
 def add_next_game_columns(df):
     """
-    Add columns for the next game information.
+    Add columns for the next game information using a simple and direct approach.
 
     Args:
         df (DataFrame): Input DataFrame
@@ -348,24 +377,46 @@ def add_next_game_columns(df):
     Returns:
         DataFrame: DataFrame with added columns
     """
-    def shift_col(team, col_name):
-        return team[col_name].shift(-1)
+    # Create a copy of the DataFrame
+    result_df = df.copy()
 
-    def add_col(df, col_name):
-        if 'team' in df.columns:
-            return df.groupby("team", group_keys=False).apply(lambda x: shift_col(x, col_name))
-        else:
-            raise KeyError("The 'team' column is missing or not properly formatted in the DataFrame.")
+    # Initialize new columns
+    result_df['home_next'] = None
+    result_df['team_opp_next'] = None
+    result_df['date_next'] = None
 
-    # Reset the index to avoid potential issues with multi-indexing
-    df = df.reset_index(drop=True)
+    # Manual approach without using advanced pandas functions
+    # Convert DataFrame to a list of dictionaries for simpler processing
+    rows = df.to_dict('records')
 
-    # Add shifted columns for "home", "team_opp", and "date"
-    df["home_next"] = add_col(df, "home")
-    df["team_opp_next"] = add_col(df, "team_opp")
-    df["date_next"] = add_col(df, "date")
+    # Group rows by team
+    team_groups = {}
+    for i, row in enumerate(rows):
+        team = str(row.get('team', ''))
+        if team not in team_groups:
+            team_groups[team] = []
+        # Store original index with row data
+        team_groups[team].append((i, row))
 
-    return df
+    # Process each team
+    for team, team_rows in team_groups.items():
+        # Sort the team's rows by date
+        sorted_team_rows = sorted(team_rows, key=lambda x: x[1].get('date', ''))
+
+        # For each row except the last one, set next game information
+        for i in range(len(sorted_team_rows) - 1):
+            current_idx = sorted_team_rows[i][0]  # Original index of current row
+            next_row = sorted_team_rows[i + 1][1]  # Next row data
+
+            # Set next game info in the result DataFrame
+            if 'home' in next_row:
+                result_df.at[current_idx, 'home_next'] = next_row.get('home')
+            if 'team_opp' in next_row:
+                result_df.at[current_idx, 'team_opp_next'] = next_row.get('team_opp')
+            if 'date' in next_row:
+                result_df.at[current_idx, 'date_next'] = next_row.get('date')
+
+    return result_df
 
 # ============================================================================
 # BETTING UTILITIES
