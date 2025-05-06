@@ -1,7 +1,7 @@
 name: 🏀 Run Script 4 – Calculate Betting Statistics
 
-on:
-  workflow_dispatch:
+# on:
+#   workflow_dispatch:
 
 jobs:
   calc-stats:

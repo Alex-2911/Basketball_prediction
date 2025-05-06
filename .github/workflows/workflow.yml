@@ -1,0 +1,86 @@
+name: 🏀 NBA Data Collection & Prediction Workflow
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write  # Allow bot to push files
+
+jobs:
+  nba-data-workflow:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0  # Fetch all history for all branches and tags
+
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Display Python version
+      run: python -c "import sys; print(sys.version)"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+    # Step 1: Collect Previous Games Data
+    - name: Run script 1 - Previous Games Data
+      run: python src/1_get_data_previous_game_day.py
+
+    # Step 2: Next Game Data
+    - name: Run script 2 - Next Game Data
+      run: python src/2_get_data_next_game_day.py
+
+    # Step 3: LightGBM Prediction
+    - name: Run Script 3 - LightGBM prediction
+      run: python src/3_lightgbm.py
+
+    # Step 4 : Calculate Betting Statistics
+    - name: Run Script 4 – Calculate Betting Statistics
+      run: |
+        python src/4_calculate_betting_statistics.py \
+          --pred-dir output/LightGBM/1_2025_Prediction \
+          --stat-dir output/Gathering_Data/Whole_Statistic
+
+    # Step 5 : Filtered Kelly Criterion
+    - name: Run Script 5 – Filtered Kelly Criterion
+      run: |
+        python src/8_filtered_kelly_criterion_for_best_betting_parameters.py
+
+    # Single commit for all changes
+    - name: Commit all changes
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+
+        # Get the current branch name for pull requests or use the ref for direct pushes
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          BRANCH_NAME="${{ github.head_ref }}"
+        else
+          BRANCH_NAME="${{ github.ref_name }}"
+        fi
+
+        echo "Using branch: $BRANCH_NAME"
+
+        # Add all generated files
+        git add output/Gathering_Data/Whole_Statistic/nba_games_*.csv || true
+        git add output/Gathering_Data/data/2025_standings/*.html || true
+        git add output/Gathering_Data/Next_Game/games_df_*.csv || true
+        git add output/LightGBM/1_2025_Prediction/nba_games_predict_*.csv || true
+        git add output/LightGBM/1_2025_Prediction/combined_nba_predictions_acc_*.csv || true
+        git add output/**/*filtered_*.csv || true
+        git add output/**/*home_win_rates_sorted_*.csv || true
+        git add output/**/*kelly_stakes*.csv || true
+
+        git commit -m "🔄 Update NBA data and predictions for $(date +'%Y-%m-%d')" \
+          || echo "No changes to commit"
+
+        # Push to the correct branch
+        git push origin HEAD:$BRANCH_NAME
