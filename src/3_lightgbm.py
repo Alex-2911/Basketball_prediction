@@ -4,7 +4,7 @@
 #########################################################################################################################
 # CALCULATE PREDICTION FOR NEXT GAME DAY
 #
-# Script 3 of 4
+# Script 3 of 5
 # This script calculates game predictions for the next NBA game day using historical data,
 # rolling averages, and LightGBM, then outputs results with probabilities and odds.
 # Ensure `src/2_get_data_next_game_day.py` has been run to produce the games_df CSV.
@@ -14,38 +14,47 @@ import os
 import glob
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+import requests
+import logging
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import lightgbm as lgb
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
 
-# ──────────────────────────────────────────────────────────────────────────
-# CONFIG
-# ──────────────────────────────────────────────────────────────────────────
-ROLLING_WINDOW_SIZE = 8
-CURRENT_SEASON = 2025
+# Import shared utilities
+from nba_utils import (
+    CURRENT_SEASON,
+    ROLLING_WINDOW_SIZE,
+    get_current_date,
+    get_directory_paths,
+    get_latest_file,
+    preprocess_nba_data,
+    calculate_rolling_averages,
+    add_next_game_columns,
+    impute_prob,
+    am_to_dec
+)
 
-today = datetime.now().strftime("%Y-%m-%d")
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Get current date and directory paths
+today, today_str, today_str_format = get_current_date()
+paths = get_directory_paths()
 
 # Paths
-BASE_DIR        = os.getcwd()
-DATA_DIR        = os.path.join(BASE_DIR, "output", "Gathering_Data")
-STAT_DIR        = os.path.join(DATA_DIR, "Whole_Statistic")
-target_folder   = os.path.join(DATA_DIR, "Next_Game")
-directory_path  = os.path.join(BASE_DIR, "output", "LightGBM", "1_2025_Prediction")
+BASE_DIR      = paths['BASE_DIR']
+DATA_DIR      = paths['DATA_DIR']
+STAT_DIR      = paths['STAT_DIR']
+target_folder = paths['NEXT_GAME_DIR']
+directory_path = paths['PREDICTION_DIR']
 
-df_path_stat = os.path.join(STAT_DIR, f"nba_games_{today}.csv")
+df_path_stat = os.path.join(STAT_DIR, f"nba_games_{today_str_format}.csv")
 
-# Historical stats file (contains full-season stats with 'team', 'date', 'won', etc.)
-#stats_df_path   = os.path.join(STAT_DIR, f"nba_games_{today}.csv")
-
-# Next-game file (contains only home_team, away_team, game_date)
-def get_latest_file(folder, prefix, ext):
-    files = glob.glob(os.path.join(folder, f"{prefix}*{ext}"))
-    return max(files, key=os.path.getctime) if files else None
-
-games_df_path  = get_latest_file(target_folder, prefix="games_df_", ext=".csv")
+# Get latest games file
+games_df_path = get_latest_file(target_folder, prefix="games_df_", ext=".csv")
 if not games_df_path:
     raise FileNotFoundError(f"No games_df_*.csv found in {target_folder}")
 
@@ -54,7 +63,7 @@ if not games_df_path:
 # ──────────────────────────────────────────────────────────────────────────
 # Define directory and date format
 # Check if file exists
-file_path_today_games = f"{target_folder}/games_df_{today}.csv"
+file_path_today_games = f"{target_folder}/games_df_{today_str_format}.csv"
 if not os.path.exists(file_path_today_games):
     # List files and pick the latest one
     files = sorted(glob.glob(f"{target_folder}/games_df_*.csv"))
@@ -71,153 +80,64 @@ print(games_df.head(60).to_string(index=False))
 
 # Proceed with loading the data
 df = pd.read_csv(df_path_stat, index_col=0)
-print(df)#.tail())  # Display a portion of the data
+print(df)  # Display a portion of the data
 
-# Function to add a target column
-def add_target(group):
-    """Adds a target column to the DataFrame group based on the 'won' column."""
-    group['target'] = group['won'].shift(-1)
-    return group
+# Preprocess the NBA data (uses the function from nba_utils)
+df = preprocess_nba_data(df_path_stat)
 
-def preprocess_nba_data():
-    # Load the data
-    df = pd.read_csv(df_path_stat, index_col=0)
+# Columns to be excluded from scaling
+removed_columns = ["season", "date", "won", "target", "team", "team_opp"]
 
-    # Sort by date
-    df = df.sort_values("date")
+# Selecting columns that are not in the 'removed_columns' list
+selected_columns = df.columns[~df.columns.isin(removed_columns)]
 
-    # Apply the preprocessing function to each team group
-    df = df.groupby('team').apply(add_target)
+# Initialize the MinMaxScaler
+scaler = MinMaxScaler()
 
-    # Handle missing values
-    df['target'].fillna(2, inplace=True)
-    df['target'] = df['target'].astype(int)
+# Scale the selected columns and update the DataFrame
+df[selected_columns] = scaler.fit_transform(df[selected_columns])
 
-    # Identify and remove columns with null values
-    nulls = pd.isnull(df).sum()
-    nulls = nulls[nulls > 0]
-    valid_columns = df.columns[~df.columns.isin(nulls.index)]
-    df = df[valid_columns].copy()
-
-    return df
-
-if __name__ == "__main__":
-    df = preprocess_nba_data()
-
-    # Columns to be excluded from scaling
-    removed_columns = ["season", "date", "won", "target", "team", "team_opp"]
-
-    # Selecting columns that are not in the 'removed_columns' list
-    selected_columns = df.columns[~df.columns.isin(removed_columns)]
-
-    # Initialize the MinMaxScaler
-    scaler = MinMaxScaler()
-
-    # Scale the selected columns and update the DataFrame
-    df[selected_columns] = scaler.fit_transform(df[selected_columns])
-
-# In[8]:
-
-
-df.groupby(["home"]).apply(lambda x: x[x["won"] == 1].shape[0] / x.shape[0])
-
-#print(df_rolling.head(60).to_string(index=False))
-
-
-# In[9]:
-
+# Display home win percentage
+print(df.groupby(["home"]).apply(lambda x: x[x["won"] == 1].shape[0] / x.shape[0]))
 
 ####################################################################################################
-# CALCULATE THE AVERAGE FOR THE PREVIOUS SEASONS WITH THE ROLLING WINDOW OF 7 FOR LEARNING THE MODEL #
+# CALCULATE THE AVERAGE FOR THE PREVIOUS SEASONS WITH THE ROLLING WINDOW FOR LEARNING THE MODEL #
 ####################################################################################################
 
 # Filter out the games from the current season
 df_rolling = df[list(selected_columns) + ["won", "team", "season"]]
-#df_rolling = df_rolling[df_rolling['season'] != current_season].copy()
 
-#print(df_rolling.columns)
-def find_team_averages(team):
-    numeric_columns = team.select_dtypes(include=[np.number])  # Select only numeric columns
-    rolling = numeric_columns.rolling(ROLLING_WINDOW_SIZE, min_periods=1).mean()  # Calculate rolling mean
-    #rolling[['team', 'season']] = team[['team', 'season']]  # Retain 'team' and 'season' columns in the result
-    return rolling
+# Calculate rolling averages using the function from nba_utils
+df_rolling = calculate_rolling_averages(df_rolling, ROLLING_WINDOW_SIZE)
 
-# Apply rolling average
-df_rolling.reset_index(drop=True, inplace=True)
-df_rolling = df_rolling.groupby(["team", "season"], group_keys=False).apply(find_team_averages)
-
-
-# Renaming columns with _7 suffix for numeric columns only
-rolling_cols = {col: f"{col}_7" for col in df_rolling.columns if col not in ['team', 'season']} #, 'season','season_rolling','season_original','target']}
-
+# Rename the rolling columns with _7 suffix
+rolling_cols = {col: f"{col}_7" for col in df_rolling.columns if col not in ['team', 'season']}
 
 # Rename the columns
 df_rolling.rename(columns=rolling_cols, inplace=True)
 
-
-# In[10]:
-
-
+# Combine original data with rolling averages
 df = df.reset_index(drop=True)
 df_rolling = df_rolling.reset_index(drop=True)
-
 df = pd.concat([df, df_rolling], axis=1)
 
-#df.to_csv("D:\\1. Python\\1. NBA Script\\2025\\Gathering_Data\\Whole_Statistic\\df_pd.concat.csv", index=False)
-
-
+# Drop any rows with NaN values
 df = df.dropna()
 
 print(df)
 
+# Display rows where target is 2
 target_2_rows = df[df['target'] == 2]['target']
 print(target_2_rows)
 
+# Add next game columns using the function from nba_utils
+df = add_next_game_columns(df)
 
-# In[11]:
-
-
-def shift_col(team, col_name):
-    next_col = team[col_name].shift(-1)
-    return next_col
-
-def add_col(df, col_name):
-    # Ensure the 'team' column is not part of the index and is correctly formatted
-    if 'team' in df.columns:
-        return df.groupby("team", group_keys=False).apply(lambda x: shift_col(x, col_name))
-    else:
-        raise KeyError("The 'team' column is missing or not properly formatted in the DataFrame.")
-
-# Ensure the 'team' column exists and is not part of the index
-if 'team' not in df.columns:
-    print("The 'team' column is missing. Ensure the column is present in your DataFrame.")
-
-# Reset the index to avoid potential issues with multi-indexing
-df = df.reset_index(drop=True)
-
-# Add shifted columns for "home", "team_opp", and "date"
-df["home_next"] = add_col(df, "home")
-df["team_opp_next"] = add_col(df, "team_opp")
-df["date_next"] = add_col(df, "date")
-
-# Drop rows where any of the next columns contain NaN values (optional)
-#df = df.dropna(subset=["home_next", "team_opp_next", "date_next"])
-
-# Optionally, save the DataFrame to a CSV file
-#df.to_csv("D:\\1. Python\\1. NBA Script\\2025\\Gathering_Data\\Whole_Statistic\\df_dropna_target_2.csv", index=False)
-#df.to_csv("D:\\1. Python\\1. NBA Script\\2025\\Gathering_Data\\Whole_Statistic\\df.csv", index=False)
-
-
-# Display the first few rows to check the output
-#print(df.head())
-
+# Display rows where target is 2
 target_2_rows = df[df['target'] == 2]['target']
 print(target_2_rows)
 
-
-# In[12]:
-
-
+# Update next game information from games_df
 for _, game in games_df.iterrows():
     home_team = game['home_team']
     away_team = game['away_team']
@@ -227,30 +147,21 @@ for _, game in games_df.iterrows():
     print(away_team)
     print(game_day)
 
-
     last_home_team_index = df.loc[df['team'] == home_team].iloc[::-1].index[0]
-
     df.loc[last_home_team_index, 'team_opp_next'] = away_team
     df.loc[last_home_team_index, 'home_next'] = 1
     df.loc[last_home_team_index, 'date_next'] = game_day
 
-
     last_away_team_index = df.loc[df['team'] == away_team].iloc[::-1].index[0]
-
     df.loc[last_away_team_index, 'team_opp_next'] = home_team
     df.loc[last_away_team_index, 'home_next'] = 0
     df.loc[last_away_team_index, 'date_next'] = game_day
 
-
-# In[13]:
-
-
 # Merging DataFrames
 # Convert rolling_cols dictionary keys to a list and add other columns
-full = df.merge(df[list(rolling_cols.keys()) + ["team_opp_next", "date_next", "team"]], 
-                left_on=["team", "date_next"], 
+full = df.merge(df[list(rolling_cols.keys()) + ["team_opp_next", "date_next", "team"]],
+                left_on=["team", "date_next"],
                 right_on=["team_opp_next", "date_next"])
-
 
 # Display basic info and first few rows of the merged DataFrame
 print("Full DataFrame Info:")
@@ -267,53 +178,31 @@ target_2_rows = full[full['target'] == 2]['target']
 print("\nRows where 'target' == 2:")
 print(target_2_rows)
 
-
-# In[14]:
-
-
+# Filter for entries on game day
 mask = full['date_next'] == game_day
 filtered_df = full.loc[mask, ['team_x', 'team_opp_next_x', 'team_y', 'team_opp_next_y', 'date_next', 'home_next']]
-
 print(filtered_df)
 
-
-# In[15]:
-
-
+# Remove object columns
 removed_columns = list(full.columns[full.dtypes == "object"]) + removed_columns
 
-
-# In[16]:
-
-
+# Select features
 selected_columns = full.columns[~full.columns.isin(removed_columns)]
 selected_features = selected_columns.unique()
+print(selected_features)
 
-selected_features
-
-
-# In[17]:
-
-
+# Prepare training and prediction data
 full_train = full[full["target"] != 2]
 full_pred = full[full["target"] == 2]
-
 print(full_pred)
 
 X = full_train[selected_features].values
 y = full_train["target"].values
 
-
-# In[18]:
-
-
 # Split the data into training and test sets
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-
-# In[19]:
-
-
+# Define the parameter grid for grid search
 from sklearn.model_selection import GridSearchCV
 
 # Define the parameter grid
@@ -339,18 +228,11 @@ grid_search = GridSearchCV(estimator=base_estimator,
                            verbose=1,
                            n_jobs=-1)
 
-# Perform grid search
-#grid_search.fit(X_train, y_train)
+# Note: Grid search commented out to save time, using predetermined best parameters
+# grid_search.fit(X_train, y_train)
+# print("Best parameters found:", grid_search.best_params_)
 
-# Print the best parameters
-#print("Best parameters found:", grid_search.best_params_)
-
-
-# In[20]:
-
-
-#Best parameters found: {'learning_rate': 0.1, 'max_depth': 7, 'min_child_weight': 5, 'num_leaves': 10}
-
+# Best parameters found: {'learning_rate': 0.1, 'max_depth': 7, 'min_child_weight': 5, 'num_leaves': 10}
 params = {
     'objective': 'binary',
     'metric': 'auc',
@@ -370,88 +252,50 @@ params = {
 
 model = lgb.LGBMClassifier(**params)
 
-
-
-# In[21]:
-
-
-# Train the model using X_train and y_train
+# Train the model
 model.fit(X_train, y_train)
 
-# Predict the target values for the test set X_test
+# Predict and evaluate
 y_pred = model.predict(X_test)
-
-# Check the accuracy of the model using the test set
 accuracy = accuracy_score(y_test, y_pred)
 print("Accuracy: {:.2f}%".format(accuracy*100))
 
-
-# In[22]:
-
-
+# Calculate feature importances
 importances = model.feature_importances_
-
-# create a dictionary to store feature importances with column names
 feat_importances = dict(zip(selected_columns, importances))
-
-# sort the dictionary by importance score in descending order
 sorted_feat_importances = sorted(feat_importances.items(), key=lambda x: x[1], reverse=True)
-
 
 # Print the sorted feature importances
 for feature, importance in sorted_feat_importances[:30]:
     print("{}: {}".format(feature, importance))
 
-
-# In[23]:
-
-
-# predict on new data
+# Predict on new data
 full_pred["proba"] = model.predict_proba(full_pred[selected_features])[:,1]
-full_pred["proba"]
+print(full_pred["proba"])
 
-
-# In[24]:
-
-
+# Filter for home teams
 home_teams_prob = list(games_df['home_team'])
 away_teams_prob = list(games_df['away_team'])
 
-#print(home_teams_prob)
-#print(away_teams_prob)
-
 # Filter the rows where team_x is a home team
 full_pred_prob = full_pred['team_x'].isin(home_teams_prob)
-#print(full_pred_prob)
+print(full_pred[full_pred_prob]['proba'])
 
-#full_pred_prob = full_pred['team_x'].isin(home_teams_prob)
-full_pred[full_pred_prob]['proba']
-
-
-# In[25]:
-
-
-# Filter rows where full_pred_prob is True
-
+# Get team information
 team_x = full_pred.loc[full_pred_prob, 'team_x']
 team_y = full_pred.loc[full_pred_prob, 'team_y']
-#print(team_x)
-#print(team_y)
-
 team_pairs = pd.concat([team_x, team_y], axis=1)
-
-
 print(team_pairs)
 
+# Helper function for API requests with retries
+def get_session():
+    s = requests.Session()
+    retries = Retry(total=3, backoff_factor=0.5,
+                    status_forcelist=[429,500,502,503,504])
+    s.mount("https://", HTTPAdapter(max_retries=retries))
+    return s
 
-# In[27]:
-
-
-import requests, pandas as pd, logging
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-
-# full-name → 3-letter abbr
+# NBA team name mappings
 full_to_abbrev = {
     "Atlanta Hawks":"ATL","Boston Celtics":"BOS","Brooklyn Nets":"BRK",
     "Charlotte Hornets":"CHA","Chicago Bulls":"CHI","Cleveland Cavaliers":"CLE",
@@ -466,15 +310,19 @@ full_to_abbrev = {
     "Utah Jazz":"UTA","Washington Wizards":"WAS"
 }
 
-def get_session():
-    s = requests.Session()
-    retries = Retry(total=3, backoff_factor=0.5,
-                    status_forcelist=[429,500,502,503,504])
-    s.mount("https://", HTTPAdapter(max_retries=retries))
-    return s
-
 def fetch_odds(games_df: pd.DataFrame, api_key: str,
                preferred: list=None) -> pd.DataFrame:
+    """
+    Fetch odds data from the-odds-api.com for NBA games.
+
+    Args:
+        games_df (DataFrame): DataFrame with game information
+        api_key (str): API key for the-odds-api.com
+        preferred (list): List of preferred bookmakers
+
+    Returns:
+        DataFrame: DataFrame with odds information
+    """
     sess = get_session()
     r = sess.get(
       "https://api.the-odds-api.com/v4/sports/basketball_nba/odds",
@@ -521,12 +369,17 @@ def fetch_odds(games_df: pd.DataFrame, api_key: str,
         rows.append({"home_team":h,"away_team":a,"odds 1":o1,"odds 2":o2})
     return pd.DataFrame(rows)
 
-def impute_prob(ml):
-    if ml is None: return None
-    ml = int(ml)
-    return abs(ml)/(abs(ml)+100) if ml<0 else 100/(ml+100)
-
 def merge_with_odds(preds: pd.DataFrame, odds: pd.DataFrame) -> pd.DataFrame:
+    """
+    Merge prediction data with odds data.
+
+    Args:
+        preds (DataFrame): DataFrame with predictions
+        odds (DataFrame): DataFrame with odds
+
+    Returns:
+        DataFrame: Merged DataFrame
+    """
     df = preds.merge(odds, on=["home_team","away_team"], how="left")
     tmp = preds.drop(columns=[c for c in ["odds 1","odds 2"] if c in preds], errors="ignore")
     df = tmp.merge(odds, on=["home_team","away_team"], how="left")
@@ -534,15 +387,7 @@ def merge_with_odds(preds: pd.DataFrame, odds: pd.DataFrame) -> pd.DataFrame:
     df["imp_prob_away"] = df["odds 2"].apply(impute_prob)
     return df
 
-
-# In[28]:
-
-
-# assume you already have `home_team_preds` DataFrame in this notebook
-
-
-
-# 1) Re-create your home_team_preds DataFrame
+# Create predictions DataFrame
 home_team_preds_ml = (
     full_pred
       .loc[full_pred_prob, ['team_x','team_y','proba']]
@@ -554,26 +399,19 @@ home_team_preds_ml = (
       .assign(result=0, date=game_day)
 )
 
-API_KEY   = "8e9d506f8573b01023028cef1bf645b5"
-odds_df    = fetch_odds(home_team_preds_ml, API_KEY, preferred=["draftkings","fanduel"])
+# API key for odds data
+API_KEY = "8e9d506f8573b01023028cef1bf645b5"
+odds_df = fetch_odds(home_team_preds_ml, API_KEY, preferred=["draftkings","fanduel"])
 
-# inspect to confirm you have 'odds 1' & 'odds 2' columns:
-# print(odds_df.head())
-# print("Columns:", odds_df.columns.tolist())
-
+# Merge predictions with odds
 final_df = merge_with_odds(home_team_preds_ml, odds_df)
-#print(final_df.head())
 
-
-
+# Calculate value based on probabilities
 final_df["value_home"] = final_df["home_team_prob"] - final_df["imp_prob_home"]
 final_df["value_away"] = (1 - final_df["home_team_prob"]) - final_df["imp_prob_away"]
 print(final_df.sort_values("value_home", ascending=False).head())
 
-# In[30]:
-
-
-# 1) Build your predictions DataFrame (no placeholder zeros)
+# Build final predictions DataFrame
 home_team_preds = (
     full_pred
     .loc[full_pred_prob, ['team_x', 'team_y', 'proba']]
@@ -585,20 +423,14 @@ home_team_preds = (
     .assign(result=0, date=game_day)
 )
 
-# 2) Merge in the actual American odds (from odds_df)
+# Merge in the actual American odds
 home_team_preds = home_team_preds.merge(
     odds_df[['home_team', 'away_team', 'odds 1', 'odds 2']],
     on=['home_team', 'away_team'],
     how='left'
 )
 
-# 3) Convert American odds to decimal odds
-def am_to_dec(ml):
-    if pd.isna(ml):
-        return None
-    ml = int(ml)
-    return (ml/100 + 1) if ml > 0 else (100/abs(ml) + 1)
-
+# Convert American odds to decimal odds
 home_team_preds['odds 1'] = home_team_preds['odds 1'].apply(am_to_dec)
 home_team_preds['odds 2'] = home_team_preds['odds 2'].apply(am_to_dec)
 
@@ -606,30 +438,26 @@ home_team_preds['odds 2'] = home_team_preds['odds 2'].apply(am_to_dec)
 home_team_preds['odds 1'] = home_team_preds['odds 1'].apply(lambda x: round(x, 2) if pd.notnull(x) else x)
 home_team_preds['odds 2'] = home_team_preds['odds 2'].apply(lambda x: round(x, 2) if pd.notnull(x) else x)
 
-# 4) Display in the exact format requested
+# Display predictions
 cols = ['home_team', 'away_team', 'home_team_prob', 'odds 1', 'odds 2', 'result', 'date']
 print(home_team_preds[cols].to_string(index=False))
 
-
-# In[32]:
-
-
-# pick the exact column order
+# Save predictions
 cols = [
     "home_team",
     "away_team",
     "home_team_prob",
-    "result",    
+    "result",
     "odds 1",
     "odds 2",
     "date"
 ]
 
-# subset/reorder
+# Subset/reorder columns
 to_save = home_team_preds[cols]
 
-# now save it
-file_name = f"nba_games_predict_{today}.csv"
+# Save to file
+file_name = f"nba_games_predict_{today_str_format}.csv"
 full_path = os.path.join(directory_path, file_name)
 os.makedirs(directory_path, exist_ok=True)
 

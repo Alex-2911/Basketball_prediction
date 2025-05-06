@@ -16,23 +16,19 @@ import pandas as pd
 import calendar
 import shutil
 from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import TimeoutException, WebDriverException
-from webdriver_manager.chrome import ChromeDriverManager
+# Import shared utilities
+from nba_utils import (
+    CURRENT_SEASON,
+    get_current_date,
+    get_directory_paths,
+    get_team_codes
+)
 
-# Define the current season
-current_season = 2025
-
-# Calculate today's date and month
-today = datetime.now() - timedelta(days=0)
-today_str = today.strftime("%a, %b ") + str(int(today.strftime("%d"))) + today.strftime(", %Y")
+# Get current date information
+today, today_str, today_str_format = get_current_date()
 today_date = datetime.strptime(today_str, "%a, %b %d, %Y")
-today_str_format = today_date.strftime("%Y-%m-%d")
 
 print(f"Today's date: {today_str}")
 
@@ -41,14 +37,15 @@ month_for_coming_games = today.month
 month_name_for_coming_games = calendar.month_name[month_for_coming_games].lower()
 print(month_name_for_coming_games)
 
-# Directories
-DATA_DIR = os.path.join("output", "Gathering_Data")
-STANDINGS_DIR = os.path.join(DATA_DIR, "data", f"{current_season}_standings")
-target_folder = os.path.join(DATA_DIR, "Next_Game")
-dst_dir = os.path.join(DATA_DIR, "Next_Game")  # Add this line
+# Get directory paths
+paths = get_directory_paths()
+DATA_DIR = paths['DATA_DIR']
+STANDINGS_DIR = paths['STANDINGS_DIR']
+target_folder = paths['NEXT_GAME_DIR']
+dst_dir = paths['NEXT_GAME_DIR']
 
 # Define file paths
-file_name = f"NBA_{current_season}_games-{month_name_for_coming_games}.html"
+file_name = f"NBA_{CURRENT_SEASON}_games-{month_name_for_coming_games}.html"
 file_path = os.path.join(STANDINGS_DIR, file_name)
 
 print(f"Checking file: {file_path}")
@@ -65,7 +62,7 @@ def scrape_season_for_month(season, month, month_name, standings_dir):
     """
     url = f"https://www.basketball-reference.com/leagues/NBA_{season}_games.html"
     print(url)
-    
+
     try:
         response = requests.get(url)
         response.raise_for_status()
@@ -90,11 +87,11 @@ def scrape_season_for_month(season, month, month_name, standings_dir):
 def find_games_for_next_day(today_date, file_paths):
     """
     Find games scheduled for the next day after today_date.
-    
+
     Args:
         today_date (datetime): The current date to find games after.
         file_paths (list): List of paths to files containing the game schedules.
-        
+
     Returns:
         list: List of dictionaries containing game information.
     """
@@ -148,19 +145,16 @@ def find_games_for_next_day(today_date, file_paths):
 
 def main():
     """Main execution function."""
-    # Create directories if they don't exist
-    os.makedirs(STANDINGS_DIR, exist_ok=True)
-    os.makedirs(target_folder, exist_ok=True)
-    os.makedirs(dst_dir, exist_ok=True)
-    
+    # Directory paths are already created in get_directory_paths()
+
     # Ensure standings file exists
     if not os.path.exists(file_path):
         print(f"File does not exist: {file_path}")
-        scrape_season_for_month(current_season, month_for_coming_games, month_name_for_coming_games, STANDINGS_DIR)
+        scrape_season_for_month(CURRENT_SEASON, month_for_coming_games, month_name_for_coming_games, STANDINGS_DIR)
 
     # Find next game information
     next_game_info = find_games_for_next_day(today_date, [file_path])
-    
+
     # Look ahead if no games found for the current month
     if not next_game_info:
         next_month = month_for_coming_games % 12 + 1  # Handle month transition properly
@@ -169,50 +163,19 @@ def main():
 
         while not next_game_info and months_checked < max_months_to_check:
             month_name = calendar.month_name[next_month].lower()
-            next_file_path = os.path.join(STANDINGS_DIR, f"NBA_{current_season}_games-{month_name}.html")
+            next_file_path = os.path.join(STANDINGS_DIR, f"NBA_{CURRENT_SEASON}_games-{month_name}.html")
             print(next_file_path, 'AAAA')
-            
+
             if not os.path.exists(next_file_path):
-                scrape_season_for_month(current_season, next_month, month_name, STANDINGS_DIR)
+                scrape_season_for_month(CURRENT_SEASON, next_month, month_name, STANDINGS_DIR)
 
             next_game_info = find_games_for_next_day(today_date, [next_file_path])
             next_month = (next_month % 12) + 1  # Move to the next month
             months_checked += 1
-    
-    # Team code mapping
-    team_codes = {
-        'Atlanta Hawks': 'ATL',
-        'Boston Celtics': 'BOS',
-        'Brooklyn Nets': 'BRK',
-        'Charlotte Hornets': 'CHO',
-        'Chicago Bulls': 'CHI',
-        'Cleveland Cavaliers': 'CLE',
-        'Dallas Mavericks': 'DAL',
-        'Denver Nuggets': 'DEN',
-        'Detroit Pistons': 'DET',
-        'Golden State Warriors': 'GSW',
-        'Houston Rockets': 'HOU',
-        'Indiana Pacers': 'IND',
-        'Los Angeles Clippers': 'LAC',
-        'Los Angeles Lakers': 'LAL',
-        'Memphis Grizzlies': 'MEM',
-        'Miami Heat': 'MIA',
-        'Milwaukee Bucks': 'MIL',
-        'Minnesota Timberwolves': 'MIN',
-        'New Orleans Pelicans': 'NOP',
-        'New York Knicks': 'NYK',
-        'Oklahoma City Thunder': 'OKC',
-        'Orlando Magic': 'ORL',
-        'Philadelphia 76ers': 'PHI',
-        'Phoenix Suns': 'PHO',
-        'Portland Trail Blazers': 'POR',
-        'Sacramento Kings': 'SAC',
-        'San Antonio Spurs': 'SAS',
-        'Toronto Raptors': 'TOR',
-        'Utah Jazz': 'UTA',
-        'Washington Wizards': 'WAS'
-    }
-    
+
+    # Get team code mapping
+    team_codes = get_team_codes()
+
     # Process game information if available
     games = []
     if next_game_info:
@@ -220,7 +183,7 @@ def main():
             home_team_name = team_codes.get(game['home_team'], game['home_team'])
             visitor_team_name = team_codes.get(game['visitor_team'], game['visitor_team'])
             games.append((home_team_name, visitor_team_name, game['date'].strftime("%Y-%m-%d")))
-        
+
             print(f"The game is on {game['date'].strftime('%a, %b %d, %Y')}.")
             print(f"Teams: {game['visitor_team']} vs {game['home_team']}")
     else:
@@ -229,12 +192,12 @@ def main():
     # Create DataFrame
     games_df = pd.DataFrame(games, columns=['home_team', 'away_team', 'game_date'])
     print(games_df)
-    
+
     # Save the DataFrame to a CSV file
     output_file_path = os.path.join(target_folder, f'games_df_{today_str_format}.csv')
     games_df.to_csv(output_file_path)
     print(f"games_df has been saved in the folder: {target_folder}")
-    
+
     # Copy files to destination directory
     if os.path.exists(target_folder) and os.path.isdir(target_folder):
         # Create the destination folder if it does not exist
@@ -243,7 +206,7 @@ def main():
 
         # Get a list of all files in the source directory
         files_to_copy = [file_name for file_name in os.listdir(target_folder) if not file_name.startswith('.ipynb_checkpoints')]
-        
+
         # Flag to check if any new files were copied
         new_files_copied = False
 

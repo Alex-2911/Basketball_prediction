@@ -12,43 +12,41 @@ Ensure this script is run before executing "2_get_data_next_game_day.py".
 
 import os
 import pandas as pd
-import shutil
+import calendar
 from io import StringIO
 import re
 import logging
-import time
-import calendar
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import TimeoutException, WebDriverException
-from webdriver_manager.chrome import ChromeDriverManager
 
-# Define the current season
-current_season = 2025
+# Import shared utilities
+from nba_utils import (
+    CURRENT_SEASON,
+    get_current_date,
+    get_directory_paths,
+    get_html,
+    parse_html,
+    rename_duplicated_columns,
+    copy_missing_files
+)
 
-# Configure today's date
-today = datetime.now()
-today_str = today.strftime("%a, %b ") + str(int(today.strftime("%d"))) + today.strftime(", %Y")
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Get current date information
+today, today_str, today_str_format = get_current_date()
 today_date = today.date()
-today_str_format = today_date.strftime("%Y-%m-%d")
-yesterday = datetime.now() - timedelta(days=1)
+yesterday, _, _ = get_current_date(days_offset=1)
 
 print(f"Today's date: {today_str}")
 
-# Directories
-DATA_DIR = os.path.join("output", "Gathering_Data")
-STAT_DIR = os.path.join(DATA_DIR, "Whole_Statistic")
-STANDINGS_DIR = os.path.join(DATA_DIR, "data", f"{current_season}_standings")
-SCORES_DIR = os.path.join(DATA_DIR, "data", f"{current_season}_scores")
-DST_DIR = os.path.join("output", "Gathering_Data", "Whole_Statistic")
-
-# Configure Chrome options
-chrome_options = Options()
-chrome_options.add_argument("--headless")
+# Get directory paths
+paths = get_directory_paths()
+DATA_DIR = paths['DATA_DIR']
+STAT_DIR = paths['STAT_DIR']
+STANDINGS_DIR = paths['STANDINGS_DIR']
+SCORES_DIR = paths['SCORES_DIR']
+DST_DIR = STAT_DIR
 
 # Configure month information
 if today.day == 1:
@@ -68,50 +66,9 @@ else:
     current_year = today.year
     last_month = None
 
-# Configure logging
-chrome_options.add_argument("--disable-ipv6")
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
 def get_current_year_and_month():
     """Returns the current year and month."""
     return today.year, today.month
-
-def get_html(url, selector, sleep=5, retries=3, headless=True):
-    """Retrieves HTML content from a webpage using Selenium WebDriver."""
-    html = None
-    driver = None
-
-    try:
-        # WebDriver options
-        chrome_options = Options()
-        if headless:
-            chrome_options.add_argument("--headless")
-
-        # Initialize WebDriver with webdriver-manager (auto-downloads appropriate chromedriver)
-        logging.getLogger('webdriver_manager').setLevel(logging.ERROR)
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=chrome_options)
-
-        for attempt in range(retries):
-            try:
-                driver.get(url)
-                time.sleep(sleep * (2 ** attempt))  # Exponential backoff
-                element = driver.find_element(By.CSS_SELECTOR, selector)
-                html = element.get_attribute("innerHTML")
-                break
-            except TimeoutException:
-                logging.warning(f"Attempt {attempt + 1}: Timeout error on {url}. Retrying...")
-            except WebDriverException as e:
-                logging.error(f"Webdriver error: {e}")
-                break
-    finally:
-        if driver is not None:
-            driver.quit()
-
-    if html is None:
-        logging.error(f"Failed to retrieve HTML content from {url} after {retries} attempts.")
-
-    return html
 
 def scrape_season_for_month(season, month, month_name, standings_dir, get_html_function):
     """
@@ -124,10 +81,6 @@ def scrape_season_for_month(season, month, month_name, standings_dir, get_html_f
         standings_dir (str): Directory path to save the scraped data.
         get_html_function (function): Function to get HTML content from a URL.
     """
-    # if season < current_year or (season == current_year and month < current_month):
-    #     logging.warning("Invalid year or month already passed.")
-    #     return
-
     logging.info(f"Scraping games for: {season}, {month_name.title()}")
     url = f"https://www.basketball-reference.com/leagues/NBA_{season}_games.html"
     selector = "#content .filter"
@@ -276,18 +229,6 @@ def file_exists(date_str):
     filename = f"nba_games_{date_str}.csv"
     return os.path.isfile(os.path.join(STAT_DIR, filename))
 
-def parse_html(box_score):
-    """Parse HTML content from a box score file."""
-    try:
-        with open(box_score, encoding='utf-8') as f:
-            html = f.read()
-        soup = BeautifulSoup(html, 'html.parser')
-        [s.decompose() for s in soup.select("tr.over_header, tr.thead")]
-        return soup
-    except Exception as e:
-        logging.error(f"Error parsing HTML for {box_score}: {e}")
-        return None
-
 def read_line_score(soup):
     """Read line score from the soup object."""
     line_score = pd.read_html(StringIO(str(soup)), attrs={'id': 'line_score'})[0]
@@ -308,25 +249,6 @@ def read_season_info(soup):
     nav = soup.select("#bottom_nav_container")[0]
     hrefs = [a["href"] for a in nav.find_all('a')]
     return os.path.basename(hrefs[1]).split("_")[0]
-
-def rename_duplicated_columns(df):
-    """Rename duplicated columns by appending a suffix."""
-    cols = pd.Series(df.columns)
-    for dup in cols[cols.duplicated()].unique():
-        cols[cols[cols == dup].index.values.tolist()] = [dup + '_' + str(i) if i != 0 else dup for i in range(sum(cols == dup))]
-    df.columns = cols
-    return df
-
-def copy_missing_files(src_dir, dst_dir):
-    """Copy missing files from source to destination directory."""
-    src_files = set(os.listdir(src_dir))
-    dst_files = set(os.listdir(dst_dir))
-    diff = src_files - dst_files
-
-    for file_name in diff:
-        if not file_name.startswith('.') and not file_name.endswith('.ipynb'):
-            shutil.copy2(os.path.join(src_dir, file_name), dst_dir)
-            logging.info(f'File {file_name} copied successfully')
 
 def process_nba_data():
     """Main function to process NBA data."""
@@ -444,11 +366,11 @@ def ensure_october_data_exists():
     Ensure that October data exists for the current season.
     This is important because October data contains the first game of the season.
     """
-    october_file = os.path.join(STANDINGS_DIR, f'NBA_{current_season}_games-october.html')
+    october_file = os.path.join(STANDINGS_DIR, f'NBA_{CURRENT_SEASON}_games-october.html')
 
     if not os.path.exists(october_file):
         logging.info(f"October data file does not exist. Attempting to scrape it now.")
-        scrape_season_for_month(current_season, 10, "october", STANDINGS_DIR, get_html)
+        scrape_season_for_month(CURRENT_SEASON, 10, "october", STANDINGS_DIR, get_html)
 
         # Check if the file was successfully created
         if os.path.exists(october_file):
@@ -463,10 +385,7 @@ def ensure_october_data_exists():
 
 def main():
     """Main execution function."""
-    # Create directories if they don't exist
-    os.makedirs(STANDINGS_DIR, exist_ok=True)
-    os.makedirs(SCORES_DIR, exist_ok=True)
-    os.makedirs(STAT_DIR, exist_ok=True)
+    # Create directories if they don't exist (already done in get_directory_paths)
 
     next_month = current_month + 1 if current_month < 12 else 1
     next_year = current_year if next_month != 1 else current_year + 1
@@ -474,7 +393,7 @@ def main():
     next_month_name = calendar.month_name[next_month].lower()
 
     # File removal logic for current month
-    file_to_remove = f"NBA_{current_season}_games-{current_month_name}.html"
+    file_to_remove = f"NBA_{CURRENT_SEASON}_games-{current_month_name}.html"
     file_path = os.path.join(STANDINGS_DIR, file_to_remove)
 
     try:
@@ -488,19 +407,19 @@ def main():
 
     # Scrape games for the current and next month
     if today.day == 1 and last_month:
-        scrape_season_for_month(current_season, last_month, last_month_name, STANDINGS_DIR, get_html)
-        scrape_season_for_month(current_season, next_month, next_month_name, STANDINGS_DIR, get_html)
+        scrape_season_for_month(CURRENT_SEASON, last_month, last_month_name, STANDINGS_DIR, get_html)
+        scrape_season_for_month(CURRENT_SEASON, next_month, next_month_name, STANDINGS_DIR, get_html)
     else:
-        scrape_season_for_month(current_season, current_month, current_month_name, STANDINGS_DIR, get_html)
+        scrape_season_for_month(CURRENT_SEASON, current_month, current_month_name, STANDINGS_DIR, get_html)
 
     # Ensure October data exists
     ensure_october_data_exists()
 
     # Process standings files
-    process_standings_files(STANDINGS_DIR, current_season)
+    process_standings_files(STANDINGS_DIR, CURRENT_SEASON)
 
     # Get first game date to determine season start
-    standings_file = os.path.join(STANDINGS_DIR, f'NBA_{current_season}_games-october.html')
+    standings_file = os.path.join(STANDINGS_DIR, f'NBA_{CURRENT_SEASON}_games-october.html')
 
     # Check if the file exists before trying to read it
     if os.path.exists(standings_file):
