@@ -52,7 +52,7 @@ jobs:
     # Step 5 : Filtered Kelly Criterion
     - name: Run Script 5 – Filtered Kelly Criterion
       run: |
-        python src/8_filtered_kelly_criterion_for_best_betting_parameters.py
+        python src/5_filtered_kelly_criterion_for_best_betting_parameters.py
 
     # Single commit for all changes
     - name: Commit all changes
