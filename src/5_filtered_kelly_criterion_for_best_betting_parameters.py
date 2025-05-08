@@ -205,9 +205,9 @@ wide_df.columns = [f'{metric}_{method}' for metric, method in wide_df.columns]
 final_df = wide_df.reset_index()
 
 # Save to CSV
-final_df.to_csv(out_path_kelly, index=False, float_format='%.2f')
+#final_df.to_csv(out_path_kelly, index=False, float_format='%.2f')
 
-print(f"✅ Kelly stakes summary saved to {out_path_kelly}")
+#print(f"✅ Kelly stakes summary saved to {out_path_kelly}")
 
 # ──────────────────────────────────────────────────────────────
 # CALCULATION OF SEASON STATISTICS
