@@ -77,7 +77,7 @@ jobs:
         git add output/LightGBM/1_2025_Prediction/combined_nba_predictions_acc_*.csv || true
         git add output/**/*filtered_*.csv || true
         git add output/**/*home_win_rates_sorted_*.csv || true
-        git add output/**/*kelly_stakes*.csv || true
+        #git add output/**/*kelly_stakes*.csv || true
 
         git commit -m "🔄 Update NBA data and predictions for $(date +'%Y-%m-%d')" \
           || echo "No changes to commit"
