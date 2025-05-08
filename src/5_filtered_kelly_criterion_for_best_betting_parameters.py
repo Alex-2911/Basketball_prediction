@@ -60,7 +60,7 @@ output_file_home = os.path.join(directory_path, f'home_win_rates_sorted_{today_s
 out_path_kelly = os.path.join(directory_path, f"kelly_stakes_{today_str_format}.csv")
 
 # Strategy thresholds
-odds_min = 1.19
+odds_min = 1.18
 odds_max = 2.8
 raw_prob_cut = 0.40
 home_win_cut = 0.50
