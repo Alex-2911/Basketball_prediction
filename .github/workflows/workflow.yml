@@ -83,4 +83,5 @@ jobs:
           || echo "No changes to commit"
 
         # Push to the correct branch
+        git pull --rebase origin "$BRANCH_NAME" || true
         git push origin HEAD:$BRANCH_NAME
