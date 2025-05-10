@@ -33,7 +33,7 @@ except ImportError:
 
 # Season Configuration
 CURRENT_SEASON = 2025
-ROLLING_WINDOW_SIZE = 8
+ROLLING_WINDOW_SIZE = 9
 
 # Date Utilities
 def get_current_date(days_offset=0):
