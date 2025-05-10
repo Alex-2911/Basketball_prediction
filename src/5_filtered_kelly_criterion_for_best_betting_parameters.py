@@ -61,7 +61,7 @@ out_path_kelly = os.path.join(directory_path, f"kelly_stakes_{today_str_format}.
 
 # Strategy thresholds
 odds_min = 1.18
-odds_max = 2.8
+odds_max = 3.0
 raw_prob_cut = 0.40
 home_win_cut = 0.50
 
