@@ -46,7 +46,7 @@ import requests
 from bs4 import BeautifulSoup
 
 # Import shared utilities
-from nba_utils import (
+from nba_utils_2026 import (
     CURRENT_SEASON,
     get_current_date,
     get_directory_paths,
@@ -299,4 +299,14 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        logging.exception("An unexpected error occurred during prediction.")
+    finally:
+        # Keep the console window open so the user can read the logs.  In a non-interactive
+        # environment (e.g. GitHub Actions), input() will raise EOFError, which we catch and ignore.
+        try:
+            input("Prediction complete. Press Enter to close this window...")
+        except EOFError:
+            pass
