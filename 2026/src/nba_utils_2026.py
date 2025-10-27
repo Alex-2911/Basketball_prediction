@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
 
-# Selenium / webdriver-manager (optional)
+# Selenium / webdriver-manager
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
@@ -45,6 +45,7 @@ except ImportError:
 
 CURRENT_SEASON = 2026
 ROLLING_WINDOW_SIZE = 9
+
 
 # ----------------------------------------------------------------------------
 # Date utilities
@@ -75,7 +76,7 @@ def get_directory_paths() -> Dict[str, str]:
         dict with BASE_DIR, DATA_DIR, STAT_DIR, STANDINGS_DIR, SCORES_DIR,
         NEXT_GAME_DIR, PREDICTION_DIR
     """
-    # Pin the base folder (your repo root for 2026 season)
+    # In Actions, cwd will be the repo root after checkout
     base_dir = os.getcwd()
     data_dir = os.path.join(base_dir, "output", "Gathering_Data")
 
@@ -133,28 +134,50 @@ def get_team_codes() -> Dict[str, str]:
         "Washington Wizards": "WAS",
     }
 
+
 # ============================================================================
 # FILE OPERATIONS
 # ============================================================================
 
 def get_latest_file(folder: str, prefix: str, ext: str) -> Optional[str]:
+    """
+    Return the most recently modified file in `folder`
+    that matches <prefix>*<ext>, or None.
+    """
     files = glob.glob(os.path.join(folder, f"{prefix}*{ext}"))
     return max(files, key=os.path.getctime) if files else None
 
 
-def find_file_in_date_range(directory: str, filename_pattern: str, max_days_back: int = 120) -> Tuple[Optional[str], Optional[str]]:
+def find_file_in_date_range(
+    directory: str,
+    filename_pattern: str,
+    max_days_back: int = 120
+) -> Tuple[Optional[str], Optional[str]]:
     """
     filename_pattern must contain {} where the date (YYYY-MM-DD) goes.
+
+    Tries today, yesterday, ... up to max_days_back, and returns:
+        (file_path_found, "YYYY-MM-DD_when_found")
+    If nothing found: (None, None)
     """
     for days_back in range(max_days_back + 1):
-        date_to_check = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
-        file_path = os.path.join(directory, filename_pattern.format(date_to_check))
+        date_to_check = (
+            datetime.now() - timedelta(days=days_back)
+        ).strftime("%Y-%m-%d")
+        file_path = os.path.join(
+            directory,
+            filename_pattern.format(date_to_check)
+        )
         if os.path.exists(file_path):
             return file_path, date_to_check
     return None, None
 
 
 def copy_missing_files(src_dir: str, dst_dir: str) -> None:
+    """
+    Copy any CSVs/etc. that exist in src_dir but not in dst_dir.
+    Skips hidden files and notebooks.
+    """
     import shutil
     src_files = set(os.listdir(src_dir))
     dst_files = set(os.listdir(dst_dir))
@@ -168,39 +191,66 @@ def copy_missing_files(src_dir: str, dst_dir: str) -> None:
 # WEB SCRAPING
 # ============================================================================
 
-def get_html(url: str, selector: str, sleep: int = 5, retries: int = 3, headless: bool = True) -> Optional[str]:
+def get_html(
+    url: str,
+    selector: str,
+    sleep: int = 5,
+    retries: int = 3,
+    headless: bool = True
+) -> Optional[str]:
     """
-    Fetch element.innerHTML via Selenium. Quiet webdriver-manager, headless by default.
+    Fetch element.innerHTML via Selenium, using a disposable Chrome.
+    Works locally and in GitHub Actions.
+
+    url: page to load
+    selector: CSS selector to grab
+    Returns HTML string or None.
     """
     html = None
     driver = None
     try:
         options = Options()
         if headless:
+            # required headless mode for CI / GitHub Actions
             options.add_argument("--headless=new")
-        options.add_argument("--disable-gpu")
         options.add_argument("--no-sandbox")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--window-size=1920,1080")
+        options.add_argument("--disable-dev-tools")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--remote-debugging-port=9222")
 
+        # quieter webdriver_manager logs
         logging.getLogger("webdriver_manager").setLevel(logging.ERROR)
+
         if ChromeDriverManager:
             service = Service(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=options)
         else:
+            # fallback if webdriver_manager isn't available
             driver = webdriver.Chrome(options=options)
 
+        import time
         for attempt in range(retries):
             try:
                 driver.get(url)
-                import time
-                time.sleep(sleep * (2 ** attempt))  # exponential backoff
+                # exponential backoff
+                time.sleep(sleep * (2 ** attempt))
+
                 el = driver.find_element(By.CSS_SELECTOR, selector)
                 html = el.get_attribute("innerHTML")
                 break
+
             except TimeoutException:
-                logging.warning(f"Timeout while loading {url} (attempt {attempt+1}/{retries})")
+                logging.warning(
+                    f"Timeout while loading {url} "
+                    f"(attempt {attempt+1}/{retries})"
+                )
             except WebDriverException as e:
                 logging.error(f"WebDriver error for {url}: {e}")
                 break
+
     finally:
         if driver:
             driver.quit()
@@ -220,8 +270,11 @@ def parse_html(html_or_path: str) -> Optional[BeautifulSoup]:
                 html = f.read()
         else:
             html = html_or_path
+
         soup = BeautifulSoup(html, "html.parser")
-        [s.decompose() for s in soup.select("tr.over_header, tr.thead")]
+        # Drop repeated table headers from Basketball Reference
+        for s in soup.select("tr.over_header, tr.thead"):
+            s.decompose()
         return soup
     except Exception as e:
         logging.error(f"Error parsing HTML: {e}")
@@ -233,6 +286,10 @@ def parse_html(html_or_path: str) -> Optional[BeautifulSoup]:
 # ============================================================================
 
 def rename_duplicated_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    If df has duplicate column names (Basketball Reference sometimes does),
+    suffix them with _1, _2, ... so pandas stops yelling.
+    """
     cols = pd.Series(df.columns)
     for dup in cols[cols.duplicated()].unique():
         idxs = cols[cols == dup].index.values.tolist()
@@ -245,6 +302,16 @@ def preprocess_nba_data(stats_path: str) -> pd.DataFrame:
     """
     Load + sort by date, add target (won shifted -1 within team),
     drop columns that contain nulls to keep modeling simple.
+
+    Output columns will include:
+      - team
+      - team_opp
+      - home
+      - won
+      - target (next game's win label or 2 for 'future')
+      - season
+      - date
+      - numeric stats...
     """
     df = pd.read_csv(stats_path, index_col=0)
     df = df.sort_values("date")
@@ -258,37 +325,62 @@ def preprocess_nba_data(stats_path: str) -> pd.DataFrame:
     df = df.copy()
     df["target"] = df["target"].fillna(2).astype(int)
 
+    # drop columns that are entirely NaN
     nulls = pd.isnull(df).sum()
-    keep = df.columns[~df.columns.isin(nulls[nulls > 0].index)]
-    df = df[keep].copy()
+    drop_full_na = nulls[nulls > 0].index.tolist()
+
+    # but keep core columns even if they had NaN somewhere
+    core_keep = {"team", "team_opp", "home", "won", "season", "date", "target"}
+    truly_drop = [c for c in drop_full_na if c not in core_keep and df[c].isna().all()]
+
+    if truly_drop:
+        df = df.drop(columns=truly_drop)
+
     return df
 
 
-def calculate_rolling_averages(df: pd.DataFrame, window_size: int = ROLLING_WINDOW_SIZE) -> pd.DataFrame:
+def calculate_rolling_averages(
+    df: pd.DataFrame,
+    window_size: int = ROLLING_WINDOW_SIZE
+) -> pd.DataFrame:
     """
     Rolling means per team-season for numeric columns.
+    Returns one big concatenated frame with those rolling stats.
     """
     X = df.copy()
     X["season"] = X["season"].astype(str)
 
     def _roll(team_df: pd.DataFrame) -> pd.DataFrame:
-        numeric = team_df.select_dtypes(include=[np.number]).columns
-        r = team_df[numeric].rolling(window_size, min_periods=1).mean()
+        numeric_cols = team_df.select_dtypes(include=[np.number]).columns
+        rolled = team_df[numeric_cols].rolling(
+            window_size,
+            min_periods=1
+        ).mean()
+
+        # copy non-numeric columns straight through (like team, season...)
         for c in team_df.columns:
-            if c not in numeric:
-                r[c] = team_df[c]
-        return r
+            if c not in numeric_cols:
+                rolled[c] = team_df[c]
+
+        return rolled
 
     out = []
     for team, g1 in X.groupby("team"):
         for season, g2 in g1.groupby("season"):
             out.append(_roll(g2))
+
     return pd.concat(out, ignore_index=True)
 
 
 def add_next_game_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Append 'home_next', 'team_opp_next', 'date_next' from the next row for each team.
+    Append 'home_next', 'team_opp_next', 'date_next'
+    from the NEXT row for each team.
+
+    So row i for CHI will say:
+        home_next = whether CHI is home next game
+        team_opp_next = next opponent
+        date_next = date of that next game
     """
     result = df.copy()
     result["home_next"] = None
@@ -309,6 +401,7 @@ def add_next_game_columns(df: pd.DataFrame) -> pd.DataFrame:
             result.at[cur_idx, "home_next"] = nxt.get("home")
             result.at[cur_idx, "team_opp_next"] = nxt.get("team_opp")
             result.at[cur_idx, "date_next"] = nxt.get("date")
+
     return result
 
 
@@ -317,7 +410,7 @@ def add_next_game_columns(df: pd.DataFrame) -> pd.DataFrame:
 # ============================================================================
 
 TEAM_ALIASES: Dict[str, str] = {
-    # Common cross-site differences
+    # Sportsbooks / BR / NBA.com / Polymarket mismatches
     "PHO": "PHX",
     "PHX": "PHX",
     "BKN": "BRK",
@@ -340,10 +433,11 @@ TEAM_ALIASES: Dict[str, str] = {
     "OKC": "OKC",
 }
 
+
 def normalize_team_code(code: Optional[str]) -> Optional[str]:
     """
-    Normalize team abbreviation differences between sources.
-    Example: 'PHO' → 'PHX', 'BKN' → 'BRK'.
+    Normalize a single team abbreviation.
+    'PHO' -> 'PHX', 'BKN'/'BRK' -> 'BRK', 'CHA' -> 'CHO', etc.
     Returns uppercase normalized code; returns input if None/empty.
     """
     if not isinstance(code, str) or code.strip() == "":
@@ -354,6 +448,7 @@ def normalize_team_code(code: Optional[str]) -> Optional[str]:
 def normalize_team_codes_inplace(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
     """
     Normalize all given columns in a DataFrame using TEAM_ALIASES.
+    Mutates df columns in-place and also returns df for chaining.
     """
     for c in cols:
         if c in df.columns:
@@ -371,6 +466,8 @@ def kelly_frac(p: float, o: float, f: float = 1.0) -> float:
     p: win probability (0..1)
     o: decimal odds (>1)
     f: fraction of Kelly to use (0..1)
+
+    Returns stake fraction (0..1 of bankroll). Never negative.
     """
     try:
         b = float(o) - 1.0
@@ -383,8 +480,8 @@ def kelly_frac(p: float, o: float, f: float = 1.0) -> float:
 
 def impute_prob(ml) -> Optional[float]:
     """
-    American odds → implied probability.
-    Robust to None/NaN/strings like "nan" / "1,85".
+    American odds -> implied winning probability.
+    Robust to None/NaN/strings like "nan" or "1,85".
     Returns None if odds missing/invalid.
     """
     if ml is None:
@@ -404,12 +501,16 @@ def impute_prob(ml) -> Optional[float]:
     except (ValueError, TypeError):
         return None
 
-    return abs(ml) / (abs(ml) + 100) if ml < 0 else 100 / (ml + 100)
+    # favorite (negative moneyline)
+    if ml < 0:
+        return abs(ml) / (abs(ml) + 100)
+    # underdog (positive moneyline)
+    return 100 / (ml + 100)
 
 
 def am_to_dec(ml) -> Optional[float]:
     """
-    American → Decimal odds. Robust to None/NaN/strings.
+    American -> Decimal odds. Robust to None/NaN/strings.
     Returns None if invalid.
     """
     if ml is None:
@@ -429,7 +530,11 @@ def am_to_dec(ml) -> Optional[float]:
     except (ValueError, TypeError):
         return None
 
-    return (ml / 100 + 1.0) if ml > 0 else (100.0 / abs(ml) + 1.0)
+    # positive moneyline
+    if ml > 0:
+        return ml / 100 + 1.0
+    # negative moneyline
+    return 100.0 / abs(ml) + 1.0
 
 
 # ============================================================================
@@ -441,17 +546,24 @@ def get_home_win_rates(pred_df: pd.DataFrame) -> pd.DataFrame:
     Compute home win rates using last 20 games per team (home/away),
     then filter to home games within that window.
 
-    Expects columns: ['home_team','away_team','result','date'] (date parseable)
+    Expects columns:
+      ['home_team','away_team','result','date']
+    where 'result' is actual winner code when known, otherwise 0.
     """
     # Ensure date is datetime
-    if "date" in pred_df.columns and not np.issubdtype(pred_df["date"].dtype, np.datetime64):
+    if "date" in pred_df.columns and not np.issubdtype(
+        pred_df["date"].dtype,
+        np.datetime64
+    ):
         pred_df = pred_df.copy()
         pred_df["date"] = pd.to_datetime(pred_df["date"], errors="coerce")
 
     teams = pred_df["home_team"].dropna().unique().tolist()
     out = {}
     for t in teams:
-        tg = pred_df[(pred_df["home_team"] == t) | (pred_df["away_team"] == t)].copy()
+        tg = pred_df[
+            (pred_df["home_team"] == t) | (pred_df["away_team"] == t)
+        ].copy()
         tg = tg.sort_values("date", ascending=False).head(20)
 
         home = tg[tg["home_team"] == t]
@@ -466,8 +578,8 @@ def get_home_win_rates(pred_df: pd.DataFrame) -> pd.DataFrame:
             "Home Win Rate": rate,
         }
 
-    df = pd.DataFrame.from_dict(out, orient="index")
-    return df.sort_values("Home Win Rate", ascending=False)
+    df_rate = pd.DataFrame.from_dict(out, orient="index")
+    return df_rate.sort_values("Home Win Rate", ascending=False)
 
 
 # ============================================================================
@@ -477,6 +589,7 @@ def get_home_win_rates(pred_df: pd.DataFrame) -> pd.DataFrame:
 def safe_to_numeric_comma(x) -> Optional[float]:
     """
     Convert string with comma decimal to float; return None if invalid.
+    "1,85" -> 1.85
     """
     try:
         if isinstance(x, str):
