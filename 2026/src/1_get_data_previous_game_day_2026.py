@@ -11,8 +11,9 @@ Script 1 of 5 (2026): Get Data for Previous Game Day
 - saves a NEW daily snapshot file with TODAY'S date in the filename
   (so 2025-10-24 games → nba_games_2025-10-25.csv)
 
-Double-click runnable: no CLI args needed.
-You can still call with --date or --collect-date if you want.
+In GitHub Actions:
+  - Selenium is headless via nba_utils_2026.get_html()
+  - No interactive input() blocking at the end
 """
 
 import os
@@ -36,17 +37,16 @@ from nba_utils_2026 import (
     copy_missing_files,
 )
 
-# ──────────────────────────────────────────────────────────────
 # logging
-# ──────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-# ──────────────────────────────────────────────────────────────
-# helpers
-# ──────────────────────────────────────────────────────────────
+# ──────────────────────────────────
+# local helpers
+# ──────────────────────────────────
+
 def parse_ymd(s: str) -> date:
     return datetime.strptime(s, "%Y-%m-%d").date()
 
@@ -73,8 +73,8 @@ def read_season_info(soup):
 
 def scrape_season_for_month(season, month_name, standings_dir):
     """
-    download (always fresh) the monthly schedule html for given month.
-    we *delete* the stale file first so selenium is forced to refetch.
+    Download (always fresh) the monthly schedule html for given month.
+    We delete any stale local file first so we always pull new data.
     """
     os.makedirs(standings_dir, exist_ok=True)
     monthly_filename = f"NBA_{season}_games-{month_name}.html"
@@ -87,7 +87,7 @@ def scrape_season_for_month(season, month_name, standings_dir):
         except Exception as e:
             logging.error(f"Could not delete {monthly_path}: {e}")
 
-    # hit the season landing page to discover month URLs
+    # Hit the season landing page to discover month URLs
     url = f"https://www.basketball-reference.com/leagues/NBA_{season}_games.html"
     selector = "#content .filter"
     html_content = get_html(url, selector)
@@ -96,9 +96,11 @@ def scrape_season_for_month(season, month_name, standings_dir):
         return None
 
     soup = BeautifulSoup(html_content, 'html.parser')
-    links = soup.find_all("a", href=re.compile(r"/leagues/NBA_[0-9]{4}_games-[a-z]+\.html"))
+    links = soup.find_all(
+        "a",
+        href=re.compile(r"/leagues/NBA_[0-9]{4}_games-[a-z]+\.html")
+    )
 
-    # find the entry that matches the month_name we want
     wanted_url = None
     for l in links:
         href = l.get("href", "")
@@ -107,7 +109,9 @@ def scrape_season_for_month(season, month_name, standings_dir):
             break
 
     if not wanted_url:
-        logging.warning(f"No monthly url found for month '{month_name}' in season {season}")
+        logging.warning(
+            f"No monthly url found for month '{month_name}' in season {season}"
+        )
         return None
 
     logging.info(f"Fetching fresh month page: {wanted_url}")
@@ -128,8 +132,8 @@ def scrape_season_for_month(season, month_name, standings_dir):
 
 def scrape_game_day_boxscores(standings_file, scores_dir, target_games_date: date):
     """
-    from that month page:
-    - find only boxscores for target_games_date (yyyyMMdd in URL)
+    From that month page:
+    - find boxscore links for `target_games_date`
     - download any missing boxscore htmls into scores_dir
     """
     os.makedirs(scores_dir, exist_ok=True)
@@ -164,8 +168,8 @@ def scrape_game_day_boxscores(standings_file, scores_dir, target_games_date: dat
 
 def process_saved_boxscores(scores_dir, existing_statistics, target_games_date: date):
     """
-    read all downloaded boxscore htmls for *exactly* target_games_date
-    build per-game rows aligned with existing_statistics columns
+    Read all downloaded boxscore htmls for *exactly* target_games_date
+    and build per-game rows aligned with existing_statistics columns.
     """
     box_files = [
         os.path.join(scores_dir, f)
@@ -183,7 +187,6 @@ def process_saved_boxscores(scores_dir, existing_statistics, target_games_date: 
         try:
             fdate = pd.Timestamp(os.path.basename(p)[:8]).date()
             if fdate != target_games_date:
-                # skip old html from other days
                 continue
 
             soup = parse_html(p)
@@ -238,16 +241,28 @@ def process_saved_boxscores(scores_dir, existing_statistics, target_games_date: 
     games_df = pd.concat(games, ignore_index=True)
     games_df = rename_duplicated_columns(games_df)
 
-    # align columns to historical layout if we have it
     if existing_statistics is not None and not existing_statistics.empty:
         games_df = games_df.reindex(columns=existing_statistics.columns)
 
     return games_df
 
+def _pause_and_exit_ok():
+    """
+    Local run: keep console window open.
+    GitHub Actions: exit immediately (GITHUB_ACTIONS is set to "true").
+    """
+    in_ci = os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
+    if in_ci:
+        return
+    try:
+        input("Done. Press Enter to close this window...")
+    except EOFError:
+        pass
 
-# ──────────────────────────────────────────────────────────────
+# ──────────────────────────────────
 # main()
-# ──────────────────────────────────────────────────────────────
+# ──────────────────────────────────
+
 def main():
     parser = argparse.ArgumentParser(
         description="Collect previous NBA game day data (2026 season)."
@@ -264,35 +279,36 @@ def main():
     )
     args = parser.parse_args()
 
-    # figure out which day to scrape (= yesterday by default)
-    # and what filename date we want to save under (= today by default)
     now_dt, _, today_str_ymd = get_current_date(days_offset=0)
     today_date = now_dt.date()
 
     if args.collect_date:
-        target_games_date = parse_ymd(args.collect_date)         # scrape this date's games
-        save_as_date = today_date                                # still save as "today"
-        logging.info(f"Collecting games for exact date: {target_games_date}")
+        target_games_date = parse_ymd(args.collect_date)
+        save_as_date = today_date
+        logging.info(
+            f"Collecting games for exact date: {target_games_date}"
+        )
     elif args.date:
         anchor = parse_ymd(args.date)
         target_games_date = anchor - timedelta(days=1)
-        save_as_date = anchor                                    # save as anchor date
-        logging.info(f"Anchor date: {anchor} → collecting prior day: {target_games_date}")
+        save_as_date = anchor
+        logging.info(
+            f"Anchor date {anchor} → collecting prior day {target_games_date}"
+        )
     else:
-        # double-click / default:
-        # we run on "today", scrape "yesterday", and save file as "today"
         target_games_date = today_date - timedelta(days=1)
         save_as_date = today_date
-        logging.info(f"No args → scraping yesterday {target_games_date} and saving snapshot as {save_as_date}")
+        logging.info(
+            f"No args → scraping yesterday {target_games_date} "
+            f"and saving snapshot as {save_as_date}"
+        )
 
-    # paths
     paths = get_directory_paths()
     STAT_DIR = paths["STAT_DIR"]
     STANDINGS_DIR = paths["STANDINGS_DIR"]
     SCORES_DIR = paths["SCORES_DIR"]
     DST_DIR = STAT_DIR
 
-    # refresh the month page for the target_games_date month
     month_name = month_name_lower(target_games_date)
     fresh_monthly_file = scrape_season_for_month(
         CURRENT_SEASON,
@@ -300,40 +316,43 @@ def main():
         STANDINGS_DIR
     )
 
-    # if scrape failed somehow, fall back to whatever file is already there
     if fresh_monthly_file is None:
         fresh_monthly_file = os.path.join(
             STANDINGS_DIR,
             f"NBA_{CURRENT_SEASON}_games-{month_name}.html"
         )
         if not os.path.exists(fresh_monthly_file):
-            logging.warning(f"No monthly file available for {month_name}, cannot continue scraping box scores.")
+            logging.warning(
+                f"No monthly file available for {month_name}, cannot continue."
+            )
             _pause_and_exit_ok()
             return
 
-    # load an existing stats file to get column layout
     existing_statistics = None
     try:
-        # walk backwards from target_games_date to find the most recent .csv
         for back in range(0, 151):
             cand = (target_games_date - timedelta(days=back)).strftime("%Y-%m-%d")
             f = os.path.join(STAT_DIR, f"nba_games_{cand}.csv")
             if os.path.exists(f):
                 existing_statistics = pd.read_csv(f)
-                logging.info(f"Using existing statistics layout from: {f}")
+                logging.info(
+                    f"Using existing statistics layout from: {f}"
+                )
                 break
     except Exception as e:
-        logging.warning(f"Could not load existing stats layout: {e}")
+        logging.warning(
+            f"Could not load existing stats layout: {e}"
+        )
 
-    # download (if missing) yesterday's individual box scores into SCORES_DIR
     saved = scrape_game_day_boxscores(
         fresh_monthly_file,
         SCORES_DIR,
         target_games_date
     )
-    logging.info(f"Saved {saved} new box score file(s) for {target_games_date}")
+    logging.info(
+        f"Saved {saved} new box score file(s) for {target_games_date}"
+    )
 
-    # parse those box scores -> dataframe
     games_df = process_saved_boxscores(
         SCORES_DIR,
         existing_statistics,
@@ -341,50 +360,44 @@ def main():
     )
 
     if games_df is None or games_df.empty:
-        logging.warning(f"No games parsed for {target_games_date}. Nothing to append.")
+        logging.warning(
+            f"No games parsed for {target_games_date}. Nothing to append."
+        )
         _pause_and_exit_ok()
         return
 
-    # if we have an existing layout, make sure order is identical again
     if existing_statistics is not None and not existing_statistics.empty:
         games_df = games_df.reindex(columns=existing_statistics.columns)
 
-    # build combined dataset for saving
-    out_daily = os.path.join(STAT_DIR, f"nba_games_{save_as_date}.csv")
+    out_daily = os.path.join(
+        STAT_DIR,
+        f"nba_games_{save_as_date}.csv"
+    )
 
     if os.path.exists(out_daily):
-        # we already have today's snapshot → append new rows from yesterday's games
         prev = pd.read_csv(out_daily)
         combined = pd.concat([prev, games_df], ignore_index=True)
     elif existing_statistics is not None:
-        # first run of the day: seed with most recent historical data + new games
-        combined = pd.concat([existing_statistics, games_df], ignore_index=True).drop_duplicates()
+        combined = pd.concat(
+            [existing_statistics, games_df],
+            ignore_index=True
+        ).drop_duplicates()
     else:
-        # very first day ever
         combined = games_df
 
     combined.to_csv(out_daily, index=False)
-    logging.info(f"Combined statistics saved → {out_daily}")
+    logging.info(
+        f"Combined statistics saved → {out_daily}"
+    )
 
-    # mirror to DST_DIR (legacy behavior)
     copy_missing_files(STAT_DIR, DST_DIR)
 
     _pause_and_exit_ok()
 
 
-def _pause_and_exit_ok():
-    try:
-        input("Done. Press Enter to close this window...")
-    except EOFError:
-        pass
-
-
 if __name__ == "__main__":
     try:
         main()
-    except Exception as e:
-        logging.exception(e)
-        try:
-            input("\nAn error occurred. Press Enter to close this window...")
-        except EOFError:
-            pass
+    except Exception:
+        logging.exception("Fatal error in script 1.")
+        _pause_and_exit_ok()
