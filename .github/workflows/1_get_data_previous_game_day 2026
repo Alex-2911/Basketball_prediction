@@ -1,0 +1,36 @@
+name: 🏀 Collect Previous Game Data
+
+on:
+  workflow_dispatch:       # Manual trigger (you click "Run workflow")
+  schedule:
+    - cron: "0 6 * * *"    # Automatic run every day at 06:00 UTC
+
+jobs:
+  collect_data:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run previous game data script
+        working-directory: 2026/src
+        run: |
+          python 1_get_data_previous_game_day_2026.py
+
+      - name: Upload generated CSVs as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gathered_data
+          path: |
+            2026/output/Gathering_Data/**/*.csv
