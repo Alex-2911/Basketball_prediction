@@ -103,7 +103,7 @@ def get_team_codes() -> Dict[str, str]:
         "Atlanta Hawks": "ATL",
         "Boston Celtics": "BOS",
         "Brooklyn Nets": "BRK",
-        "Charlotte Hornets": "CHA",
+        "Charlotte Hornets": "CHO",
         "Chicago Bulls": "CHI",
         "Cleveland Cavaliers": "CLE",
         "Dallas Mavericks": "DAL",
@@ -132,7 +132,6 @@ def get_team_codes() -> Dict[str, str]:
         "Utah Jazz": "UTA",
         "Washington Wizards": "WAS",
     }
-
 
 # ============================================================================
 # FILE OPERATIONS
@@ -319,10 +318,14 @@ def add_next_game_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 TEAM_ALIASES: Dict[str, str] = {
     # Common cross-site differences
-    "PHX": "PHO",
+    "PHO": "PHX",
     "PHX": "PHX",
     "BKN": "BRK",
     "BRK": "BRK",
+    "CHO": "CHO",
+    "CHA": "CHO",
+    "WSH": "WAS",
+    "WAS": "WAS",
     "GS":  "GSW",
     "GSW": "GSW",
     "NO":  "NOP",
@@ -335,8 +338,6 @@ TEAM_ALIASES: Dict[str, str] = {
     "UTA": "UTA",
     "OKL": "OKC",
     "OKC": "OKC",
-    "CHA": "CHA",
-    "CHA": "CHO",
 }
 
 def normalize_team_code(code: Optional[str]) -> Optional[str]:

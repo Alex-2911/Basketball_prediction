@@ -40,28 +40,67 @@ from nba_utils_2026 import (
     get_home_win_rates,
 )
 
+# ─────────────────────────────────────────────────────────
+# BACKFILL OVERRIDE
+# set this to the historical date you want to generate
+# e.g. "2025-10-23", "2025-10-24", "2025-10-25", "2025-10-26"
+# BACKFILL_DATE = "2025-10-25"   # <-- change this per run
+
+#if BACKFILL_DATE:
+#    import datetime as _dt
+
+#    def get_current_date(days_offset: int = 0):
+#        """
+#        Override utils.get_current_date() for backfill runs.
+#        Returns the same tuple shape:
+#        (datetime_obj, friendly_str, ymd_str)
+#        """
+#        d = _dt.datetime.strptime(BACKFILL_DATE, "%Y-%m-%d")
+#        # apply days_offset if caller passes it (script 5 doesn't, but keep it correct)
+#        d = d - _dt.timedelta(days=days_offset)
+#
+#        friendly = (
+#            d.strftime("%a, %b ")
+#            + str(int(d.strftime("%d")))
+#            + d.strftime(", %Y")
+#        )
+#        ymd = d.strftime("%Y-%m-%d")
+#        return d, friendly, ymd
+
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
-def load_predictions(directory_path: str):
-    """Find and load the latest predictions CSV (nba_games_predict_*.csv)."""
-    pred_file = get_latest_file(directory_path, prefix="nba_games_predict_", ext=".csv")
-    if not pred_file:
-        raise FileNotFoundError(
-            f"No nba_games_predict_*.csv found in {directory_path}. "
-            "Run script 3 to generate predictions."
-        )
+def load_predictions(directory_path: str, force_date: str = None):
+    """
+    Load predictions for a specific date if force_date is given (YYYY-MM-DD),
+    otherwise fall back to the most recent file.
+    """
+    if force_date is not None:
+        forced_path = os.path.join(directory_path, f"nba_games_predict_{force_date}.csv")
+        if not os.path.exists(forced_path):
+            raise FileNotFoundError(f"Could not find {forced_path} for forced date mode.")
+        pred_file = forced_path
+    else:
+        pred_file = get_latest_file(directory_path, prefix="nba_games_predict_", ext=".csv")
+        if not pred_file:
+            raise FileNotFoundError(
+                f"No nba_games_predict_*.csv found in {directory_path}. "
+                "Run script 3 to generate predictions."
+            )
+
     df = pd.read_csv(pred_file, decimal=",", encoding="utf-7")
-    # Normalize columns & cast types
+
+    # normalize exactly like before
     df.columns = df.columns.str.strip().str.lower().str.replace(r"\s+", "_", regex=True)
-    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
-    # Odds as decimal with . separator
-    df["odds_1"] = pd.to_numeric(df["odds_1"].astype(str).str.replace(",", "."), errors="coerce")
-    df["odds_2"] = pd.to_numeric(df["odds_2"].astype(str).str.replace(",", "."), errors="coerce")
-    # Raw prob from model
+    df["date"]    = pd.to_datetime(df["date"], errors="coerce").dt.date
+    df["odds_1"]  = pd.to_numeric(df["odds_1"].astype(str).str.replace(",", "."), errors="coerce")
+    df["odds_2"]  = pd.to_numeric(df["odds_2"].astype(str).str.replace(",", "."), errors="coerce")
     df["raw_prob"] = pd.to_numeric(df["home_team_prob"].astype(str).str.replace(",", "."), errors="coerce")
+
     logging.info(f"Loaded predictions file: {pred_file} with {len(df)} rows")
     return pred_file, df
+
 
 
 def try_load_combined(directory_path: str):
@@ -125,7 +164,8 @@ def main():
     abs_cap = 300.0
 
     # ---- load predictions ----
-    pred_path, df_pred = load_predictions(directory_path)
+    pred_path, df_pred = load_predictions(directory_path, force_date=today_str_format)
+    print(f"Using prediction file: {pred_path}")
 
     # ---- try to load combined accuracy (normal mode) ----
     hist_path, hist_df = try_load_combined(directory_path)
@@ -281,9 +321,13 @@ def main():
         plt.show(block=True)
 
         # Optionally also save Kelly suggestions summary for today
+        # Always save the Kelly stakes file, even if empty
+        pd.DataFrame(rows or []).to_csv(out_path_kelly, index=False, float_format="%.4f")
         if rows:
-            pd.DataFrame(rows).to_csv(out_path_kelly, index=False, float_format="%.4f")
             logging.info(f"✅ Wrote Kelly stakes (today) → {out_path_kelly}")
+        else:
+            logging.warning(f"⚠️ No Kelly suggestions — empty file saved at {out_path_kelly}")
+
 
     else:
         # FALLBACK MODE
@@ -335,9 +379,13 @@ def main():
             print("No positive‑edge Kelly bets found from raw probabilities.")
 
         # Save simple Kelly summary (today)
+        # Always save the Kelly stakes file, even if empty
+        pd.DataFrame(rows or []).to_csv(out_path_kelly, index=False, float_format="%.4f")
         if rows:
-            pd.DataFrame(rows).to_csv(out_path_kelly, index=False, float_format="%.4f")
-            logging.info(f"✅ Wrote Kelly stakes (fallback/today) → {out_path_kelly}")
+            logging.info(f"✅ Wrote Kelly stakes (today) → {out_path_kelly}")
+        else:
+            logging.warning(f"⚠️ No Kelly suggestions — empty file saved at {out_path_kelly}")
+
 
         # Keep a tiny plot open (optional) to ensure the window remains until user closes
         plt.figure(figsize=(4, 2))
