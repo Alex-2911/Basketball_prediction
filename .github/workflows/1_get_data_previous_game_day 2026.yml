@@ -1,36 +1,67 @@
 name: 🏀 Collect Previous Game Data
 
 on:
-  workflow_dispatch:       # Manual trigger (you click "Run workflow")
+  workflow_dispatch:        # you can click "Run workflow"
   schedule:
-    - cron: "0 6 * * *"    # Automatic run every day at 06:00 UTC
+    # every day at 06:00 UTC (adjust if you want)
+    - cron: "0 6 * * *"
 
 jobs:
   collect_data:
     runs-on: ubuntu-latest
+    timeout-minutes: 20   # hard kill if job hangs
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    - name: Checkout repository
+    # pulls your code so we can run the scripts
+      uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        # webdriver-manager sometimes needs explicit install of browsers/driver helpers
+        pip install selenium webdriver-manager
 
-      - name: Run previous game data script
-        working-directory: 2026/src
-        run: |
-          python 1_get_data_previous_game_day_2026.py
+    - name: Run previous game data script
+      env:
+        DISPLAY: :99
+      run: |
+        echo "🚀 Starting scraper (headless Chrome)..."
+        # optional: fail fast if it runs too long (600 sec = 10 min)
+        timeout 600 python 2026/src/1_get_data_previous_game_day_2026.py || echo "Script exited (possibly timed out)."
 
-      - name: Upload generated CSVs as artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: gathered_data
-          path: |
-            2026/output/Gathering_Data/**/*.csv
+    # OPTIONAL: upload whatever CSVs the script generated so you can inspect them
+    # tweak the path to match where your script writes output
+    - name: Upload generated CSVs as artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: previous_game_day_output
+        path: |
+          2026/output/Gathering_Data/**
+          2026/output/**/*.csv
+          output/**/*.csv
+        if-no-files-found: warn
+
+    # graceful cleanup / debug info
+    - name: Post Set up Python
+      if: always()
+      run: |
+        echo "Python version was:"
+        python --version
+        echo "Disk usage:"
+        du -h 2026 | sort -h | tail -40
+
+    - name: Post Checkout repository
+      if: always()
+      run: |
+        echo "Repo HEAD:"
+        git rev-parse HEAD
+        echo "Listing output dir:"
+        ls -R 2026/output || true
