@@ -76,7 +76,7 @@ def get_directory_paths() -> Dict[str, str]:
         NEXT_GAME_DIR, PREDICTION_DIR
     """
     # Pin the base folder (your repo root for 2026 season)
-    base_dir = r"D:\1. Python\6. GitHub\Basketball_prediction\2026"
+    base_dir = os.getcwd()
     data_dir = os.path.join(base_dir, "output", "Gathering_Data")
 
     paths = {
