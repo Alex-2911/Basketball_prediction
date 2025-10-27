@@ -25,19 +25,6 @@ import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
 
-# Selenium / webdriver-manager
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import TimeoutException, WebDriverException
-
-try:
-    from webdriver_manager.chrome import ChromeDriverManager
-except ImportError:
-    print("webdriver_manager not installed. Some functions may not work.")
-    ChromeDriverManager = None
-
 
 # ============================================================================
 # GLOBAL CONFIGURATIONS
@@ -196,63 +183,60 @@ def get_html(
     selector: str,
     sleep: int = 5,
     retries: int = 3,
-    headless: bool = True
+    headless: bool = True,
 ) -> Optional[str]:
     """
-    Fetch element.innerHTML via Selenium, using a disposable Chrome.
-    Works locally and in GitHub Actions.
+    Fetch element.innerHTML from `selector` on `url` using a fresh headless Chrome.
+    Every call creates & disposes the driver so GitHub Actions won't hang.
 
-    url: page to load
-    selector: CSS selector to grab
-    Returns HTML string or None.
+    Returns the innerHTML of `selector`, or None if failed.
     """
-    html = None
+    from selenium import webdriver
+    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.common.by import By
+    from selenium.common.exceptions import TimeoutException, WebDriverException
+    from webdriver_manager.chrome import ChromeDriverManager
+    import time
+
     driver = None
+    html = None
+
     try:
-        options = Options()
+        chrome_options = Options()
         if headless:
-            # required headless mode for CI / GitHub Actions
-            options.add_argument("--headless=new")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--window-size=1920,1080")
-        options.add_argument("--disable-dev-tools")
-        options.add_argument("--disable-extensions")
-        options.add_argument("--remote-debugging-port=9222")
+            chrome_options.add_argument("--headless=new")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--window-size=1920,1080")
+        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--disable-dev-tools")
+        chrome_options.add_argument("--remote-debugging-port=9222")
 
-        # quieter webdriver_manager logs
-        logging.getLogger("webdriver_manager").setLevel(logging.ERROR)
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
 
-        if ChromeDriverManager:
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=options)
-        else:
-            # fallback if webdriver_manager isn't available
-            driver = webdriver.Chrome(options=options)
-
-        import time
+        # try up to `retries` with exponential backoff
         for attempt in range(retries):
             try:
+                driver.set_page_load_timeout(20)
                 driver.get(url)
-                # exponential backoff
                 time.sleep(sleep * (2 ** attempt))
 
                 el = driver.find_element(By.CSS_SELECTOR, selector)
                 html = el.get_attribute("innerHTML")
                 break
-
             except TimeoutException:
                 logging.warning(
-                    f"Timeout while loading {url} "
-                    f"(attempt {attempt+1}/{retries})"
+                    f"Timeout while loading {url} (attempt {attempt+1}/{retries})"
                 )
             except WebDriverException as e:
                 logging.error(f"WebDriver error for {url}: {e}")
                 break
 
     finally:
-        if driver:
+        if driver is not None:
             driver.quit()
 
     if html is None:
