@@ -65,7 +65,7 @@ def get_directory_paths() -> Dict[str, str]:
     """
     # In Actions, cwd will be the repo root after checkout
     base_dir = os.getcwd()
-    data_dir = os.path.join(base_dir, "output", "Gathering_Data")
+    data_dir = os.path.join(base_dir, "2026", "output", "Gathering_Data")
 
     paths = {
         "BASE_DIR": base_dir,
