@@ -109,7 +109,7 @@ def fetch_boxscore_html_safe(
             # NOTE:
             # If your get_html() does NOT accept timeout_seconds yet,
             # change the next line to: html = get_html(url, css_selector)
-            html = get_html(url, css_selector, timeout_seconds=timeout_seconds)
+           html = get_html(url, css_selector)
 
             if html:
                 return html
