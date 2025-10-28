@@ -1,0 +1,79 @@
+name: "🏀 Build Predictions & Betting Lines (Today)"
+
+on:
+  # allow manual run in Actions tab
+  workflow_dispatch:
+
+  # also run automatically after workflow 2 finishes successfully
+  workflow_run:
+    workflows: ["🏀 Collect Next Game Data"]
+    types: [completed]
+
+jobs:
+  build_predictions:
+    # if this was triggered by workflow_run, only continue if that workflow succeeded.
+    # if this is a manual workflow_dispatch run, github.event.workflow_run is not defined,
+    # so the condition should evaluate true. We handle that with '||'.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout repo (branch 2026)
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: 2026
+
+      # 2. Set up Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 3. Install Google Chrome (for parity with earlier steps; may not be needed here
+      #    but keeping it consistent in case future code scrapes odds via browser)
+      - name: Install Google Chrome
+        uses: browser-actions/setup-chrome@v1
+
+      # 4. Install dependencies
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      # 5. Run prediction script
+      #    We pass the Odds API key via env so it's not hardcoded.
+      - name: Run prediction / model pipeline
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+        run: |
+          echo "=== Starting model / feature build / predictions ==="
+          python 2026/src/3_predict_games_hybrid_2026.py
+          echo "=== Script finished ==="
+
+      # 6. Upload today's prediction CSV(s) as artifact for easy download
+      - name: Upload prediction artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: today_predictions
+          path: |
+            2026/output/LightGBM/*.csv
+
+      # 7. (Optional) Commit prediction CSVs back into branch 2026.
+      #    Uncomment this block if you want automatic commits in the repo.
+      #
+      # - name: Commit prediction CSVs
+      #   run: |
+      #     echo "Configuring git user"
+      #     git config --global user.email "actions@github.com"
+      #     git config --global user.name "GitHub Actions"
+      #
+      #     echo "Staging prediction outputs"
+      #     git add 2026/output/LightGBM/*.csv
+      #
+      #     if git diff --cached --quiet; then
+      #       echo "No new predictions to commit."
+      #     else
+      #       git commit -m "Add daily predictions [skip ci]"
+      #       git push origin 2026
+      #     fi
