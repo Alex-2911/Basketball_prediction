@@ -73,3 +73,11 @@ jobs:
             git commit -m "$commit_msg"
             git push origin 2026
           fi
+
+      # 8️⃣ Trigger the prediction workflow (🏀 Build Predictions & Betting Lines)
+      - name: Trigger prediction workflow
+        if: ${{ success() }}
+        uses: peter-evans/workflow-dispatch@v3
+        with:
+          workflow: "🏀 Build Predictions & Betting Lines"
+          ref: 2026
