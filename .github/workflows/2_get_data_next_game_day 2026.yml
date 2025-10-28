@@ -1,0 +1,34 @@
+name: "\ud83c\udfc0 Collect Next Game Data"
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"
+
+jobs:
+  collect_data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: 2026
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+      - name: Install Google Chrome
+        uses: browser-actions/setup-chrome@v1
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+      - name: Run script
+        run: |
+          python 2026/src/2_get_data_next_game_day_2026.py
+      - name: Upload CSVs
+        uses: actions/upload-artifact@v3
+        with:
+          name: next_game_day_data
+          path: |
+            2026/data/next_game_day/**
+            2026/data/team_next_game_day/**y
