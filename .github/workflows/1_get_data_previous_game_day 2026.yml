@@ -42,7 +42,7 @@ jobs:
 
       # 6. Upload CSVs as artifacts
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: previous_game_day_data
           path: |
