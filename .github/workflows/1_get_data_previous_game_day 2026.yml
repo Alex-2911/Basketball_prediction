@@ -1,9 +1,9 @@
-name: "🏀 Collect and Prepare NBA Game Data"
+name: "🏀 Collect and Prepare NBA Game Data (Previous Game Day)"
 
 on:
-  workflow_dispatch:  # manual run
+  workflow_dispatch:  # manual run allowed
   schedule:
-    # every day at 19:00 UTC (20:00 local)
+    # every day at 19:00 UTC
     - cron: "0 19 * * *"
 
 jobs:
@@ -13,6 +13,7 @@ jobs:
     steps:
       # 1. Checkout repo
       - name: Checkout repository
+      # v4 is the current stable for checkout
         uses: actions/checkout@v4
 
       # 2. Set up Python
@@ -21,43 +22,57 @@ jobs:
         with:
           python-version: "3.11"
 
-      # 3. Install Google Chrome
+      # 3. Install Google Chrome (for Selenium scraping)
       - name: Install Google Chrome
         run: |
           sudo apt-get update
-          sudo apt-get install -y google-chrome-stable
+          sudo apt-get install -y google-chrome-stable || true
+          google-chrome --version || echo "Chrome not found?"
 
-      # 4. Install dependencies
+      # 4. Install Python dependencies
       - name: Install dependencies
         run: |
+          pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 5. Run script
-      - name: Run script
+      # 5. Run scraping / collection script
+      - name: Run data collection for previous game day
         run: |
           echo "=== Starting scraping for previous game day ==="
           python 2026/src/1_get_data_previous_game_day_2026.py
           echo "=== Script finished ==="
-          echo "Listing downloaded HTMLs:"
-          find data/previous_game_day -name "*.html" -type f || echo "⚠️ No HTML files found"
 
-      # 6. Upload artifacts (CSVs + HTMLs)
-      - name: Upload artifacts
+      # 6. Debug: list what was produced
+      - name: List updated output folders
+        run: |
+          echo "----- Scores (raw boxscores / play-by-play etc.) -----"
+          find 2026/output/Gathering_Data/data/2026_scores -maxdepth 2 -type f || echo "⚠️ No score files found"
+          echo
+          echo "----- Standings / schedule snapshots -----"
+          find 2026/output/Gathering_Data/data/2026_standings -maxdepth 2 -type f || echo "⚠️ No standings files found"
+          echo
+          echo "----- Whole_Statistic (rolling season table) -----"
+          find 2026/output/Gathering_Data/Whole_Statistic -maxdepth 2 -type f || echo "⚠️ No whole-statistic files found"
+
+      # 7. Upload artifacts for inspection / downstream jobs
+      - name: Upload collected game data
         uses: actions/upload-artifact@v4
         with:
           name: previous_game_day_data
           path: |
-            data/previous_game_day/**/*.csv
-            data/previous_game_day/**/*.html
+            2026/output/Gathering_Data/data/2026_scores/**
+            2026/output/Gathering_Data/data/2026_standings/**
+            2026/output/Gathering_Data/Whole_Statistic/**
+          if-no-files-found: warn
 
   trigger_next_script:
     needs: collect_data
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger "2_get_data_next_game_day 2026.yml"
+      - name: Trigger "2_get_data_next_game_day_2026.yml"
         uses: peter-evans/workflow-dispatch@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           repository: Alex-2911/Basketball_prediction
-          workflow: "2_get_data_next_game_day 2026.yml"
+          workflow: "2_get_data_next_game_day_2026.yml"
           ref: 2026
