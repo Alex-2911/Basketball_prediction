@@ -80,12 +80,13 @@ def get_directory_paths() -> Dict[str, str]:
     """
     Return a dictionary of important directories.
     You should keep these paths consistent with your repo.
+    Works on both Windows and Linux (GitHub Actions).
     """
     base_repo = os.getcwd()
     return {
-        "STAT_DIR": os.path.join(base_repo, r"2026\output\Gathering_Data\Whole_Statistic"),
-        "NEXT_GAME_DIR": os.path.join(base_repo, r"2026\output\Gathering_Data\Next_Game"),
-        "PREDICTION_DIR": os.path.join(base_repo, r"2026\output\LightGBM"),
+        "STAT_DIR": os.path.join(base_repo, "2026", "output", "Gathering_Data", "Whole_Statistic"),
+        "NEXT_GAME_DIR": os.path.join(base_repo, "2026", "output", "Gathering_Data", "Next_Game"),
+        "PREDICTION_DIR": os.path.join(base_repo, "2026", "output", "LightGBM"),
     }
 
 def get_current_date(offset_days: int = 0) -> Tuple[datetime, str, str]:
