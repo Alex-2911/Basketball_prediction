@@ -1,10 +1,10 @@
 name: "🏀 Collect Previous Game Data"
 
 on:
-  workflow_dispatch:      # you can click 'Run workflow'
+  workflow_dispatch:  # you can click 'Run workflow'
   schedule:
-    # every day at 06:00 UTC
-    - cron: "0 6 * * *"
+    # every day at 19:00 UTC (20:00 local)
+    - cron: "0 19 * * *"
 
 jobs:
   collect_data:
@@ -24,50 +24,26 @@ jobs:
       # 3. Install Google Chrome (headless browser binary)
       #
       # GitHub runners don't ship with Chrome by default.
-      # We install the stable channel manually so Selenium has a browser
-      # to talk to.
+      # We install the stable channel manually so Selenium has a browser to talk to.
       #
       - name: Install Google Chrome
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget gnupg unzip
-          wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo gpg --dearmor -o /usr/share/keyrings/google-linux-signing-keyring.gpg
-          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-linux-signing-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
-          sudo apt-get update
           sudo apt-get install -y google-chrome-stable
-          google-chrome --version
 
-      # 4. Install Python dependencies
+      # 4. Install dependencies
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 5. Run the scraper script (your script 1)
-      #
-      # We don't pass args: script should default to "yesterday" etc.
-      # Make sure inside that script you NOW import the updated utils
-      # (which no longer creates a global driver).
-      #
-      - name: Run previous game data script
-        env:
-          # You can pass API keys or ENV here if script needs them later
-          PYTHONWARNINGS: "ignore"
-        run: |
-          echo "🚀 Starting scraper (headless Chrome)..."
-          python 2026/src/1_get_data_previous_game_day_2026.py
+      # 5. Run script
+      - name: Run script
+        run: python 2026/src/1_get_data_previous_game_day_2026.py
 
-      # 6. Upload generated CSVs so you can download them from the run
-      #
-      # Adjust these globs if your script writes somewhere else,
-      # e.g. output/Gathering_Data/data/2026_scores/*.csv etc.
-      #
-      - name: Upload generated CSVs as artifacts
-        uses: actions/upload-artifact@v4
+      # 6. Upload CSVs as artifacts
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
         with:
           name: previous_game_day_data
           path: |
-            output/Gathering_Data/**/*.csv
-            output/LightGBM/**/*.csv
-            output/**/*.csv
-          if-no-files-found: warn
+            data/previous_game_day/**/*.csv
