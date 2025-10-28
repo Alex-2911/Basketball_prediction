@@ -2,41 +2,62 @@ name: "🏀 Collect Next Game Data"
 
 on:
   workflow_run:
-    workflows: ["🏀 Collect Previous Game Data"]
+    workflows: ["🏀 Collect and Prepare NBA Game Data"]  # must match EXACT name of workflow #1
     types: [completed]
 
 jobs:
   collect_data:
+    # only run if previous workflow succeeded
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
-
     steps:
+      # 1. Checkout branch "2026"
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: 2026
 
+      # 2. Python
       - name: Set up Python 3.11
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
+      # 3. Chrome for Selenium
       - name: Install Google Chrome
-        uses: browser-actions/setup-chrome@v1
+      # you can do either:
+      # A) use the same manual apt-get as workflow #1 for consistency:
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+      # OR:
+      # uses: browser-actions/setup-chrome@v1
+      # (but don't include both)
 
+      # 4. Install deps
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
 
+      # 5. Run the next-game script
       - name: Run script
         run: |
           python 2026/src/2_get_data_next_game_day_2026.py
 
-      - name: Upload CSVs
+      # 6. Upload artifacts from the REAL Next_Game dir
+      - name: Upload next-game artifacts
         uses: actions/upload-artifact@v4
         with:
           name: next_game_day_data
           path: |
-            2026/data/next_game_day/**
-            2026/data/team_next_game_day/**
+            2026/output/Gathering_Data/Next_Game/**
+            
+      - name: Commit & push next-game data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add 2026/output/Gathering_Data/Next_Game
+          git commit -m "auto: update next-game predictions/features" || echo "No changes to commit."
+          git push
