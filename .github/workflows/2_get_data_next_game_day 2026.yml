@@ -1,63 +1,58 @@
 name: "🏀 Collect Next Game Data"
 
 on:
+  # 1) manual run button in the Actions tab
+  workflow_dispatch:
+
+  # 2) auto-run after the previous job finishes successfully
   workflow_run:
-    workflows: ["🏀 Collect and Prepare NBA Game Data"]  # must match EXACT name of workflow #1
+    workflows: ["🏀 Collect and Prepare NBA Game Data"]   # must match the exact `name:` of workflow 1
     types: [completed]
 
 jobs:
   collect_data:
-    # only run if previous workflow succeeded
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # allow run if:
+    # - this was triggered by workflow_run AND previous workflow concluded success
+    # - OR this was triggered manually (workflow_dispatch)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout branch "2026"
-      - name: Checkout repository
+      - name: Checkout repository (branch 2026)
+      # this ensures we are always working on your 2026 branch structure
+      # so the paths like 2026/output/Gathering_Data/... are correct
         uses: actions/checkout@v4
         with:
           ref: 2026
 
-      # 2. Python
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # 3. Chrome for Selenium
       - name: Install Google Chrome
-      # you can do either:
-      # A) use the same manual apt-get as workflow #1 for consistency:
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable
-      # OR:
-      # uses: browser-actions/setup-chrome@v1
-      # (but don't include both)
+        # lighter and more reliable than apt-get for Actions
+        uses: browser-actions/setup-chrome@v1
 
-      # 4. Install deps
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
 
-      # 5. Run the next-game script
-      - name: Run script
+      - name: Run next-game scraper
         run: |
+          echo "=== Starting scraping for NEXT game day ==="
           python 2026/src/2_get_data_next_game_day_2026.py
+          echo "=== Script finished ==="
+          echo "Listing generated next game files:"
+          find 2026/output/Gathering_Data/Next_Game -type f || echo "⚠️ No next_game files found"
 
-      # 6. Upload artifacts from the REAL Next_Game dir
-      - name: Upload next-game artifacts
+      - name: Upload artifacts (next game info)
         uses: actions/upload-artifact@v4
         with:
+            # this will show up in the run summary so you can download and inspect
           name: next_game_day_data
           path: |
             2026/output/Gathering_Data/Next_Game/**
-            
-      - name: Commit & push next-game data
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add 2026/output/Gathering_Data/Next_Game
-          git commit -m "auto: update next-game predictions/features" || echo "No changes to commit."
-          git push
+            2026/output/Gathering_Data/data/*next*/**
+            2026/output/Gathering_Data/data/*upcoming*/**
