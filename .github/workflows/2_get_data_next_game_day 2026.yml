@@ -1,9 +1,10 @@
 name: "\ud83c\udfc0 Collect Next Game Data"
 
 on:
-  workflow_dispatch:
-  schedule:
-    - cron: "0 6 * * *"
+  workflow_run:
+    workflows: ["🏀 Collect Previous Game Data"]
+    types:
+      - completed
 
 jobs:
   collect_data:
