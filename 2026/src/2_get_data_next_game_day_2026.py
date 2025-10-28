@@ -1,43 +1,35 @@
 # -*- coding: utf-8 -*-
 """
-Adapted Script 2 of 5: Get Data for Next Game Day (2026 season)
+Script 2 of 5 (2026): Get Data for NEXT Game Day
 
-This script scrapes the NBA schedule from Basketball‑Reference and identifies the next
-slate of games after a specified date.  It is designed to work for the 2025‑26
-season (labeled ``2026`` on Basketball‑Reference) and can be executed from the
-``2026/src`` folder in your repository.  The script writes a CSV containing the
-upcoming games into the ``NEXT_GAME_DIR`` defined in ``nba_utils``.
+This script:
+  - looks at the NBA schedule on Basketball-Reference
+  - figures out the NEXT game day (all games on the next date with games)
+  - writes those matchups as games_df_<today>.csv into NEXT_GAME_DIR
 
-Key improvements over the original version:
+Inputs:
+  - local monthly schedule HTML(s) in STANDINGS_DIR (downloaded if missing)
+  - team name mapping from nba_utils_2026.get_team_codes()
 
-* **Season year override** – Use the environment variable ``SEASON_YEAR`` to
-  override the default season (which comes from ``nba_utils.CURRENT_SEASON``).
-  Basketball‑Reference names seasons by the year in which they conclude; the
-  2025‑26 season is therefore ``2026``.
-* **Custom date support** – Pass ``--date YYYY-MM-DD`` on the command line
-  (or set the environment variable ``TARGET_DATE``) to specify the start date
-  for finding the next game day.  If omitted, the script falls back to
-  ``get_current_date()`` from ``nba_utils``.
+Outputs:
+  - 2026/data/next_game_day/games_df_<DD-MM-YYYY>.csv
+    (path depends on get_directory_paths())
 
-Example usage::
+Assumptions:
+  - Season naming matches Basketball-Reference (e.g. 2025-26 season → 2026)
+  - Script 1 (previous_game_day) already created directory structure
 
-    # Run using the current date and default season year from nba_utils
-    python 2_get_data_next_game_day_2026.py
-
-    # Specify a particular date (e.g. opening night of the 2025-26 season)
-    python 2_get_data_next_game_day_2026.py --date 2025-10-21
-
-    # Override the season year via environment variable
-    SEASON_YEAR=2026 python 2_get_data_next_game_day_2026.py --date 2025-10-21
-
-Ensure that ``1_get_data_previous_game_day.py`` has been executed before running
-this script so that necessary directories exist.
+CI behavior:
+  - uses SEASON_YEAR env var if set
+  - uses TARGET_DATE env var or --date override if provided
+  - NO interactive input() blocking in GitHub Actions
 """
 
 import os
+import shutil
 import argparse
 import calendar
-import shutil
+import logging
 from datetime import datetime
 from typing import List, Dict, Optional
 
@@ -45,7 +37,6 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
-# Import shared utilities
 from nba_utils_2026 import (
     CURRENT_SEASON,
     get_current_date,
@@ -53,260 +44,337 @@ from nba_utils_2026 import (
     get_team_codes,
 )
 
-# -----------------------------------------------------------------------------
-# Helper functions
-# -----------------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+# ─────────────────────────────
+# helpers
+# ─────────────────────────────
 
 def parse_target_date(date_str: str) -> datetime:
-    """Parse a date string in ``YYYY-MM-DD`` format into a ``datetime``.
-
-    Args:
-        date_str (str): Date string (e.g. ``"2025-10-21"``).
-
-    Returns:
-        datetime: Parsed date object.
-    """
+    """Parse YYYY-MM-DD -> datetime."""
     return datetime.strptime(date_str, "%Y-%m-%d")
 
 
 def determine_season_year(target_date: datetime, fallback_season: int) -> int:
-    """Determine the NBA season year for a given date.
-
-    Basketball‑Reference labels seasons by the year in which they conclude.  For
-    example, the 2025‑26 season is labeled as ``2026``.  This helper returns
-    ``fallback_season`` by default, but will use ``target_date`` to infer the
-    season if you prefer automatic behavior in the future.
-
-    Args:
-        target_date (datetime): The date used to infer the season year.
-        fallback_season (int): Default season year (e.g. from ``CURRENT_SEASON``).
-
-    Returns:
-        int: Season year used for scraping (e.g. 2026).
     """
-    # By convention, NBA seasons span from October of the starting year to June
-    # of the following year.  If the target date falls between July and
-    # September (off‑season), we still want the season that begins in October.
-    # For clarity and stability, return ``fallback_season`` (from nba_utils)
-    # unless ``SEASON_YEAR`` environment variable is provided.
+    Basketball-Reference labels seasons by the year they END.
+    2025-26 season is called 2026.
+
+    We mostly just trust CURRENT_SEASON unless SEASON_YEAR env var is set.
+    """
     env_season = os.getenv("SEASON_YEAR")
     if env_season is not None:
         try:
             return int(env_season)
         except ValueError:
-            print(f"Invalid SEASON_YEAR '{env_season}', falling back to {fallback_season}.")
+            logging.warning(
+                f"Invalid SEASON_YEAR '{env_season}', falling back to {fallback_season}."
+            )
     return fallback_season
 
 
-def scrape_season_for_month(season: int, month: int, month_name: str, standings_dir: str) -> None:
-    """Scrape NBA games data for a specific month and season.
-
-    This downloads the monthly games page from Basketball‑Reference if it
-    doesn't already exist locally.
-
-    Args:
-        season (int): The NBA season year (e.g. 2026 for 2025‑26).
-        month (int): Month number (1‑12).
-        month_name (str): Lowercase month name (e.g. 'october').
-        standings_dir (str): Directory to save the scraped HTML.
+def scrape_season_for_month(season: int, month_num: int, month_name: str, standings_dir: str) -> Optional[str]:
     """
-    url = f"https://www.basketball-reference.com/leagues/NBA_{season}_games.html"
+    Download the <month> schedule page for a given Basketball-Reference season,
+    e.g. https://www.basketball-reference.com/leagues/NBA_2026_games-october.html
+
+    Saves it as NBA_<season>_games-<month_name>.html in standings_dir.
+    Returns the local path, or None on failure.
+    """
+    os.makedirs(standings_dir, exist_ok=True)
+
+    # Step 1: get the main season page to discover monthly links
+    season_url = f"https://www.basketball-reference.com/leagues/NBA_{season}_games.html"
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-        links = soup.find_all("a", href=True)
-        month_link: Optional[str] = None
-        for link in links:
-            # Find the link to the monthly schedule page
-            if f"NBA_{season}_games-{month_name}" in link['href']:
-                month_link = "https://www.basketball-reference.com" + link['href']
-                break
-        if month_link:
-            month_response = requests.get(month_link)
-            month_response.raise_for_status()
-            # Save the HTML to the standings directory
-            with open(os.path.join(standings_dir, f"NBA_{season}_games-{month_name}.html"), "w", encoding='utf-8') as f:
-                f.write(month_response.text)
-            print(f"Data for {month_name.title()} {season} saved to {standings_dir}.")
-        else:
-            print(f"No link found for {month_name.title()} {season}.")
+        resp = requests.get(season_url, timeout=15)
+        resp.raise_for_status()
     except requests.RequestException as e:
-        print(f"An error occurred while fetching data for {month_name.title()} {season}: {e}")
+        logging.error(f"[SEASON PAGE] Failed {season_url}: {e}")
+        return None
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    links = soup.find_all("a", href=True)
+
+    month_link = None
+    for link in links:
+        href = link["href"]
+        if f"NBA_{season}_games-{month_name}" in href:
+            month_link = "https://www.basketball-reference.com" + href
+            break
+
+    if not month_link:
+        logging.warning(
+            f"[SEASON PAGE] No monthly link for {month_name} {season}"
+        )
+        return None
+
+    # Step 2: download the monthly schedule
+    try:
+        mresp = requests.get(month_link, timeout=15)
+        mresp.raise_for_status()
+    except requests.RequestException as e:
+        logging.error(f"[MONTH PAGE] Failed {month_link}: {e}")
+        return None
+
+    out_path = os.path.join(
+        standings_dir, f"NBA_{season}_games-{month_name}.html"
+    )
+
+    try:
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(mresp.text)
+        logging.info(
+            f"[OK] Saved month schedule → {out_path}"
+        )
+    except Exception as e:
+        logging.error(f"[WRITE FAIL] {out_path}: {e}")
+        return None
+
+    return out_path
 
 
-def find_games_for_next_day(target_date: datetime, file_paths: List[str]) -> List[Dict[str, any]]:
-    """Find NBA games scheduled on the next game day at or after ``target_date``.
-
-    Args:
-        target_date (datetime): Starting point for searching (inclusive).
-        file_paths (List[str]): HTML schedule files to search (ordered by month).
-
-    Returns:
-        List[Dict[str, any]]: A list of games (each with 'date', 'home_team', 'visitor_team').
+def find_games_for_next_day(target_date: datetime, file_paths: List[str]) -> List[Dict[str, object]]:
     """
-    next_game_info: List[Dict[str, any]] = []
+    Given a list of local monthly HTML schedule files, find:
+      - the first game_date >= target_date
+      - all games on that date
+
+    Returns list of dict rows with:
+      { "date": datetime, "home_team": <full name>, "visitor_team": <full name> }
+    """
     next_game_date: Optional[datetime] = None
+    collected: List[Dict[str, object]] = []
+
     for path in file_paths:
         if not os.path.exists(path):
+            logging.warning(f"[MISS] schedule file not found: {path}")
             continue
-        try:
-            with open(path, "r", encoding='utf-8') as f:
-                soup = BeautifulSoup(f.read(), 'html.parser')
-            table = soup.find("table", {"id": "schedule"})
-            if table:
-                rows = table.find_all("tr")
-                # Skip the header row and iterate over schedule rows
-                for row in rows[1:]:
-                    date_cell = row.find("th", {"data-stat": "date_game"})
-                    if not date_cell:
-                        continue
-                    date_str = date_cell.text.strip()
-                    try:
-                        game_date = datetime.strptime(date_str, "%a, %b %d, %Y")
-                    except ValueError:
-                        continue
-                    # Identify the next game day on or after the target date
-                    if game_date >= target_date and next_game_date is None:
-                        next_game_date = game_date
-                    # Collect all games scheduled on that date
-                    if next_game_date is not None and game_date == next_game_date:
-                        cols = row.find_all("td")
-                        if len(cols) >= 4:
-                            next_game_info.append({
-                                'date': game_date,
-                                'home_team': cols[3].text.strip(),
-                                'visitor_team': cols[1].text.strip(),
-                            })
-                    # Stop once we've moved beyond the targeted game day
-                    if next_game_date is not None and game_date > next_game_date:
-                        return next_game_info
-        except Exception as e:
-            print(f"Error reading schedule from {path}: {e}")
-    return next_game_info
 
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                soup = BeautifulSoup(f.read(), "html.parser")
+        except Exception as e:
+            logging.error(f"[READ FAIL] {path}: {e}")
+            continue
+
+        table = soup.find("table", {"id": "schedule"})
+        if not table:
+            continue
+
+        rows = table.find_all("tr")
+        # we'll manually skip header rows (they have no <td> usually)
+        for row in rows:
+            # date is in the <th data-stat="date_game">
+            th_date = row.find("th", {"data-stat": "date_game"})
+            if not th_date:
+                continue
+
+            raw_date = th_date.get_text(strip=True)
+            try:
+                game_date = datetime.strptime(raw_date, "%a, %b %d, %Y")
+            except ValueError:
+                continue
+
+            # first future date we encounter (>= target_date)
+            if game_date >= target_date and next_game_date is None:
+                next_game_date = game_date
+
+            # collect only rows on that same next_game_date
+            if next_game_date is not None and game_date == next_game_date:
+                tds = row.find_all("td")
+                # typical schedule table columns:
+                #  - visitor_team_name at data-stat="visitor_team_name" (index 1 in raw table structure)
+                #  - home_team_name    at data-stat="home_team_name"    (index 3)
+                if len(tds) >= 4:
+                    visitor = tds[1].get_text(strip=True)
+                    home    = tds[3].get_text(strip=True)
+                    collected.append({
+                        "date": game_date,
+                        "home_team": home,
+                        "visitor_team": visitor,
+                    })
+
+            # once we're past that date, we can stop
+            if next_game_date is not None and game_date > next_game_date:
+                return collected
+
+    return collected
+
+
+def _pause_and_exit_ok():
+    """
+    Keep window open if running locally.
+    In GitHub Actions, GITHUB_ACTIONS="true" so we just return.
+    """
+    in_ci = os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
+    if in_ci:
+        return
+    try:
+        input("Done. Press Enter to close this window...")
+    except EOFError:
+        pass
+
+
+# ─────────────────────────────
+# main
+# ─────────────────────────────
 
 def main() -> None:
-    """Entry point for the script."""
-    # Parse command‑line arguments
-    parser = argparse.ArgumentParser(description="Scrape upcoming NBA games for the next game day.")
+    parser = argparse.ArgumentParser(
+        description="Find the NEXT NBA game day and save matchups as CSV."
+    )
     parser.add_argument(
         "--date",
         type=str,
         default=os.getenv("TARGET_DATE"),
-        help="Override the current date (YYYY-MM-DD) to determine the next game day.",
+        help="Anchor date (YYYY-MM-DD). We'll search for the first game day on/after this date."
     )
     args = parser.parse_args()
-    # Determine the target date for finding the next game day
+
+    # figure out what 'today' is for scheduling
     if args.date:
         try:
-            today_date = parse_target_date(args.date)
-            # Also set a friendly display string
-            today_str = today_date.strftime("%a, %b %d, %Y")
-            today_str_format = today_date.strftime("%d-%m-%Y")
+            anchor_dt = parse_target_date(args.date)
         except ValueError:
-            print(f"Invalid --date format '{args.date}'. Use YYYY-MM-DD.")
+            logging.error(f"Invalid --date '{args.date}'. Use YYYY-MM-DD.")
             return
-    else:
-        # Use the helper to fetch the current date from nba_utils
-        today, today_str, today_str_format = get_current_date()
-        today_date = datetime.strptime(today_str, "%a, %b %d, %Y")
-    print(f"Using date: {today_str}")
-    # Determine month info based on the target date
-    month_num = today_date.month
-    month_name = calendar.month_name[month_num].lower()
-    print(f"Target month for upcoming games: {month_name}")
-    # Resolve directory paths from nba_utils
-    paths = get_directory_paths()
-    standings_dir = paths['STANDINGS_DIR']
-    next_game_dir = paths['NEXT_GAME_DIR']
-    # Resolve the season year (either via env var or fallback)
-    season_year = determine_season_year(today_date, CURRENT_SEASON)
-    # Build the monthly schedule filename and path
-    html_filename = f"NBA_{season_year}_games-{month_name}.html"
-    html_path = os.path.join(standings_dir, html_filename)
-    # Ensure the monthly schedule file exists; download if necessary
-    if not os.path.exists(html_path):
-        print(f"Schedule file missing: {html_path}")
-        scrape_season_for_month(season_year, month_num, month_name, standings_dir)
-    # Find next game information
-    games_info = find_games_for_next_day(today_date, [html_path])
 
-    # ------------------------------------------------------------------
-    # Fallback: if no games are found and the target date matches
-    # the opening night of the 2025-26 season (October 21, 2025),
-    # populate the list manually.  This avoids hitting the network
-    # when basketball-reference.com is unreachable (returns 403 errors).
-    # ------------------------------------------------------------------
+        today_date = anchor_dt
+        today_str_human = anchor_dt.strftime("%a, %b %d, %Y")
+        today_str_for_filename = anchor_dt.strftime("%d-%m-%Y")
+    else:
+        # fallback to util
+        now_dt, today_str_human, today_str_for_filename = get_current_date()
+        # get_current_date returns now_dt as datetime already in script1 style
+        # but today_str_human is "%a, %b %d, %Y"
+        # so parse that back into datetime for consistent downstream logic
+        today_date = datetime.strptime(today_str_human, "%a, %b %d, %Y")
+
+    logging.info(f"Using anchor date: {today_str_human}")
+
+    # resolve directories
+    paths = get_directory_paths()
+    standings_dir   = paths["STANDINGS_DIR"]
+    next_game_dir   = paths["NEXT_GAME_DIR"]
+
+    os.makedirs(next_game_dir, exist_ok=True)
+
+    # pick the Basketball-Reference "season year"
+    season_year = determine_season_year(today_date, CURRENT_SEASON)
+
+    # figure out which month file(s) we need
+    month_num   = today_date.month
+    month_name  = calendar.month_name[month_num].lower()
+
+    monthly_html = os.path.join(
+        standings_dir,
+        f"NBA_{season_year}_games-{month_name}.html"
+    )
+
+    # ensure we have this month's schedule locally (download if missing)
+    if not os.path.exists(monthly_html):
+        logging.info(f"Schedule file missing locally → {monthly_html}")
+        pulled = scrape_season_for_month(
+            season_year, month_num, month_name, standings_dir
+        )
+        if pulled is not None:
+            monthly_html = pulled
+
+    # gather from this month first
+    games_info = find_games_for_next_day(today_date, [monthly_html])
+
+    # fallback for known opening night if site access was blocked / partial
+    # (You can edit these pairs if opening night changes for a new season)
     if not games_info and today_date.strftime("%Y-%m-%d") == "2025-10-21":
-        # Define the known matchups for Oct 21, 2025
         games_info = [
             {
-                'date': today_date,
-                'home_team': 'Oklahoma City Thunder',
-                'visitor_team': 'Houston Rockets',
+                "date": today_date,
+                "home_team": "Oklahoma City Thunder",
+                "visitor_team": "Houston Rockets",
             },
             {
-                'date': today_date,
-                'home_team': 'Los Angeles Lakers',
-                'visitor_team': 'Golden State Warriors',
+                "date": today_date,
+                "home_team": "Los Angeles Lakers",
+                "visitor_team": "Golden State Warriors",
             },
         ]
-    # If no games found in this month, iterate through subsequent months
+
+    # try subsequent months if still empty
     if not games_info:
         next_month = (month_num % 12) + 1
-        months_checked = 0
-        while not games_info and months_checked < 12:
-            next_month_name = calendar.month_name[next_month].lower()
-            next_html = os.path.join(standings_dir, f"NBA_{season_year}_games-{next_month_name}.html")
-            if not os.path.exists(next_html):
-                scrape_season_for_month(season_year, next_month, next_month_name, standings_dir)
-            games_info = find_games_for_next_day(today_date, [next_html])
+        checked = 0
+        while not games_info and checked < 12:
+            nm_name = calendar.month_name[next_month].lower()
+            nm_html = os.path.join(
+                standings_dir,
+                f"NBA_{season_year}_games-{nm_name}.html"
+            )
+
+            if not os.path.exists(nm_html):
+                scrape_season_for_month(
+                    season_year, next_month, nm_name, standings_dir
+                )
+
+            games_info = find_games_for_next_day(today_date, [nm_html])
+
             next_month = (next_month % 12) + 1
-            months_checked += 1
-    # Map team names to codes for downstream processing
+            checked += 1
+
+    # map full team names -> 3-letter codes
     team_codes = get_team_codes()
-    games: List[tuple] = []
+
+    rows_for_csv: List[tuple] = []
     if games_info:
-        for game in games_info:
-            home_code = team_codes.get(game['home_team'], game['home_team'])
-            away_code = team_codes.get(game['visitor_team'], game['visitor_team'])
-            games.append((home_code, away_code, game['date'].strftime("%Y-%m-%d")))
-            print(
-                f"Scheduled game: {game['visitor_team']} at {game['home_team']} on "
-                f"{game['date'].strftime('%a, %b %d, %Y')}"
+        for g in games_info:
+            home_code = team_codes.get(g["home_team"], g["home_team"])
+            away_code = team_codes.get(g["visitor_team"], g["visitor_team"])
+
+            rows_for_csv.append(
+                (
+                    home_code,
+                    away_code,
+                    g["date"].strftime("%Y-%m-%d")
+                )
+            )
+
+            logging.info(
+                f"NEXT GAME: {g['visitor_team']} at {g['home_team']} "
+                f"on {g['date'].strftime('%a, %b %d, %Y')}"
             )
     else:
-        print("No games found for the specified date.")
-    # Create DataFrame and save to CSV
-    df = pd.DataFrame(games, columns=['home_team', 'away_team', 'game_date'])
-    csv_name = f"games_df_{today_str_format}.csv"
-    output_path = os.path.join(next_game_dir, csv_name)
-    df.to_csv(output_path, index=False)
-    print(f"Saved upcoming games to {output_path}.")
-    # Copy to NEXT_GAME_DIR (mirroring original behaviour)
+        logging.warning("No upcoming games found.")
+        # we'll still save an empty CSV for downstream scripts so they don't crash
+
+    # build final DataFrame
+    next_games_df = pd.DataFrame(
+        rows_for_csv,
+        columns=["home_team", "away_team", "game_date"]
+    )
+
+    csv_name   = f"games_df_{today_str_for_filename}.csv"
+    output_csv = os.path.join(next_game_dir, csv_name)
+
+    next_games_df.to_csv(output_csv, index=False)
+    logging.info(f"Saved upcoming games → {output_csv}")
+
+    # no-op copy (old Windows script tried to 'sync' to itself)
+    # leaving a message here so it's obvious
     if os.path.isdir(next_game_dir):
-        for fname in os.listdir(next_game_dir):
-            if fname.startswith('.ipynb_checkpoints'):
-                continue
-            src_path = os.path.join(next_game_dir, fname)
-            dst_path = os.path.join(next_game_dir, fname)  # same folder in this context
-            if not os.path.exists(dst_path):
-                shutil.copy2(src_path, dst_path)
-                print(f"Copied {fname} into {next_game_dir}")
+        logging.info(f"NEXT_GAME_DIR ready at {next_game_dir}")
     else:
-        print(f"Directory {next_game_dir} does not exist or is not a folder.")
+        logging.warning(
+            f"{next_game_dir} is not a directory (unexpected)."
+        )
+
+    _pause_and_exit_ok()
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception:
-        logging.exception("An unexpected error occurred during prediction.")
-    finally:
-        # Keep the console window open so the user can read the logs.  In a non-interactive
-        # environment (e.g. GitHub Actions), input() will raise EOFError, which we catch and ignore.
-        try:
-            input("Prediction complete. Press Enter to close this window...")
-        except EOFError:
-            pass
+        logging.exception("Fatal error in script 2.")
+        _pause_and_exit_ok()
