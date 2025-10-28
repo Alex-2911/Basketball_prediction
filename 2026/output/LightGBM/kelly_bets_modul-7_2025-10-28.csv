@@ -1,0 +1,5 @@
+home_team,away_team,home_team_prob,odds_1,odds_2,date,kelly_fraction_fixed,bet_amount_fixed,bet_result,running_bank,win,result
+GSW,LAC,0.55,2.05,1.80,2025-10-28,0.06,2.52,-2.52,39.68,0,0
+MIA,CHO,0.63,1.44,2.85,2025-10-28,0.00,0.00,-0.00,39.68,0,0
+MIL,NYK,0.61,2.05,1.80,2025-10-28,0.12,4.74,-4.74,34.94,0,0
+OKC,SAC,0.70,1.22,4.50,2025-10-28,0.00,0.00,-0.00,34.94,0,0
