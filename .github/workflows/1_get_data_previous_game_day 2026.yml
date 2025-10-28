@@ -1,13 +1,13 @@
 name: "🏀 Collect and Prepare NBA Game Data"
 
 on:
-  workflow_dispatch:  # manual trigger
+  workflow_dispatch:  # manual run
   schedule:
-    # every day at 19:00 UTC (20:00 CET)
+    # every day at 19:00 UTC (20:00 local)
     - cron: "0 19 * * *"
 
 jobs:
-  collect_and_prepare:
+  collect_data:
     runs-on: ubuntu-latest
 
     steps:
@@ -21,7 +21,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      # 3. Install Chrome (headless browser for Selenium)
+      # 3. Install Google Chrome
       - name: Install Google Chrome
         run: |
           sudo apt-get update
@@ -32,31 +32,32 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      # 5. Run Script 1 - Previous Game Day
-      - name: 🏀 Run Script 1 - Get Previous Game Data
+      # 5. Run script
+      - name: Run script
         run: |
-          echo "=== Starting 1_get_data_previous_game_day_2026.py ==="
+          echo "=== Starting scraping for previous game day ==="
           python 2026/src/1_get_data_previous_game_day_2026.py
+          echo "=== Script finished ==="
+          echo "Listing downloaded HTMLs:"
+          find data/previous_game_day -name "*.html" -type f || echo "⚠️ No HTML files found"
 
-      # 6. Ensure HTML/CSV files saved in the correct directory
-      - name: 🗂 Move gathered HTMLs and CSVs to correct folders
-        run: |
-          mkdir -p output/Gathering_Data/data/2026_scores
-          mkdir -p output/Gathering_Data/data/2026_standings
-          find . -name "*.html" -exec mv {} output/Gathering_Data/data/2026_scores/ \; || true
-          find . -name "*.csv" -exec mv {} output/Gathering_Data/data/2026_scores/ \; || true
-
-      # 7. Run Script 2 - Next Game Day
-      - name: 🏀 Run Script 2 - Get Next Game Data
-        run: |
-          echo "=== Starting 2_get_data_next_game_day_2026.py ==="
-          python 2026/src/2_get_data_next_game_day_2026.py
-
-      # 8. Upload artifacts (for debugging or review)
-      - name: 📤 Upload gathered data as artifacts
+      # 6. Upload artifacts (CSVs + HTMLs)
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: nba_game_data
+          name: previous_game_day_data
           path: |
-            output/Gathering_Data/data/**/*.csv
-            output/Gathering_Data/data/**/*.html
+            data/previous_game_day/**/*.csv
+            data/previous_game_day/**/*.html
+
+  trigger_next_script:
+    needs: collect_data
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger "2_get_data_next_game_day 2026.yml"
+        uses: peter-evans/workflow-dispatch@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: Alex-2911/Basketball_prediction
+          workflow: "2_get_data_next_game_day 2026.yml"
+          ref: 2026
