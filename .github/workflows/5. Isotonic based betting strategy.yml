@@ -43,7 +43,7 @@ jobs:
       - name: Run shortlist / bet log engine (Script 5)
         run: |
           echo "=== Running shortlist + bet log update (Script 5) ==="
-          python 2026/src/5_build_shortlist_and_logs_2026.py
+          python 2026/src/5_isotonic based betting strategy.py
           echo "=== Script 5 finished ==="
 
       # upload the CSV outputs as an artifact so you can quickly download from Actions UI
