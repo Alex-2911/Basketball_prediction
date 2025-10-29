@@ -1,4 +1,4 @@
-name: "🏀 Build Predictions & Betting Lines (Today)"
+name: "🏀 3. Build Predictions & Betting Lines (Today)"
 
 on:
   # allow manual run in Actions tab
