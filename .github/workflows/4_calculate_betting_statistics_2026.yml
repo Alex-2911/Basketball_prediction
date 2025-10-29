@@ -1,25 +1,23 @@
 name: "🏀 4. Update Betting Statistics (Accuracy & Combined File)"
 
 on:
-  # Allow manual run from Actions tab
+  # Manual run from Actions tab
   workflow_dispatch:
 
-  # Auto-run after workflow 3 finishes successfully
+  # Auto-run after workflow 3 completes successfully
   workflow_run:
-    workflows: ["🏀 3. Collect Next Game Data"]
+    workflows: ["🏀 Collect Next Game Data"]
     types: [completed]
 
 jobs:
   update_betting_stats:
-    # only run automatically if workflow 3 concluded success,
-    # OR always run if it was launched manually
+    # Run only if triggered manually OR previous workflow succeeded
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
-
     runs-on: ubuntu-latest
 
     steps:
       ##################################################################
-      # 1. Checkout repo so we have code + latest scraped data
+      # 1️⃣ Checkout repository (always use branch 2026)
       ##################################################################
       - name: Checkout repository (branch 2026)
         uses: actions/checkout@v4
@@ -27,7 +25,7 @@ jobs:
           ref: 2026
 
       ##################################################################
-      # 2. Set up Python (match same version used everywhere else)
+      # 2️⃣ Set up Python
       ##################################################################
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -35,65 +33,46 @@ jobs:
           python-version: "3.11"
 
       ##################################################################
-      # 3. Install Chrome if your utils/scripts parse HTML or need it
-      #    (Safe to keep consistent with other workflows)
-      ##################################################################
-      - name: Install Google Chrome
-        uses: browser-actions/setup-chrome@v1
-
-      ##################################################################
-      # 4. Install Python dependencies
+      # 3️⃣ Install dependencies
       ##################################################################
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
 
       ##################################################################
-      # 5. Run Script 4 (calculate betting stats, update combined CSV)
+      # 4️⃣ Run Script 4 (Calculate betting statistics)
       #
-      #    This should:
-      #      - update combined_nba_predictions_acc.csv
-      #      - create combined_nba_predictions_acc_<today>.csv
+      # Produces:
+      #   2026/output/LightGBM/combined_nba_predictions_acc.csv
+      #   2026/output/LightGBM/combined_nba_predictions_acc_<today>.csv
       ##################################################################
       - name: Run betting statistics updater
         run: |
           echo "=== Running betting statistics update ==="
           python 2026/src/4_calculate_betting_statistics_2026.py
-          echo "=== Script finished ==="
+          echo "=== Script finished successfully ==="
 
       ##################################################################
-      # 6. Upload outputs as Action artifacts for easy download
-      #
-      #    We try to upload the full prediction directory where the script
-      #    writes:
-      #      combined_nba_predictions_acc.csv
-      #      combined_nba_predictions_acc_<today>.csv
-      #
-      #    If your nba_utils_2026 puts these in a different folder,
-      #    just update this path.
+      # 5️⃣ Upload the updated combined CSV files as artifacts
       ##################################################################
-      - name: Upload combined prediction snapshots
+      - name: Upload combined prediction files
         uses: actions/upload-artifact@v4
         with:
           name: betting_statistics_outputs
           path: |
-            2026/output/**/combined_nba_predictions_acc*.csv
-            2026/output/**/combined_nba_predictions_acc.csv
+            2026/output/LightGBM/combined_nba_predictions_acc.csv
+            2026/output/LightGBM/combined_nba_predictions_acc_*.csv
 
       ##################################################################
-      # 7. Commit and push updated combined files back to branch `2026`
-      #
-      #    We stage only the relevant prediction / combined output dirs.
-      #    If they're somewhere specific (like 2026/output/Predictions/),
-      #    point git add there instead of 2026/output.
+      # 6️⃣ Commit & push the updated files to branch 2026
       ##################################################################
       - name: Commit and push updated combined stats
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Stage only prediction output dirs (adjust if needed)
-          git add 2026/output
+          # Stage only the LightGBM folder (this is your target)
+          git add 2026/output/LightGBM
 
           if git diff --cached --quiet; then
             echo "No changes to commit."
