@@ -1,4 +1,4 @@
-name: "🏀 Collect and Prepare NBA Game Data (Previous Game Day)"
+name: "🏀 1. Collect and Prepare NBA Game Data (Previous Game Day)"
 
 on:
   workflow_dispatch:
