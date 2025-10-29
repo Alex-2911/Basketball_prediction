@@ -391,14 +391,18 @@ card = pd.DataFrame()
 
 if best_params is not None:
     # upcoming within next 36h based on timestamp
-    now_norm = pd.Timestamp.utcnow().normalize()
+    now_norm = pd.Timestamp.now().normalize()
     cutoff   = now_norm + pd.Timedelta(hours=LOOKAHEAD_HRS)
 
+    # ensure both sides are true datetimes (not date objects)
+    df_all["date"] = pd.to_datetime(df_all["date"], errors="coerce")
+    
     upcoming = df_all[
         (~df_all["is_played"]) &
-        (df_all["date"] >= now_norm) &
-        (df_all["date"] <= cutoff)
+        (df_all["date"] >= pd.Timestamp(now_norm)) &
+        (df_all["date"] <= pd.Timestamp(cutoff))
     ].copy()
+
 
     # if no direct future rows (early season edge case),
     # fall back purely to today's predictions file (PRED_TODAY)
