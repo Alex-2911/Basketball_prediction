@@ -1,83 +1,53 @@
 name: "🏀 Collect and Prepare NBA Game Data (Previous Game Day)"
 
 on:
-  workflow_dispatch:  # manual run
+  workflow_dispatch:
   schedule:
-    # every day at 19:00 UTC
-    - cron: "0 19 * * *"
-
-permissions:
-  contents: write      # <-- allow pushing back to the repo
-  actions: write
+    - cron: "0 20 * * *"   # example: run daily 20:00 UTC, keep whatever you already use
 
 jobs:
   collect_data:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout repo at branch 2026 with write token
-      - name: Checkout repository
+      - name: Checkout repository (branch 2026)
         uses: actions/checkout@v4
         with:
           ref: 2026
-          token: ${{ secrets.GITHUB_TOKEN }}
-          persist-credentials: true
 
-      # 2. Set up Python
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # 3. Install Google Chrome
       - name: Install Google Chrome
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable || \
-          sudo apt-get install -y chromium-browser
+        uses: browser-actions/setup-chrome@v1
 
-      # 4. Install dependencies
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
 
-      # 5. Run scraper script
-      - name: Run previous-game-day scraper
+      - name: Scrape and prepare PREVIOUS game day data
         run: |
-          echo "=== Starting scraping for previous game day ==="
+          echo "=== Starting scrape for PREVIOUS game day ==="
           python 2026/src/1_get_data_previous_game_day_2026.py
           echo "=== Script finished ==="
 
-          echo "----- Box scores -----"
-          find 2026/output/Gathering_Data/data/2026_scores -type f -maxdepth 1 -name "*.html" || echo "⚠️ No score HTMLs"
-
-          echo "----- Standings / schedule snapshots -----"
-          find 2026/output/Gathering_Data/data/2026_standings -type f -maxdepth 1 || echo "⚠️ No standings HTMLs"
-
-          echo "----- Whole_Statistic (rolling season table) -----"
-          find 2026/output/Gathering_Data/Whole_Statistic -type f -maxdepth 1 || echo "⚠️ No Whole_Statistic CSVs"
-
-      # 6. Upload artifacts (for debugging / backup)
-      - name: Upload collected game data
+      - name: Upload artifact (previous game day data)
         uses: actions/upload-artifact@v4
         with:
           name: previous_game_day_data
           path: |
             2026/output/Gathering_Data/**
+            !2026/output/Gathering_Data/Next_Game/**
 
-      # 7. Commit + push new/updated files to branch `2026`
       - name: Commit and push scraped data back to repo
         run: |
-          echo "Configuring git user"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          echo "Staging updated data folders"
-          git add 2026/output/Gathering_Data/data/2026_scores
-          git add 2026/output/Gathering_Data/data/2026_standings
-          git add 2026/output/Gathering_Data/Whole_Statistic
+          git add 2026/output/Gathering_Data
 
-          # if nothing changed, skip commit to avoid failure
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else
@@ -85,16 +55,3 @@ jobs:
             git commit -m "$commit_msg"
             git push origin 2026
           fi
-
-  trigger_next_script:
-    needs: collect_data
-    runs-on: ubuntu-latest
-    steps:
-      - name: Trigger downstream workflow (next game day collector)
-        uses: peter-evans/workflow-dispatch@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          repository: Alex-2911/Basketball_prediction
-          # IMPORTANT: use the *file name* (no spaces!) of workflow 2
-          workflow: "2_get_data_next_game_day_2026.yml"
-          ref: 2026
