@@ -6,7 +6,7 @@ on:
 
   # also run automatically after workflow 2 finishes successfully
   workflow_run:
-    workflows: ["🏀 Collect Next Game Data"]
+    workflows: ["🏀 2. Collect Next Game Data"]
     types: [completed]
 
 jobs:
