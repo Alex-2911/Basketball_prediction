@@ -74,7 +74,7 @@ def get_directory_paths() -> Dict[str, str]:
         "STANDINGS_DIR": os.path.join(data_dir, "data", f"{CURRENT_SEASON}_standings"),
         "SCORES_DIR": os.path.join(data_dir, "data", f"{CURRENT_SEASON}_scores"),
         "NEXT_GAME_DIR": os.path.join(data_dir, "Next_Game"),
-        "PREDICTION_DIR": os.path.join(base_dir,"output","LightGBM"),
+        "PREDICTION_DIR": os.path.join(base_dir,"2026","output","LightGBM"),
     }
 
     for p in paths.values():
