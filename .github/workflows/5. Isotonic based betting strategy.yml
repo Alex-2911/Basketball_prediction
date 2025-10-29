@@ -1,0 +1,77 @@
+name: "🏀 5. Build Shortlist & Bet Log"
+
+on:
+  # automatically run after workflow 4 completes
+  workflow_run:
+    workflows: ["🏀 4. Update Betting Statistics (Accuracy & Combined File)"]
+    types: [completed]
+
+  # allow manual trigger too (for debugging or reruns)
+  workflow_dispatch:
+
+jobs:
+  build_shortlist:
+    # only run if:
+    # - this is a manual dispatch OR
+    # - workflow_run fired AND previous workflow concluded success
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository (branch 2026)
+        uses: actions/checkout@v4
+        with:
+          ref: 2026
+          # we MUST fetch full history so we can commit back on same branch
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Google Chrome (for consistency with other jobs)
+        # (Your script 5 doesn't use Selenium, but keeping Chrome install
+        # makes the env consistent with earlier jobs, and it's harmless.)
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run shortlist / bet log engine (Script 5)
+        run: |
+          echo "=== Running shortlist + bet log update (Script 5) ==="
+          python 2026/src/5_build_shortlist_and_logs_2026.py
+          echo "=== Script 5 finished ==="
+
+      # upload the CSV outputs as an artifact so you can quickly download from Actions UI
+      - name: Upload betting outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: betting_shortlist_and_logs
+          path: |
+            2026/output/LightGBM/bet_shortlist_*.csv
+            2026/output/LightGBM/bet_history_strategy.csv
+            2026/output/LightGBM/bet_log.csv
+            2026/output/LightGBM/home_win_rates_sorted_*.csv
+
+      # commit the updated data back to branch 2026
+      - name: Commit and push updated betting files
+        run: |
+          echo "Configuring git user"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          echo "Staging LightGBM outputs"
+          git add 2026/output/LightGBM
+
+          # avoid failure if there are no changes
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            commit_msg="auto-update shortlist & bet log ($(date -u +%Y-%m-%dT%H:%MZ))"
+            git commit -m "$commit_msg"
+            git push origin 2026
+          fi
