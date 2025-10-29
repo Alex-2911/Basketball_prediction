@@ -1,27 +1,24 @@
 name: "🏀 Collect Next Game Data"
 
 on:
-  # 1) manual run button in the Actions tab
+  # You can still fire this manually from the Actions tab
   workflow_dispatch:
 
-  # 2) auto-run after the previous job finishes successfully
+  # This makes it auto-run after workflow 1 completes
   workflow_run:
-    workflows: ["🏀 Collect and Prepare NBA Game Data"]   # must match the exact `name:` of workflow 1
+    workflows: ["🏀 Collect and Prepare NBA Game Data (Previous Game Day)"]
     types: [completed]
 
 jobs:
   collect_data:
-    # allow run if:
-    # - this was triggered by workflow_run AND previous workflow concluded success
-    # - OR this was triggered manually (workflow_dispatch)
+    # only run automatically if previous workflow succeeded,
+    # OR always run if manually dispatched
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository (branch 2026)
-      # this ensures we are always working on your 2026 branch structure
-      # so the paths like 2026/output/Gathering_Data/... are correct
         uses: actions/checkout@v4
         with:
           ref: 2026
@@ -32,7 +29,6 @@ jobs:
           python-version: "3.11"
 
       - name: Install Google Chrome
-        # lighter and more reliable than apt-get for Actions
         uses: browser-actions/setup-chrome@v1
 
       - name: Install dependencies
@@ -50,34 +46,20 @@ jobs:
       - name: Upload artifacts (next game info)
         uses: actions/upload-artifact@v4
         with:
-            # this will show up in the run summary so you can download and inspect
           name: next_game_day_data
-          path: |
-            2026/output/Gathering_Data/Next_Game/**
-            
-      # 7. Commit + push new/updated files to branch `2026`
+          path: 2026/output/Gathering_Data/Next_Game/**
+
       - name: Commit and push scraped data back to repo
         run: |
-          echo "Configuring git user"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          echo "Staging updated data folders"
           git add 2026/output/Gathering_Data/Next_Game
 
-          # if nothing changed, skip commit to avoid failure
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else
-            commit_msg="auto-update scraped game data ($(date -u +%Y-%m-%dT%H:%MZ))"
+            commit_msg="auto-update NEXT game data ($(date -u +%Y-%m-%dT%H:%MZ))"
             git commit -m "$commit_msg"
             git push origin 2026
           fi
-
-      # 8️⃣ Trigger the prediction workflow (🏀 Build Predictions & Betting Lines)
-      - name: Trigger prediction workflow
-        if: ${{ success() }}
-        uses: peter-evans/workflow-dispatch@v3
-        with:
-          workflow: "🏀 Build Predictions & Betting Lines"
-          ref: 2026
