@@ -6,7 +6,7 @@ on:
 
   # This makes it auto-run after workflow 1 completes
   workflow_run:
-    workflows: ["🏀 Collect and Prepare NBA Game Data (Previous Game Day)"]
+    workflows: ["🏀 1. Collect and Prepare NBA Game Data (Previous Game Day)"]
     types: [completed]
 
 jobs:
