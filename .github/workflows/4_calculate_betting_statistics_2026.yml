@@ -6,7 +6,7 @@ on:
 
   # Auto-run after workflow 3 completes successfully
   workflow_run:
-    workflows: ["🏀 Collect Next Game Data"]
+    workflows: ["🏀 3. Build Predictions & Betting Lines (Today)"]
     types: [completed]
 
 jobs:
