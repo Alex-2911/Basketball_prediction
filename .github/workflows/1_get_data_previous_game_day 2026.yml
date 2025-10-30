@@ -30,7 +30,7 @@ jobs:
       - name: Scrape and prepare PREVIOUS game day data (retry with timeout)
         run: |
           echo "=== Starting scrape for PREVIOUS game day (attempt 1) ==="
-          timeout 300s python 2026/src/1_get_data_previous_game_day_2026.py
+          timeout 900s python 2026/src/1_get_data_previous_game_day_2026.py
           status=$?
 
           if [ $status -eq 124 ]; then
@@ -44,7 +44,7 @@ jobs:
           fi
 
           echo "=== Starting scrape for PREVIOUS game day (attempt 2) ==="
-          timeout 300s python 2026/src/1_get_data_previous_game_day_2026.py
+          timeout 900s python 2026/src/1_get_data_previous_game_day_2026.py
           status2=$?
 
           if [ $status2 -eq 124 ]; then
