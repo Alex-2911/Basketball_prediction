@@ -27,11 +27,36 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Scrape and prepare PREVIOUS game day data
+      - name: Scrape and prepare PREVIOUS game day data (retry with timeout)
         run: |
-          echo "=== Starting scrape for PREVIOUS game day ==="
-          python 2026/src/1_get_data_previous_game_day_2026.py
-          echo "=== Script finished ==="
+          echo "=== Starting scrape for PREVIOUS game day (attempt 1) ==="
+          timeout 300s python 2026/src/1_get_data_previous_game_day_2026.py
+          status=$?
+
+          if [ $status -eq 124 ]; then
+            echo "⚠️ Attempt 1 timed out after 300 seconds."
+          elif [ $status -ne 0 ]; then
+            echo "❌ Attempt 1 exited with error code $status."
+          else
+            echo "✅ Attempt 1 finished normally."
+            echo "=== Scrape step done (no retry needed) ==="
+            exit 0
+          fi
+
+          echo "=== Starting scrape for PREVIOUS game day (attempt 2) ==="
+          timeout 300s python 2026/src/1_get_data_previous_game_day_2026.py
+          status2=$?
+
+          if [ $status2 -eq 124 ]; then
+            echo "⛔ Attempt 2 also timed out after 300 seconds. Giving up."
+          elif [ $status2 -ne 0 ]; then
+            echo "⛔ Attempt 2 exited with error code $status2. Giving up."
+          else
+            echo "✅ Attempt 2 finished normally."
+          fi
+
+          echo "=== Scrape step done (with retry logic) ==="
+
 
       - name: Upload artifact (previous game day data)
         uses: actions/upload-artifact@v4
