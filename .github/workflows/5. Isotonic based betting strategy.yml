@@ -1,63 +1,96 @@
 name: "🏀 5. Build Shortlist & Bet Log"
 
 on:
-  # automatically run after workflow 4 completes
+  # Run automatically right after workflow 4 completes
   workflow_run:
     workflows: ["🏀 4. Update Betting Statistics (Accuracy & Combined File)"]
     types: [completed]
 
-  # allow manual trigger too (for debugging or reruns)
+  # Also allow manual run from the Actions tab
   workflow_dispatch:
 
 jobs:
   build_shortlist:
-    # only run if:
-    # - this is a manual dispatch OR
-    # - workflow_run fired AND previous workflow concluded success
+    # Only proceed if:
+    # - this was started manually (workflow_dispatch), OR
+    # - it was started by workflow_run AND workflow 4 concluded with success
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
     runs-on: ubuntu-latest
 
     steps:
+      ##################################################################
+      # 1️⃣ Checkout repository (branch 2026)
+      ##################################################################
       - name: Checkout repository (branch 2026)
         uses: actions/checkout@v4
         with:
           ref: 2026
-          # we MUST fetch full history so we can commit back on same branch
+          # We need full history if we want to commit back on same branch
           fetch-depth: 0
 
+      ##################################################################
+      # 2️⃣ Set up Python
+      ##################################################################
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install Google Chrome (for consistency with other jobs)
-        # (Your script 5 doesn't use Selenium, but keeping Chrome install
-        # makes the env consistent with earlier jobs, and it's harmless.)
+      ##################################################################
+      # 3️⃣ Install Chrome
+      #
+      # We keep Chrome install so the runtime is consistent with workflows 1-4.
+      # Script 5 doesn't currently use Selenium, but no harm.
+      ##################################################################
+      - name: Install Google Chrome (env parity)
         uses: browser-actions/setup-chrome@v1
 
+      ##################################################################
+      # 4️⃣ Install dependencies
+      ##################################################################
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
 
-      - name: Run shortlist / bet log engine (Script 5)
+      ##################################################################
+      # 5️⃣ Run Script 5
+      #
+      # Script 5 does:
+      #   - Sync bet_log_live with yesterday's shortlist (and stamp default stake)
+      #   - Mark 'won' for finished games using latest combined_nba_predictions_acc_*.csv
+      #   - Compute bankroll / performance summary
+      #   - Generate tonight's shortlist with Kelly stake
+      #   - Save:
+      #       bet_log_live.csv
+      #       bet_log_live_<today>.csv
+      #       bet_shortlist_<today>.csv
+      #       home_win_rates_sorted_<today>.csv
+      #       betting_summary_<today>.xlsx
+      ##################################################################
+      - name: Run shortlist + bet log engine
         run: |
           echo "=== Running shortlist + bet log update (Script 5) ==="
-          python 2026/src/5_isotonic_based_betting_strategy.py
+          python 2026/src/5_Isotonic_based_betting_strategy_2026.py
           echo "=== Script 5 finished ==="
 
-      # upload the CSV outputs as an artifact so you can quickly download from Actions UI
+      ##################################################################
+      # 6️⃣ Upload generated betting files as artifacts
+      ##################################################################
       - name: Upload betting outputs
         uses: actions/upload-artifact@v4
         with:
           name: betting_shortlist_and_logs
           path: |
+            2026/output/LightGBM/bet_log_live.csv
+            2026/output/LightGBM/bet_log_live_*.csv
             2026/output/LightGBM/bet_shortlist_*.csv
-            2026/output/LightGBM/bet_history_strategy.csv
-            2026/output/LightGBM/bet_log.csv
             2026/output/LightGBM/home_win_rates_sorted_*.csv
+            2026/output/LightGBM/betting_summary_*.xlsx
 
-      # commit the updated data back to branch 2026
+      ##################################################################
+      # 7️⃣ Commit and push updated betting files
+      ##################################################################
       - name: Commit and push updated betting files
         run: |
           echo "Configuring git user"
@@ -67,7 +100,6 @@ jobs:
           echo "Staging LightGBM outputs"
           git add 2026/output/LightGBM
 
-          # avoid failure if there are no changes
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else
