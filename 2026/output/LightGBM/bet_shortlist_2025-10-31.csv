@@ -1,0 +1,6 @@
+date,home_team,away_team,home_win_rate,prob_iso,odds_1,EV_€_per_100,kelly_full,kelly_fraction_used,stake_eur,param_home_win_rate_threshold,param_odds_min,param_odds_max,param_prob_threshold,bankroll_at_bettime
+2025-10-31,PHI,BOS,1.0,0.643,1.7,9.29,0.133,0.05,55.6,0.55,1.1,2.9,0.4,1111.9
+2025-10-31,LAC,NOP,1.0,0.8,1.19,-4.8,-0.253,0.0,0.0,0.55,1.1,2.9,0.4,1111.9
+2025-10-31,MEM,LAL,0.67,0.55,1.77,-2.65,-0.034,0.0,0.0,0.55,1.1,2.9,0.4,1111.9
+2025-10-31,CLE,TOR,1.0,0.8,1.35,8.0,0.229,0.05,55.6,0.55,1.1,2.9,0.4,1111.9
+2025-10-31,CHI,NYK,1.0,0.643,2.8,80.0,0.444,0.05,55.6,0.55,1.1,2.9,0.4,1111.9
