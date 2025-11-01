@@ -4,69 +4,58 @@
 """
 nba_utils_2026.py
 
-NBA Prediction Utilities Library (2025-26 / 2026 season)
+Shared helpers for the 2026 pipeline.
 
-Shared helpers for all scripts:
-- Date / paths
-- File ops
-- Scraping via requests (preferred in CI) and Selenium (fallback)
-- Data wrangling (rolling averages, next-game columns, etc.)
-- Betting utils (Kelly, odds conversions)
-- Team code normalization (PHO→PHX, BKN↔BRK, etc.)
+This module MUST provide:
+- CURRENT_SEASON
+- get_current_date()
+- get_directory_paths()
+- fetch_html_requests()
+- fetch_boxscore_via_selenium()     <-- required by script 1
+- rename_duplicated_columns()
+- copy_missing_files()
 
-IMPORTANT:
-- For GitHub Actions daily box score scrape: use fetch_html_requests()
-  first. If Basketball Reference returns anti-bot junk (no tables),
-  you can fall back to fetch_boxscore_via_driver() which reuses ONE
-  Selenium driver for all games that run.
+Plus: supporting imports that function 1 expects.
 """
 
 import os
 import glob
-import logging
 import time
+import shutil
+import logging
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, Dict, Tuple
 
 import requests
-import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
 
-# Selenium imports kept so we can still fall back to real browser rendering
+# selenium imports (used in fallback only)
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import (
-    TimeoutException,
-    WebDriverException,
-    NoSuchElementException,
-)
 from webdriver_manager.chrome import ChromeDriverManager
 
-
-# ============================================================================
+# -----------------------------------------------------------------------------
 # GLOBAL CONFIG
-# ============================================================================
+# -----------------------------------------------------------------------------
 
-CURRENT_SEASON = 2026
-ROLLING_WINDOW_SIZE = 9
+CURRENT_SEASON = 2026  # <- we are scraping NBA_2026_*
+# you can tweak ROLLING_WINDOW_SIZE etc. in other scripts if needed
 
 
-# ----------------------------------------------------------------------------
-# Date utilities
-# ----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# DATE / PATH HELPERS
+# -----------------------------------------------------------------------------
+
 def get_current_date(days_offset: int = 0) -> Tuple[datetime, str, str]:
     """
-    Return "current" date with an optional offset.
-
     Returns:
-        (datetime_obj, friendly_str, ymd_str)
-        friendly_str like: "Thu, Oct 23, 2025"
-        ymd_str like: "2025-10-23"
+      now_dt (datetime),
+      friendly_str like 'Sat, Nov 1, 2025',
+      ymd_str like '2025-11-01'
     """
     d = datetime.now() - timedelta(days=days_offset)
     friendly = d.strftime("%a, %b ") + str(int(d.strftime("%d"))) + d.strftime(", %Y")
@@ -74,121 +63,45 @@ def get_current_date(days_offset: int = 0) -> Tuple[datetime, str, str]:
     return d, friendly, ymd
 
 
-# ----------------------------------------------------------------------------
-# Directory structure
-# ----------------------------------------------------------------------------
 def get_directory_paths() -> Dict[str, str]:
     """
-    Resolve standard directory paths for the 2026 project structure.
-
-    Returns:
-        dict with BASE_DIR, DATA_DIR, STAT_DIR, STANDINGS_DIR, SCORES_DIR,
-        NEXT_GAME_DIR, PREDICTION_DIR
+    Standardized folder layout for 2026 branch.
+    Ensures dirs exist.
     """
-    # In GitHub Actions, cwd will be the repo root after checkout
-    base_dir = os.getcwd()
+    base_dir = os.getcwd()  # repo root during Actions
     data_dir = os.path.join(base_dir, "2026", "output", "Gathering_Data")
 
     paths = {
         "BASE_DIR": base_dir,
         "DATA_DIR": data_dir,
         "STAT_DIR": os.path.join(data_dir, "Whole_Statistic"),
-        "STANDINGS_DIR": os.path.join(data_dir, "data", f"{CURRENT_SEASON}_standings"),
-        "SCORES_DIR": os.path.join(data_dir, "data", f"{CURRENT_SEASON}_scores"),
+        "STANDINGS_DIR": os.path.join(
+            data_dir, "data", f"{CURRENT_SEASON}_standings"
+        ),
+        "SCORES_DIR": os.path.join(
+            data_dir, "data", f"{CURRENT_SEASON}_scores"
+        ),
         "NEXT_GAME_DIR": os.path.join(data_dir, "Next_Game"),
-        "PREDICTION_DIR": os.path.join(base_dir, "2026", "output", "LightGBM"),
+        "PREDICTION_DIR": os.path.join(
+            base_dir, "2026", "output", "LightGBM"
+        ),
     }
 
-    # make sure directories exist
     for p in paths.values():
         os.makedirs(p, exist_ok=True)
 
     return paths
 
 
-# ----------------------------------------------------------------------------
-# Team name/code maps (full → abbrev used in our stats)
-# ----------------------------------------------------------------------------
-def get_team_codes() -> Dict[str, str]:
-    return {
-        "Atlanta Hawks": "ATL",
-        "Boston Celtics": "BOS",
-        "Brooklyn Nets": "BRK",
-        "Charlotte Hornets": "CHO",
-        "Chicago Bulls": "CHI",
-        "Cleveland Cavaliers": "CLE",
-        "Dallas Mavericks": "DAL",
-        "Denver Nuggets": "DEN",
-        "Detroit Pistons": "DET",
-        "Golden State Warriors": "GSW",
-        "Houston Rockets": "HOU",
-        "Indiana Pacers": "IND",
-        "Los Angeles Clippers": "LAC",
-        "LA Clippers": "LAC",
-        "Los Angeles Lakers": "LAL",
-        "Memphis Grizzlies": "MEM",
-        "Miami Heat": "MIA",
-        "Milwaukee Bucks": "MIL",
-        "Minnesota Timberwolves": "MIN",
-        "New Orleans Pelicans": "NOP",
-        "New York Knicks": "NYK",
-        "Oklahoma City Thunder": "OKC",
-        "Orlando Magic": "ORL",
-        "Philadelphia 76ers": "PHI",
-        "Phoenix Suns": "PHX",  # prefer PHX internally
-        "Portland Trail Blazers": "POR",
-        "Sacramento Kings": "SAC",
-        "San Antonio Spurs": "SAS",
-        "Toronto Raptors": "TOR",
-        "Utah Jazz": "UTA",
-        "Washington Wizards": "WAS",
-    }
-
-
-# ============================================================================
-# FILE OPS
-# ============================================================================
-
-def get_latest_file(folder: str, prefix: str, ext: str) -> Optional[str]:
-    """
-    Return the most recently modified file in `folder`
-    that matches <prefix>*<ext>, or None.
-    """
-    files = glob.glob(os.path.join(folder, f"{prefix}*{ext}"))
-    return max(files, key=os.path.getctime) if files else None
-
-
-def find_file_in_date_range(
-    directory: str,
-    filename_pattern: str,
-    max_days_back: int = 120
-) -> Tuple[Optional[str], Optional[str]]:
-    """
-    filename_pattern must contain {} where the date (YYYY-MM-DD) goes.
-
-    Tries today, yesterday, ... up to max_days_back, and returns:
-        (file_path_found, "YYYY-MM-DD_when_found")
-    If nothing found: (None, None)
-    """
-    for days_back in range(max_days_back + 1):
-        date_to_check = (
-            datetime.now() - timedelta(days=days_back)
-        ).strftime("%Y-%m-%d")
-        file_path = os.path.join(
-            directory,
-            filename_pattern.format(date_to_check)
-        )
-        if os.path.exists(file_path):
-            return file_path, date_to_check
-    return None, None
-
+# -----------------------------------------------------------------------------
+# BASIC FILE OPS
+# -----------------------------------------------------------------------------
 
 def copy_missing_files(src_dir: str, dst_dir: str) -> None:
     """
-    Copy any CSVs/etc. that exist in src_dir but not in dst_dir.
-    Skips hidden files and notebooks.
+    Copy any files from src_dir to dst_dir that dst_dir doesn't have.
+    Skip hidden files and notebooks.
     """
-    import shutil
     src_files = set(os.listdir(src_dir))
     dst_files = set(os.listdir(dst_dir))
     for name in (src_files - dst_files):
@@ -197,16 +110,29 @@ def copy_missing_files(src_dir: str, dst_dir: str) -> None:
             logging.info(f"File {name} copied successfully")
 
 
-# ============================================================================
-# HTTP SCRAPING (preferred for CI)
-# ============================================================================
+def rename_duplicated_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Basketball Reference sometimes repeats column names ('mp', etc.).
+    This gives duplicates suffixes _1, _2... so pandas doesn't break.
+    """
+    cols = pd.Series(df.columns)
+    for dup in cols[cols.duplicated()].unique():
+        idxs = cols[cols == dup].index.tolist()
+        cols[idxs] = [
+            dup if i == 0 else f"{dup}_{i}" for i in range(len(idxs))
+        ]
+    df.columns = cols
+    return df
+
+
+# -----------------------------------------------------------------------------
+# HTTP SCRAPE (REQUESTS)
+# -----------------------------------------------------------------------------
 
 def fetch_html_requests(url: str, timeout: int = 20) -> Optional[str]:
     """
-    Fetch raw HTML via plain HTTP (requests). Returns response text or None.
-
-    We send a desktop-like User-Agent so basketball-reference doesn't instantly
-    treat us like a script kiddie bot.
+    Plain requests GET with a desktop-ish User-Agent.
+    Used first (cheap, fast). Returns HTML text or None.
     """
     headers = {
         "User-Agent": (
@@ -224,25 +150,20 @@ def fetch_html_requests(url: str, timeout: int = 20) -> Optional[str]:
         )
         return None
     except Exception as e:
-        logging.warning(
-            f"[fetch_html_requests] error for {url}: {e}"
-        )
+        logging.warning(f"[fetch_html_requests] error for {url}: {e}")
         return None
 
 
-# ============================================================================
-# SELENIUM SCRAPING (fallback / local)
-# ============================================================================
+# -----------------------------------------------------------------------------
+# SELENIUM FALLBACK FOR BOX SCORES
+# -----------------------------------------------------------------------------
 
-def build_driver() -> webdriver.Chrome:
+def _build_headless_driver() -> webdriver.Chrome:
     """
-    Create one hardened Chrome driver for scraping Basketball Reference.
-
-    Notes:
-    - We DO NOT spawn a new driver for every page in CI anymore.
-      Script 1 should build one driver at the top (only if needed),
-      reuse it for all box scores that failed requests-based fetch,
-      then quit at the end.
+    Spin up a hardened headless Chrome that works in GitHub Actions:
+    - no-sandbox
+    - disable-dev-shm-usage
+    - fixed window size
     """
     chrome_options = Options()
     chrome_options.add_argument("--headless=new")
@@ -251,447 +172,58 @@ def build_driver() -> webdriver.Chrome:
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("--disable-extensions")
-    # we intentionally do NOT add --disable-dev-tools because that can crash Chrome
+    chrome_options.add_argument("--disable-dev-tools")
     chrome_options.add_argument("--remote-debugging-port=9222")
 
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=chrome_options)
-
     driver.set_page_load_timeout(20)
     return driver
 
 
-def get_html_with_driver(
-    driver: webdriver.Chrome,
-    url: str,
-    selector: str,
-    sleep: int = 5,
-    retries: int = 3,
-) -> Optional[str]:
+def fetch_boxscore_via_selenium(url: str, timeout_s: int = 20) -> Optional[str]:
     """
-    Use an EXISTING Selenium driver to fetch `url`, wait, and return innerHTML
-    of the first element matching `selector`.
+    SECOND TRY if requests() HTML looked like bot-blocked junk.
 
-    We do NOT quit() the driver here. Caller controls lifetime.
-    """
-    html = None
+    We:
+    - start headless Chrome
+    - open the box score url
+    - grab #content innerHTML
+    - wrap it in a <div id='content'>...</div> so downstream parsing sees a container
 
-    for attempt in range(retries):
-        try:
-            driver.get(url)
-
-            # small backoff: 5s, 10s, 20s...
-            time.sleep(sleep * (2 ** attempt))
-
-            # wait for selector to exist in DOM
-            WebDriverWait(driver, 20).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, selector))
-            )
-
-            el = driver.find_element(By.CSS_SELECTOR, selector)
-            html = el.get_attribute("innerHTML")
-            break
-
-        except (TimeoutException, NoSuchElementException):
-            logging.warning(
-                f"[get_html_with_driver] Timeout / missing {selector} on {url} "
-                f"(attempt {attempt+1}/{retries})"
-            )
-        except WebDriverException as e:
-            logging.error(
-                f"[get_html_with_driver] WebDriver error for {url}: {e} "
-                f"(attempt {attempt+1}/{retries})"
-            )
-            break
-
-    if html is None:
-        logging.error(f"[get_html_with_driver] Failed to retrieve HTML from {url}")
-    return html
-
-
-def fetch_boxscore_via_driver(driver: webdriver.Chrome, url: str) -> Optional[str]:
-    """
-    Load a Basketball Reference box score URL with Selenium and return HTML
-    that is wrapped in a <div id='content'>...</div> block (so downstream
-    code can run pandas.read_html(..., attrs={'id': 'line_score'}) etc.)
-
-    Returns:
-        wrapped HTML string on success
-        None on failure
-    """
-    try:
-        inner = get_html_with_driver(
-            driver,
-            url,
-            selector="#content",
-            sleep=3,
-            retries=2,
-        )
-        if inner is None:
-            return None
-        return f"<div id='content'>{inner}</div>"
-    except Exception as e:
-        logging.warning(f"[fetch_boxscore_via_driver] {url}: {e}")
-        return None
-
-
-def get_html(
-    url: str,
-    selector: str,
-    sleep: int = 5,
-    retries: int = 3,
-) -> Optional[str]:
-    """
-    Legacy convenience helper. Spins up a *new* driver, grabs `selector`,
-    quits. You generally should NOT use this in CI because starting Chrome
-    per URL is slow and flaky. Keep it here for backwards compatibility.
+    Returns HTML string or None on failure.
     """
     driver = None
     try:
-        driver = build_driver()
-        return get_html_with_driver(
-            driver,
-            url,
-            selector,
-            sleep=sleep,
-            retries=retries,
-        )
+        driver = _build_headless_driver()
+        driver.get(url)
+
+        # very light throttle — some pages (especially right after final buzzer)
+        # still do a bit of dynamic insert, so give them a moment:
+        time.sleep(2)
+
+        el = driver.find_element(By.CSS_SELECTOR, "#content")
+        inner = el.get_attribute("innerHTML")
+        if not inner or inner.strip() == "":
+            logging.warning(f"[selenium] empty #content for {url}")
+            return None
+
+        # make sure we ship something that looks like full doc-ish html to pandas
+        html_out = "<div id='content'>" + inner + "</div>"
+        return html_out
+
+    except TimeoutException:
+        logging.warning(f"[selenium] timeout {url}")
+        return None
+    except WebDriverException as e:
+        logging.warning(f"[selenium] WebDriverException on {url}: {e}")
+        return None
+    except Exception as e:
+        logging.warning(f"[selenium] unexpected {url}: {e}")
+        return None
     finally:
         if driver is not None:
             try:
                 driver.quit()
             except Exception:
                 pass
-
-
-# ============================================================================
-# HTML PARSING
-# ============================================================================
-
-def parse_html(html_or_path: str) -> Optional[BeautifulSoup]:
-    """
-    Accept raw HTML or a file path, return soup stripped of Basketball Reference's
-    repeated header rows (tr.over_header, tr.thead).
-    """
-    try:
-        if os.path.isfile(html_or_path):
-            with open(html_or_path, encoding="utf-8") as f:
-                html = f.read()
-        else:
-            html = html_or_path
-
-        soup = BeautifulSoup(html, "html.parser")
-
-        for s in soup.select("tr.over_header, tr.thead"):
-            s.decompose()
-
-        return soup
-    except Exception as e:
-        logging.error(f"Error parsing HTML: {e}")
-        return None
-
-
-# ============================================================================
-# DATA PROCESSING
-# ============================================================================
-
-def rename_duplicated_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    If df has duplicate column names (Basketball Reference sometimes does),
-    suffix them with _1, _2, ... so pandas stops yelling.
-    """
-    cols = pd.Series(df.columns)
-    for dup in cols[cols.duplicated()].unique():
-        idxs = cols[cols == dup].index.values.tolist()
-        cols[idxs] = [dup if i == 0 else f"{dup}_{i}" for i in range(len(idxs))]
-    df.columns = cols
-    return df
-
-
-def preprocess_nba_data(stats_path: str) -> pd.DataFrame:
-    """
-    Load + sort by date, add target label (win of NEXT game),
-    drop columns that are entirely NaN (except core columns).
-    """
-    df = pd.read_csv(stats_path, index_col=0)
-    df = df.sort_values("date")
-
-    def _add_target(g: pd.DataFrame) -> pd.DataFrame:
-        g = g.copy()
-        g["target"] = g["won"].shift(-1)
-        return g
-
-    df = df.groupby("team", as_index=False).apply(_add_target)
-    df = df.copy()
-    df["target"] = df["target"].fillna(2).astype(int)
-
-    nulls = pd.isnull(df).sum()
-    drop_full_na = nulls[nulls > 0].index.tolist()
-
-    core_keep = {"team", "team_opp", "home", "won", "season", "date", "target"}
-
-    truly_drop = [
-        c for c in drop_full_na
-        if c not in core_keep and df[c].isna().all()
-    ]
-
-    if truly_drop:
-        df = df.drop(columns=truly_drop)
-
-    return df
-
-
-def calculate_rolling_averages(
-    df: pd.DataFrame,
-    window_size: int = ROLLING_WINDOW_SIZE
-) -> pd.DataFrame:
-    """
-    Rolling means per team-season for numeric columns.
-    Returns one big concatenated frame with those rolling stats.
-    """
-    X = df.copy()
-    X["season"] = X["season"].astype(str)
-
-    def _roll(team_df: pd.DataFrame) -> pd.DataFrame:
-        numeric_cols = team_df.select_dtypes(include=[np.number]).columns
-        rolled = team_df[numeric_cols].rolling(
-            window_size,
-            min_periods=1
-        ).mean()
-
-        # copy non-numeric columns straight through
-        for c in team_df.columns:
-            if c not in numeric_cols:
-                rolled[c] = team_df[c]
-
-        return rolled
-
-    out = []
-    for team, g1 in X.groupby("team"):
-        for season, g2 in g1.groupby("season"):
-            out.append(_roll(g2))
-
-    return pd.concat(out, ignore_index=True)
-
-
-def add_next_game_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Append 'home_next', 'team_opp_next', 'date_next' from the *next* row
-    for each team.
-    """
-    result = df.copy()
-    result["home_next"] = None
-    result["team_opp_next"] = None
-    result["date_next"] = None
-
-    rows = df.to_dict("records")
-    groups: Dict[str, List[Tuple[int, dict]]] = {}
-    for i, r in enumerate(rows):
-        t = str(r.get("team", ""))
-        groups.setdefault(t, []).append((i, r))
-
-    for t, lst in groups.items():
-        lst_sorted = sorted(lst, key=lambda x: x[1].get("date", ""))
-        for i in range(len(lst_sorted) - 1):
-            cur_idx = lst_sorted[i][0]
-            nxt = lst_sorted[i + 1][1]
-            result.at[cur_idx, "home_next"] = nxt.get("home")
-            result.at[cur_idx, "team_opp_next"] = nxt.get("team_opp")
-            result.at[cur_idx, "date_next"] = nxt.get("date")
-
-    return result
-
-
-# ============================================================================
-# TEAM CODE NORMALIZATION
-# ============================================================================
-
-TEAM_ALIASES: Dict[str, str] = {
-    # Sportsbooks / BR / NBA.com / Polymarket mismatches
-    "PHO": "PHX",
-    "PHX": "PHX",
-    "BKN": "BRK",
-    "BRK": "BRK",
-    "CHO": "CHO",
-    "CHA": "CHO",
-    "WSH": "WAS",
-    "WAS": "WAS",
-    "GS":  "GSW",
-    "GSW": "GSW",
-    "NO":  "NOP",
-    "NOP": "NOP",
-    "NY":  "NYK",
-    "NYK": "NYK",
-    "SA":  "SAS",
-    "SAS": "SAS",
-    "UTAH": "UTA",
-    "UTA": "UTA",
-    "OKL": "OKC",
-    "OKC": "OKC",
-}
-
-
-def normalize_team_code(code: Optional[str]) -> Optional[str]:
-    """
-    Normalize a single team abbreviation.
-    'PHO' -> 'PHX', 'BKN'/'BRK' -> 'BRK', 'CHA' -> 'CHO', etc.
-    Returns uppercase normalized code; returns input if None/empty.
-    """
-    if not isinstance(code, str) or code.strip() == "":
-        return code
-    return TEAM_ALIASES.get(code.strip().upper(), code.strip().upper())
-
-
-def normalize_team_codes_inplace(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
-    """
-    Normalize all given columns in a DataFrame using TEAM_ALIASES.
-    Mutates df columns in-place and also returns df for chaining.
-    """
-    for c in cols:
-        if c in df.columns:
-            df[c] = df[c].apply(normalize_team_code)
-    return df
-
-
-# ============================================================================
-# BETTING UTILITIES
-# ============================================================================
-
-def kelly_frac(p: float, o: float, f: float = 1.0) -> float:
-    """
-    Kelly fraction for decimal odds.
-    p: win probability (0..1)
-    o: decimal odds (>1)
-    f: fraction of Kelly to use (0..1)
-
-    Returns stake fraction (0..1 of bankroll). Never negative.
-    """
-    try:
-        b = float(o) - 1.0
-        if b <= 0 or p is None or np.isnan(p):
-            return 0.0
-        return max(((b * p - (1 - p)) / b) * float(f), 0.0)
-    except Exception:
-        return 0.0
-
-
-def impute_prob(ml) -> Optional[float]:
-    """
-    American odds -> implied winning probability.
-    Robust to None/NaN/strings like "nan" or "1,85".
-    Returns None if odds missing/invalid.
-    """
-    if ml is None:
-        return None
-    try:
-        if isinstance(ml, str):
-            s = ml.strip().lower().replace(",", ".")
-            if s == "" or s == "nan":
-                return None
-            ml = float(s)
-        if isinstance(ml, float):
-            if pd.isna(ml):
-                return None
-            ml = int(round(ml))
-        else:
-            ml = int(ml)
-    except (ValueError, TypeError):
-        return None
-
-    # favorite (negative moneyline)
-    if ml < 0:
-        return abs(ml) / (abs(ml) + 100)
-    # underdog (positive moneyline)
-    return 100 / (ml + 100)
-
-
-def am_to_dec(ml) -> Optional[float]:
-    """
-    American -> Decimal odds. Robust to None/NaN/strings.
-    Returns None if invalid.
-    """
-    if ml is None:
-        return None
-    try:
-        if isinstance(ml, str):
-            s = ml.strip().lower().replace(",", ".")
-            if s == "" or s == "nan":
-                return None
-            ml = float(s)
-        if isinstance(ml, float):
-            if pd.isna(ml):
-                return None
-            ml = int(round(ml))
-        else:
-            ml = int(ml)
-    except (ValueError, TypeError):
-        return None
-
-    # positive moneyline
-    if ml > 0:
-        return ml / 100 + 1.0
-    # negative moneyline
-    return 100.0 / abs(ml) + 1.0
-
-
-# ============================================================================
-# BETTING STATS
-# ============================================================================
-
-def get_home_win_rates(pred_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Compute home win rates using last 20 games per team (home/away),
-    then filter to home games within that window.
-
-    Expects columns:
-      ['home_team','away_team','result','date']
-    where 'result' is actual winner code when known, otherwise 0.
-    """
-    # Ensure date is datetime
-    if "date" in pred_df.columns and not np.issubdtype(
-        pred_df["date"].dtype,
-        np.datetime64
-    ):
-        pred_df = pred_df.copy()
-        pred_df["date"] = pd.to_datetime(pred_df["date"], errors="coerce")
-
-    teams = pred_df["home_team"].dropna().unique().tolist()
-    out = {}
-    for t in teams:
-        tg = pred_df[
-            (pred_df["home_team"] == t) | (pred_df["away_team"] == t)
-        ].copy()
-        tg = tg.sort_values("date", ascending=False).head(20)
-
-        home = tg[tg["home_team"] == t]
-        total_home = len(home)
-        home_wins = int((home["result"] == t).sum())
-        rate = round(home_wins / total_home, 2) if total_home > 0 else 0.0
-
-        out[t] = {
-            "Total Last 20 Games": len(tg),
-            "Total Home Games": total_home,
-            "Home Wins": home_wins,
-            "Home Win Rate": rate,
-        }
-
-    df_rate = pd.DataFrame.from_dict(out, orient="index")
-    return df_rate.sort_values("Home Win Rate", ascending=False)
-
-
-# ============================================================================
-# SMALL HELPERS
-# ============================================================================
-
-def safe_to_numeric_comma(x) -> Optional[float]:
-    """
-    Convert string with comma decimal to float; return None if invalid.
-    "1,85" -> 1.85
-    """
-    try:
-        if isinstance(x, str):
-            x = x.replace(",", ".")
-        v = float(x)
-        return v
-    except Exception:
-        return None
