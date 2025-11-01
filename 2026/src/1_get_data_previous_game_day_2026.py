@@ -213,16 +213,15 @@ def scrape_game_day_boxscores(
     target_games_date: date
 ) -> int:
     """
-    From the monthly schedule page HTML:
-    - pick out all games for target_games_date
-    - grab their box score links
-    - download + save each box score HTML locally (if missing)
-
-    Returns:
-        number of *new* box score files saved
+    For each game on target_games_date:
+    - build the box score URL
+    - ensure we have a GOOD local copy (with line_score table)
+      -> if we have a bad copy, overwrite it
+    Returns number of valid box score files written/updated.
     """
     os.makedirs(scores_dir, exist_ok=True)
 
+    # Parse the monthly standings page to get all boxscore links for that day
     with open(standings_file, 'r', encoding='utf-8') as f:
         html = f.read()
     soup = BeautifulSoup(html, 'html.parser')
@@ -239,32 +238,50 @@ def scrape_game_day_boxscores(
     ]
 
     saved = 0
+
     for url in box_scores:
-        save_path = os.path.join(scores_dir, os.path.basename(url))
+        filename = os.path.basename(url)
+        save_path = os.path.join(scores_dir, filename)
 
-        # skip already-downloaded file
-        if os.path.exists(save_path):
-            continue
+        def file_is_valid(path: str) -> bool:
+            if not os.path.exists(path):
+                return False
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    txt = f.read()
+                # must contain the line_score table
+                return ('id="line_score"' in txt)
+            except Exception:
+                return False
 
-        page_html = fetch_boxscore_html_safe(url, retry=3)
-        if page_html is None:
-            logging.warning(f"[SKIP] Could not fetch {url} after retries.")
-            continue
-        
-        # sanity check: does it look like a real box score page?
-        if 'id="line_score"' not in page_html:
-            logging.warning(
-                f"[SKIP] {url} does not look like a valid box score (no line_score table)."
-            )
-            continue
-        
-        try:
-            with open(save_path, "wb") as f:
-                f.write(page_html.encode("utf-8"))
-            saved += 1
-            logging.info(f"Saved box score → {save_path}")
-        except Exception as e:
-            logging.error(f"Error saving {save_path}: {e}")
+        # decide whether we need to (re)download
+        need_fetch = not file_is_valid(save_path)
+
+        if need_fetch:
+            page_html = fetch_boxscore_html_safe(url, retry=3)
+
+            if page_html is None:
+                logging.warning(f"[SKIP] Could not fetch {url} after retries.")
+                continue
+
+            # validate BEFORE writing
+            if 'id="line_score"' not in page_html:
+                logging.warning(
+                    f"[SKIP] {url} looks invalid (no line_score table). Not saving."
+                )
+                continue
+
+            try:
+                with open(save_path, "w", encoding="utf-8") as f:
+                    f.write(page_html)
+                saved += 1
+                logging.info(f"Saved/updated valid box score → {save_path}")
+            except Exception as e:
+                logging.error(f"Error saving {save_path}: {e}")
+        else:
+            logging.info(f"Local box score OK, reusing → {save_path}")
+
+    return saved
 
 
 def process_saved_boxscores(
@@ -298,16 +315,22 @@ def process_saved_boxscores(
     base_cols = None
 
     for p in box_files:
-        try:
-            # boxscore filenames start with YYYYMMDD...
-            fdate = pd.Timestamp(os.path.basename(p)[:8]).date()
-            if fdate != target_games_date:
-                continue
+    try:
+        fdate = pd.Timestamp(os.path.basename(p)[:8]).date()
+        if fdate != target_games_date:
+            continue
 
-            soup = parse_html(p)
-            if soup is None:
-                continue
+        # NEW: ensure it's a legit box score
+        with open(p, "r", encoding="utf-8") as f:
+            raw_txt = f.read()
+        if 'id="line_score"' not in raw_txt:
+            logging.warning(f"[SKIP PARSE] {p} is missing line_score table (probably anti-bot HTML)")
+            continue
 
+        soup = parse_html(raw_txt)
+        if soup is None:
+            continue
+        
             line_score = read_line_score(soup)
             teams = list(line_score["team"])  # [away_team, home_team]
 
