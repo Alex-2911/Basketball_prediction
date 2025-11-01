@@ -316,9 +316,11 @@ def process_saved_boxscores(
             if fdate != target_games_date:
                 continue
 
-            # sanity check: must look like a real box score
+            # read raw HTML
             with open(p, "r", encoding="utf-8") as fh:
                 raw_txt = fh.read()
+
+            # sanity check: must look like a real box score
             if 'id="line_score"' not in raw_txt:
                 logging.warning(
                     f"[SKIP PARSE] {p} is missing line_score table "
@@ -326,17 +328,39 @@ def process_saved_boxscores(
                 )
                 continue
 
-            soup = parse_html(raw_txt)
-            if soup is None:
-                continue
+            # build soup ONLY for extracting team names and scores etc.
+            soup = BeautifulSoup(raw_txt, "html.parser")
 
-            line_score = read_line_score(soup)
+            # === line score table (final scores home/away) ===
+            line_score = pd.read_html(
+                StringIO(raw_txt),
+                attrs={'id': 'line_score'}
+            )[0]
+
+            cols = list(line_score.columns)
+            cols[0] = "team"
+            cols[-1] = "total"
+            line_score.columns = cols
+            line_score = line_score[["team", "total"]]
+
             teams = list(line_score["team"])  # [away_team, home_team]
 
+            # === per-team stats ===
             summaries = []
             for team in teams:
-                basic = read_stats(soup, team, "basic")
-                advanced = read_stats(soup, team, "advanced")
+                basic = pd.read_html(
+                    StringIO(raw_txt),
+                    attrs={'id': f'box-{team}-game-basic'},
+                    index_col=0
+                )[0]
+                basic = basic.apply(pd.to_numeric, errors="coerce")
+
+                advanced = pd.read_html(
+                    StringIO(raw_txt),
+                    attrs={'id': f'box-{team}-game-advanced'},
+                    index_col=0
+                )[0]
+                advanced = advanced.apply(pd.to_numeric, errors="coerce")
 
                 # last row in each table is "Team Totals"
                 totals = pd.concat([basic.iloc[-1], advanced.iloc[-1]])
@@ -358,7 +382,7 @@ def process_saved_boxscores(
                 summary = summary[base_cols]
                 summaries.append(summary)
 
-            # shape: 2 rows, stats columns
+            # shape: 2 rows, stats columns (away first, home second)
             summary = pd.concat(summaries, axis=1).T
 
             # attach final team scores from line_score
@@ -394,6 +418,7 @@ def process_saved_boxscores(
         games_df = games_df.reindex(columns=existing_statistics.columns)
 
     return games_df
+
 
 
 def _pause_and_exit_ok():
