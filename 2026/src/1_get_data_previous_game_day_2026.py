@@ -296,6 +296,28 @@ def process_saved_boxscores(
       - won (True/False)
       - date, season
     """
+
+    # --- small helper: grab a single table by id and parse it with pandas ---
+    def extract_table_df(raw_html: str, table_id: str, index_col=None) -> pd.DataFrame:
+        """
+        - Find <table id="{table_id}">...</table> using BeautifulSoup
+        - Run pd.read_html() on JUST that table markup
+        - Return the first (and only) DataFrame
+        Raises ValueError if table not found or unreadable.
+        """
+        soup_local = BeautifulSoup(raw_html, "html.parser")
+        table_tag = soup_local.find("table", id=table_id)
+        if table_tag is None:
+            raise ValueError(f"Table id='{table_id}' not found in HTML.")
+
+        table_html = str(table_tag)
+        df_list = pd.read_html(StringIO(table_html), index_col=index_col)
+        if not df_list:
+            raise ValueError(f"pd.read_html() returned no tables for id='{table_id}'.")
+        return df_list[0]
+
+    # -----------------------------------------------------------------------
+
     box_files = [
         os.path.join(scores_dir, f)
         for f in os.listdir(scores_dir)
@@ -328,14 +350,8 @@ def process_saved_boxscores(
                 )
                 continue
 
-            # build soup ONLY for extracting team names and scores etc.
-            soup = BeautifulSoup(raw_txt, "html.parser")
-
             # === line score table (final scores home/away) ===
-            line_score = pd.read_html(
-                StringIO(raw_txt),
-                attrs={'id': 'line_score'}
-            )[0]
+            line_score = extract_table_df(raw_txt, "line_score", index_col=None)
 
             cols = list(line_score.columns)
             cols[0] = "team"
@@ -348,18 +364,19 @@ def process_saved_boxscores(
             # === per-team stats ===
             summaries = []
             for team in teams:
-                basic = pd.read_html(
-                    StringIO(raw_txt),
-                    attrs={'id': f'box-{team}-game-basic'},
+                # team "CHI", "PHI", etc.
+                basic = extract_table_df(
+                    raw_txt,
+                    f"box-{team}-game-basic",
                     index_col=0
-                )[0]
+                )
                 basic = basic.apply(pd.to_numeric, errors="coerce")
 
-                advanced = pd.read_html(
-                    StringIO(raw_txt),
-                    attrs={'id': f'box-{team}-game-advanced'},
+                advanced = extract_table_df(
+                    raw_txt,
+                    f"box-{team}-game-advanced",
                     index_col=0
-                )[0]
+                )
                 advanced = advanced.apply(pd.to_numeric, errors="coerce")
 
                 # last row in each table is "Team Totals"
@@ -367,7 +384,10 @@ def process_saved_boxscores(
                 totals.index = totals.index.str.lower()
 
                 # max row values across players (exclude the last "Team Totals" row)
-                maxes = pd.concat([basic.iloc[:-1].max(), advanced.iloc[:-1].max()])
+                maxes = pd.concat([
+                    basic.iloc[:-1].max(),
+                    advanced.iloc[:-1].max()
+                ])
                 maxes.index = maxes.index.str.lower() + "_max"
 
                 summary = pd.concat([totals, maxes])
@@ -418,8 +438,6 @@ def process_saved_boxscores(
         games_df = games_df.reindex(columns=existing_statistics.columns)
 
     return games_df
-
-
 
 def _pause_and_exit_ok():
     """
