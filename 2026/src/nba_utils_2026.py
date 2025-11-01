@@ -6,16 +6,19 @@ nba_utils_2026.py
 
 Shared helpers for the 2026 pipeline.
 
-This module MUST provide:
+This module MUST provide (used by script 1 & script 2):
 - CURRENT_SEASON
 - get_current_date()
 - get_directory_paths()
 - fetch_html_requests()
-- fetch_boxscore_via_selenium()     <-- required by script 1
+- fetch_boxscore_via_selenium()
+- parse_html()
 - rename_duplicated_columns()
 - copy_missing_files()
+- get_team_codes()
+- normalize_team_code(), normalize_team_codes_inplace()
 
-Plus: supporting imports that function 1 expects.
+Keep this file VERY STABLE, because all pipeline steps import from here.
 """
 
 import os
@@ -30,7 +33,7 @@ import requests
 import pandas as pd
 from bs4 import BeautifulSoup
 
-# selenium imports (used in fallback only)
+# selenium imports (used in fallback only, for deep refresh of box scores)
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -42,8 +45,97 @@ from webdriver_manager.chrome import ChromeDriverManager
 # GLOBAL CONFIG
 # -----------------------------------------------------------------------------
 
-CURRENT_SEASON = 2026  # <- we are scraping NBA_2026_*
-# you can tweak ROLLING_WINDOW_SIZE etc. in other scripts if needed
+CURRENT_SEASON = 2026  # scraping NBA_2026_*
+
+
+# -----------------------------------------------------------------------------
+# TEAM NAMES / CODES
+# -----------------------------------------------------------------------------
+
+def get_team_codes() -> dict[str, str]:
+    """
+    Map Basketball Reference full team names to our internal 3-letter codes.
+    We use these codes consistently in features, rolling stats, predictions, etc.
+    """
+    return {
+        "Atlanta Hawks": "ATL",
+        "Boston Celtics": "BOS",
+        "Brooklyn Nets": "BRK",
+        "Charlotte Hornets": "CHO",
+        "Chicago Bulls": "CHI",
+        "Cleveland Cavaliers": "CLE",
+        "Dallas Mavericks": "DAL",
+        "Denver Nuggets": "DEN",
+        "Detroit Pistons": "DET",
+        "Golden State Warriors": "GSW",
+        "Houston Rockets": "HOU",
+        "Indiana Pacers": "IND",
+        "Los Angeles Clippers": "LAC",
+        "LA Clippers": "LAC",
+        "Los Angeles Lakers": "LAL",
+        "Memphis Grizzlies": "MEM",
+        "Miami Heat": "MIA",
+        "Milwaukee Bucks": "MIL",
+        "Minnesota Timberwolves": "MIN",
+        "New Orleans Pelicans": "NOP",
+        "New York Knicks": "NYK",
+        "Oklahoma City Thunder": "OKC",
+        "Orlando Magic": "ORL",
+        "Philadelphia 76ers": "PHI",
+        "Phoenix Suns": "PHX",  # normalize PHO -> PHX
+        "Portland Trail Blazers": "POR",
+        "Sacramento Kings": "SAC",
+        "San Antonio Spurs": "SAS",
+        "Toronto Raptors": "TOR",
+        "Utah Jazz": "UTA",
+        "Washington Wizards": "WAS",
+    }
+
+# Abbreviation cleanup: sportsbook / NBA / BR all disagree on some codes.
+TEAM_ALIASES: dict[str, str] = {
+    "PHO": "PHX",
+    "PHX": "PHX",
+    "BKN": "BRK",
+    "BRK": "BRK",
+    "CHA": "CHO",
+    "CHO": "CHO",
+    "WSH": "WAS",
+    "WAS": "WAS",
+    "GS":  "GSW",
+    "GSW": "GSW",
+    "NO":  "NOP",
+    "NOP": "NOP",
+    "NY":  "NYK",
+    "NYK": "NYK",
+    "SA":  "SAS",
+    "SAS": "SAS",
+    "UTAH": "UTA",
+    "UTA": "UTA",
+    "OKL": "OKC",
+    "OKC": "OKC",
+}
+
+def normalize_team_code(code: str | None) -> str | None:
+    """
+    Normalize a single team abbreviation to the code we use in training data.
+    Example: 'PHO' -> 'PHX', 'BKN' -> 'BRK', 'CHA' -> 'CHO'.
+    """
+    if code is None:
+        return None
+    code_up = str(code).strip().upper()
+    if code_up == "":
+        return code_up
+    return TEAM_ALIASES.get(code_up, code_up)
+
+def normalize_team_codes_inplace(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    """
+    In-place: normalizes abbrev columns (like 'home_team', 'away_team').
+    Returns df for chaining.
+    """
+    for c in cols:
+        if c in df.columns:
+            df[c] = df[c].apply(normalize_team_code)
+    return df
 
 
 # -----------------------------------------------------------------------------
@@ -126,6 +218,39 @@ def rename_duplicated_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # -----------------------------------------------------------------------------
+# HTML CLEANING / PARSING
+# -----------------------------------------------------------------------------
+
+def parse_html(html_or_path: str) -> Optional[BeautifulSoup]:
+    """
+    Accept raw HTML string OR a path to an .html file.
+    Return BeautifulSoup with Basketball Reference's repeated header rows removed.
+
+    Important: BRef puts <tr class="over_header"> and <tr class="thead"> rows
+    inside <tbody>. If we don't drop them, pandas.read_html() often returns
+    MultiIndex columns. Then code like .index.str.lower() explodes with
+    "Can only use .str accessor with Index, not MultiIndex".
+    """
+    try:
+        if os.path.isfile(html_or_path):
+            with open(html_or_path, encoding="utf-8") as f:
+                html = f.read()
+        else:
+            html = html_or_path
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        # remove duplicate header/overheader rows to avoid MultiIndex columns
+        for bad in soup.select("tr.over_header, tr.thead"):
+            bad.decompose()
+
+        return soup
+    except Exception as e:
+        logging.error(f"parse_html() failed: {e}")
+        return None
+
+
+# -----------------------------------------------------------------------------
 # HTTP SCRAPE (REQUESTS)
 # -----------------------------------------------------------------------------
 
@@ -198,8 +323,7 @@ def fetch_boxscore_via_selenium(url: str, timeout_s: int = 20) -> Optional[str]:
         driver = _build_headless_driver()
         driver.get(url)
 
-        # very light throttle — some pages (especially right after final buzzer)
-        # still do a bit of dynamic insert, so give them a moment:
+        # tiny pause so dynamic content is injected
         time.sleep(2)
 
         el = driver.find_element(By.CSS_SELECTOR, "#content")
@@ -208,7 +332,6 @@ def fetch_boxscore_via_selenium(url: str, timeout_s: int = 20) -> Optional[str]:
             logging.warning(f"[selenium] empty #content for {url}")
             return None
 
-        # make sure we ship something that looks like full doc-ish html to pandas
         html_out = "<div id='content'>" + inner + "</div>"
         return html_out
 
