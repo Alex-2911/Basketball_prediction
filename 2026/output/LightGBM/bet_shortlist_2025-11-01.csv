@@ -1,0 +1,3 @@
+date,home_team,away_team,home_win_rate,prob_iso,odds_1,EV_€_per_100,kelly_full,kelly_fraction_used,stake_eur,param_home_win_rate_threshold,param_odds_min,param_odds_max,param_prob_threshold,bankroll_at_bettime
+2025-11-01,DET,DAL,0.67,0.75,1.33,-0.25,-0.008,0.0,0.0,0.55,1.1,2.9,0.4,1111.9
+2025-11-01,MIL,SAC,1.0,0.8,1.44,15.2,0.345,0.05,55.6,0.55,1.1,2.9,0.4,1111.9
