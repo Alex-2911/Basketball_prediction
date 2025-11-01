@@ -30,6 +30,7 @@ python 1_get_data_previous_game_day_2026.py --collect-date 2025-10-31
 
 import os
 import re
+import sys
 import time
 import argparse
 import logging
@@ -66,9 +67,11 @@ def parse_ymd(s: str) -> date:
     """'2025-10-31' -> datetime.date(2025,10,31)"""
     return datetime.strptime(s, "%Y-%m-%d").date()
 
+
 def month_name_lower(d: date) -> str:
     """datetime.date -> 'october', 'november', ..."""
     return calendar.month_name[d.month].lower()
+
 
 def read_line_score(soup: BeautifulSoup) -> pd.DataFrame:
     """
@@ -87,6 +90,7 @@ def read_line_score(soup: BeautifulSoup) -> pd.DataFrame:
     line_score = line_score[["team", "total"]]
     return line_score
 
+
 def read_stats(soup: BeautifulSoup, team: str, stat: str) -> pd.DataFrame:
     """
     Read team stats table like id='box-CHI-game-basic' or '-advanced'.
@@ -99,19 +103,6 @@ def read_stats(soup: BeautifulSoup, team: str, stat: str) -> pd.DataFrame:
     )[0]
     return df.apply(pd.to_numeric, errors="coerce")
 
-def read_season_info(soup: BeautifulSoup) -> str:
-    """
-    Inspect the bottom_nav_container to infer season code ('NBA_2026_games.html' -> 'NBA').
-    We'll attach this to the rows as 'season'. Historically you're using numeric season,
-    but we'll keep this helper because it's in your old script.
-    """
-    nav = soup.select("#bottom_nav_container")[0]
-    hrefs = [a["href"] for a in nav.find_all('a')]
-    # Example href like '/leagues/NBA_2026_games.html'
-    # os.path.basename('/leagues/NBA_2026_games.html') -> 'NBA_2026_games.html'
-    # split("_")[0] -> 'NBA'
-    import os
-    return os.path.basename(hrefs[1]).split("_")[0]
 
 def fetch_boxscore_html_safe(
     url: str,
@@ -134,6 +125,7 @@ def fetch_boxscore_html_safe(
 
     logging.error(f"[ERROR] Failed to fetch {url} after {retry} tries. Skipping.")
     return None
+
 
 def scrape_season_for_month(
     season: str,
@@ -207,6 +199,7 @@ def scrape_season_for_month(
 
     return monthly_path
 
+
 def scrape_game_day_boxscores(
     standings_file: str,
     scores_dir: str,
@@ -217,6 +210,7 @@ def scrape_game_day_boxscores(
     - build the box score URL
     - ensure we have a GOOD local copy (with line_score table)
       -> if we have a bad copy, overwrite it
+
     Returns number of valid box score files written/updated.
     """
     os.makedirs(scores_dir, exist_ok=True)
@@ -247,8 +241,8 @@ def scrape_game_day_boxscores(
             if not os.path.exists(path):
                 return False
             try:
-                with open(path, "r", encoding="utf-8") as f:
-                    txt = f.read()
+                with open(path, "r", encoding="utf-8") as f2:
+                    txt = f2.read()
                 # must contain the line_score table
                 return ('id="line_score"' in txt)
             except Exception:
@@ -272,8 +266,8 @@ def scrape_game_day_boxscores(
                 continue
 
             try:
-                with open(save_path, "w", encoding="utf-8") as f:
-                    f.write(page_html)
+                with open(save_path, "w", encoding="utf-8") as f3:
+                    f3.write(page_html)
                 saved += 1
                 logging.info(f"Saved/updated valid box score → {save_path}")
             except Exception as e:
@@ -307,6 +301,7 @@ def process_saved_boxscores(
         for f in os.listdir(scores_dir)
         if f.endswith(".html")
     ]
+
     if not box_files:
         logging.warning("No box score files found.")
         return pd.DataFrame()
@@ -315,22 +310,26 @@ def process_saved_boxscores(
     base_cols = None
 
     for p in box_files:
-    try:
-        fdate = pd.Timestamp(os.path.basename(p)[:8]).date()
-        if fdate != target_games_date:
-            continue
+        try:
+            # filenames start with YYYYMMDD...
+            fdate = pd.Timestamp(os.path.basename(p)[:8]).date()
+            if fdate != target_games_date:
+                continue
 
-        # NEW: ensure it's a legit box score
-        with open(p, "r", encoding="utf-8") as f:
-            raw_txt = f.read()
-        if 'id="line_score"' not in raw_txt:
-            logging.warning(f"[SKIP PARSE] {p} is missing line_score table (probably anti-bot HTML)")
-            continue
+            # sanity check: must look like a real box score
+            with open(p, "r", encoding="utf-8") as fh:
+                raw_txt = fh.read()
+            if 'id="line_score"' not in raw_txt:
+                logging.warning(
+                    f"[SKIP PARSE] {p} is missing line_score table "
+                    "(probably anti-bot HTML)"
+                )
+                continue
 
-        soup = parse_html(raw_txt)
-        if soup is None:
-            continue
-        
+            soup = parse_html(raw_txt)
+            if soup is None:
+                continue
+
             line_score = read_line_score(soup)
             teams = list(line_score["team"])  # [away_team, home_team]
 
@@ -368,7 +367,7 @@ def process_saved_boxscores(
             # first row = away, second row = home
             game["home"] = [0, 1]
 
-            # create opponent columns by reversing the two rows
+            # create opponent columns by reversing rows
             game_opp = game.iloc[::-1].reset_index()
             game_opp.columns += "_opp"
 
@@ -395,6 +394,7 @@ def process_saved_boxscores(
         games_df = games_df.reindex(columns=existing_statistics.columns)
 
     return games_df
+
 
 def _pause_and_exit_ok():
     """
@@ -460,7 +460,7 @@ def main():
     STAT_DIR = paths["STAT_DIR"]
     STANDINGS_DIR = paths["STANDINGS_DIR"]
     SCORES_DIR = paths["SCORES_DIR"]
-    DST_DIR = STAT_DIR  # end-of-run mirror
+    DST_DIR = STAT_DIR  # end-of-run mirror (right now they are the same)
 
     # 1. refresh the monthly schedule HTML for the target_games_date month
     month_name = month_name_lower(target_games_date)
@@ -501,7 +501,7 @@ def main():
             f"Could not load existing stats layout: {e}"
         )
 
-    # 3. download box score HTMLs for the target day
+    # 3. download/refresh box score HTMLs for the target day
     saved = scrape_game_day_boxscores(
         fresh_monthly_file,
         SCORES_DIR,
