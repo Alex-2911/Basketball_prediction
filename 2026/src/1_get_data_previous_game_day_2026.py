@@ -304,13 +304,9 @@ def process_saved_boxscores(
     Load each downloaded boxscore .html from scores_dir for exactly target_games_date,
     build per-team rows, align with existing_statistics columns.
 
-    Output rows (2 per game: away row then home row) include:
-      - numeric stats from 'basic' + 'advanced' per team
-      - *_max columns (max single-player line for each stat)
-      - 'total' points, 'home' flag
-      - mirrored opponent columns with suffix _opp
-      - won (True/False)
-      - date, season
+    We ALSO handle Basketball Reference's anti-scrape trick where they wrap tables
+    (line_score, box-XXX-game-basic, box-XXX-game-advanced, etc.) inside <!-- ... -->.
+    We strip those comment markers before feeding the HTML to pandas.read_html().
     """
     box_files = [
         os.path.join(scores_dir, f)
@@ -332,19 +328,31 @@ def process_saved_boxscores(
             if fdate != target_games_date:
                 continue
 
+            # read raw HTML
             with open(p, "r", encoding="utf-8") as fh:
                 raw_txt = fh.read()
 
-            # final validity check before parsing with pandas
-            if not file_is_valid_html_boxscore(raw_txt):
-                logging.warning(f"[SKIP PARSE] {p} failed final validity check.")
+            # sanity check: must vaguely look like a real box score
+            if 'id="line_score"' not in raw_txt:
+                logging.warning(
+                    f"[SKIP PARSE] {p} is missing line_score marker "
+                    "(probably still bot-blocked HTML)"
+                )
                 continue
 
-            # --- line score table (final scores, away/home) ---
-            line_score = pd.read_html(
-                StringIO(raw_txt),
+            # --- NEW: un-comment Basketball Reference tables -----------------
+            # BRef often does: <!-- <table id="line_score"> ... </table> -->
+            # pandas.read_html() won't see it unless we remove <!-- and -->
+            cleaned_html = raw_txt.replace("<!--", "").replace("-->", "")
+
+            # === line score table (final scores home/away) ===
+            line_score_list = pd.read_html(
+                StringIO(cleaned_html),
                 attrs={'id': 'line_score'}
-            )[0]
+            )
+            if not line_score_list:
+                raise ValueError("line_score table still not found after cleaning")
+            line_score = line_score_list[0]
 
             cols = list(line_score.columns)
             cols[0] = "team"
@@ -352,29 +360,45 @@ def process_saved_boxscores(
             line_score.columns = cols
             line_score = line_score[["team", "total"]]
 
-            teams = list(line_score["team"])  # typically [AWAY_ABBR, HOME_ABBR]
+            teams = list(line_score["team"])  # [away_team, home_team]
 
-            # --- per-team stats ---
+            # === per-team stats ===
             summaries = []
+            for team in teams:
+                # basic box
+                basic_list = pd.read_html(
+                    StringIO(cleaned_html),
+                    attrs={'id': f'box-{team}-game-basic'},
+                    index_col=0
+                )
+                if not basic_list:
+                    raise ValueError(f"basic table for {team} not found")
+                basic = basic_list[0]
+                basic = basic.apply(pd.to_numeric, errors="coerce")
 
-            for team_abbr in teams:
-                basic, advanced = read_team_tables_from_html(raw_txt, team_abbr)
+                # advanced box
+                adv_list = pd.read_html(
+                    StringIO(cleaned_html),
+                    attrs={'id': f'box-{team}-game-advanced'},
+                    index_col=0
+                )
+                if not adv_list:
+                    raise ValueError(f"advanced table for {team} not found")
+                advanced = adv_list[0]
+                advanced = advanced.apply(pd.to_numeric, errors="coerce")
 
                 # last row in each table is "Team Totals"
                 totals = pd.concat([basic.iloc[-1], advanced.iloc[-1]])
                 totals.index = totals.index.str.lower()
 
-                # max across players (exclude last row "Team Totals")
-                maxes = pd.concat([
-                    basic.iloc[:-1].max(),
-                    advanced.iloc[:-1].max()
-                ])
+                # max row values across players (exclude the last "Team Totals" row)
+                maxes = pd.concat([basic.iloc[:-1].max(), advanced.iloc[:-1].max()])
                 maxes.index = maxes.index.str.lower() + "_max"
 
                 summary = pd.concat([totals, maxes])
 
-                # lock a shared base_cols ordering for the whole run
                 if base_cols is None:
+                    # lock schema once, drop BPM noise etc.
                     base_cols = [
                         b for b in summary.index.drop_duplicates(keep="first")
                         if "bpm" not in b
@@ -383,22 +407,22 @@ def process_saved_boxscores(
                 summary = summary[base_cols]
                 summaries.append(summary)
 
-            # shape: 2 rows (away first, home second)
+            # shape: 2 rows, stats columns (away first, home second)
             summary = pd.concat(summaries, axis=1).T
 
-            # attach final team points
+            # attach final team scores
             game = pd.concat([summary, line_score], axis=1)
 
-            # mark home flag: first row away(0), second row home(1)
+            # first row = away, second row = home
             game["home"] = [0, 1]
 
-            # mirror opponent stats by flipping the two rows
+            # create opponent columns by reversing rows
             game_opp = game.iloc[::-1].reset_index()
             game_opp.columns += "_opp"
 
             full_game = pd.concat([game, game_opp], axis=1)
 
-            # add extra metadata
+            # add metadata
             full_game["season"] = CURRENT_SEASON
             full_game["date"] = pd.Timestamp(os.path.basename(p)[:8])
             full_game["won"] = full_game["total"] > full_game["total_opp"]
@@ -419,6 +443,7 @@ def process_saved_boxscores(
         games_df = games_df.reindex(columns=existing_statistics.columns)
 
     return games_df
+
 
 
 def _pause_and_exit_ok():
