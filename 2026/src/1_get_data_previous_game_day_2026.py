@@ -207,15 +207,24 @@ def scrape_game_day_boxscores(
 ) -> int:
     """
     For each game on target_games_date:
-    - build the box score URL
-    - ensure we have a GOOD local copy (with line_score table)
-      -> if we have a bad copy, overwrite it
+    - find the box score URL
+    - ensure we have a GOOD local copy (real tables, not anti-bot placeholders)
+    - if local copy is bad, refetch
+    - save/overwrite only if the fetched HTML is truly good
 
-    Returns number of valid box score files written/updated.
+    Returns: number of box score files that were (re)written with good data
     """
     os.makedirs(scores_dir, exist_ok=True)
 
-    # Parse the monthly standings page to get all boxscore links for that day
+    # helper: does this HTML actually contain a real <table id="line_score"> … </table> ?
+    def html_has_real_table(html_text: str, table_id: str = "line_score") -> bool:
+        if not html_text or "line_score" not in html_text:
+            return False
+        soup_check = BeautifulSoup(html_text, "html.parser")
+        table_tag = soup_check.find("table", id=table_id)
+        return table_tag is not None  # must be an actual table node, not just a comment
+
+    # read the monthly schedule page and collect that day's boxscore links
     with open(standings_file, 'r', encoding='utf-8') as f:
         html = f.read()
     soup = BeautifulSoup(html, 'html.parser')
@@ -237,46 +246,49 @@ def scrape_game_day_boxscores(
         filename = os.path.basename(url)
         save_path = os.path.join(scores_dir, filename)
 
-        def file_is_valid(path: str) -> bool:
-            if not os.path.exists(path):
-                return False
+        # Step 1: check if we already have a GOOD file on disk
+        need_fetch = True
+        if os.path.exists(save_path):
             try:
-                with open(path, "r", encoding="utf-8") as f2:
-                    txt = f2.read()
-                # must contain the line_score table
-                return ('id="line_score"' in txt)
-            except Exception:
-                return False
+                with open(save_path, "r", encoding="utf-8") as f_local:
+                    cached_txt = f_local.read()
+                if html_has_real_table(cached_txt, table_id="line_score"):
+                    # cached file is legit -> we can reuse it
+                    logging.info(f"Local box score OK, reusing → {save_path}")
+                    need_fetch = False
+                else:
+                    logging.info(
+                        f"Local box score STALE/bad → {save_path} (no real line_score table)"
+                    )
+            except Exception as e:
+                logging.warning(f"Couldn't read cached {save_path}: {e}")
 
-        # decide whether we need to (re)download
-        need_fetch = not file_is_valid(save_path)
-
+        # Step 2: if needed, re-download until we get a REAL table
         if need_fetch:
-            page_html = fetch_boxscore_html_safe(url, retry=3)
+            page_html = None
+            # retry a few times in case BRef rate-limits first attempt
+            for attempt in range(3):
+                attempt_html = fetch_boxscore_html_safe(url, retry=1, sleep_between=1.5)
+                if attempt_html and html_has_real_table(attempt_html, "line_score"):
+                    page_html = attempt_html
+                    break
+                time.sleep(1.5)
 
             if page_html is None:
-                logging.warning(f"[SKIP] Could not fetch {url} after retries.")
+                logging.warning(f"[SKIP] Could not obtain a clean box score for {url}")
+                # don't overwrite with junk
                 continue
 
-            # validate BEFORE writing
-            if 'id="line_score"' not in page_html:
-                logging.warning(
-                    f"[SKIP] {url} looks invalid (no line_score table). Not saving."
-                )
-                continue
-
+            # Step 3: save the GOOD html to disk (overwriting stale copy if any)
             try:
-                with open(save_path, "w", encoding="utf-8") as f3:
-                    f3.write(page_html)
+                with open(save_path, "w", encoding="utf-8") as f_out:
+                    f_out.write(page_html)
                 saved += 1
                 logging.info(f"Saved/updated valid box score → {save_path}")
             except Exception as e:
                 logging.error(f"Error saving {save_path}: {e}")
-        else:
-            logging.info(f"Local box score OK, reusing → {save_path}")
 
     return saved
-
 
 def process_saved_boxscores(
     scores_dir: str,
