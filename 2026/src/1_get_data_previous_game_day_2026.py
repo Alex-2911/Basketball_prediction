@@ -250,7 +250,14 @@ def scrape_game_day_boxscores(
         if page_html is None:
             logging.warning(f"[SKIP] Could not fetch {url} after retries.")
             continue
-
+        
+        # sanity check: does it look like a real box score page?
+        if 'id="line_score"' not in page_html:
+            logging.warning(
+                f"[SKIP] {url} does not look like a valid box score (no line_score table)."
+            )
+            continue
+        
         try:
             with open(save_path, "wb") as f:
                 f.write(page_html.encode("utf-8"))
@@ -259,7 +266,6 @@ def scrape_game_day_boxscores(
         except Exception as e:
             logging.error(f"Error saving {save_path}: {e}")
 
-    return saved
 
 def process_saved_boxscores(
     scores_dir: str,
