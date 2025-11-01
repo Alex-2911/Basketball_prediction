@@ -1,86 +1,36 @@
-name: "🏀 1. Collect and Prepare NBA Game Data (Previous Game Day)"
+name: 🏀 1. Collect and Prepare NBA Game Data (Previous Game Day)
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: "0 20 * * *"   # run daily 20:00 UTC (adjust if needed)
+    - cron: '0 22 * * *'  # every evening
+  workflow_dispatch:
 
 jobs:
   collect_data:
     runs-on: ubuntu-latest
 
-    permissions:
-      contents: write    # allow this job to push to the repo branch
-
     steps:
-      - name: Checkout repository (branch 2026)
+      - name: Checkout repo
         uses: actions/checkout@v4
-        with:
-          ref: 2026
 
-      - name: Set up Python 3.11
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
-      - name: Install Google Chrome
-        uses: browser-actions/setup-chrome@v1
+      - name: Cache WebDriverManager
+        uses: actions/cache@v3
+        with:
+          path: ~/.wdm
+          key: webdriver-manager-${{ runner.os }}
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install html5lib lxml requests pandas beautifulsoup4 selenium webdriver-manager
 
-      - name: Scrape and prepare PREVIOUS game day data (retry with timeout)
+      - name: Run data collection (previous game day)
         run: |
           echo "=== Starting scrape for PREVIOUS game day (attempt 1) ==="
-          timeout 900s python 2026/src/1_get_data_previous_game_day_2026.py
-          status=$?
-
-          if [ $status -eq 0 ]; then
-            echo "✅ Attempt 1 finished normally."
-            exit 0
-          elif [ $status -eq 124 ]; then
-            echo "⚠️ Attempt 1 TIMED OUT after 900 seconds (exit 124)."
-          else
-            echo "❌ Attempt 1 FAILED with exit code $status (not timeout)."
-          fi
-
-          echo "=== Starting scrape for PREVIOUS game day (attempt 2) ==="
-          timeout 900s python 2026/src/1_get_data_previous_game_day_2026.py
-          status2=$?
-
-          if [ $status2 -eq 0 ]; then
-            echo "✅ Attempt 2 finished normally."
-            exit 0
-          elif [ $status2 -eq 124 ]; then
-            echo "⛔ Attempt 2 TIMED OUT after 900 seconds (exit 124). Giving up."
-          else
-            echo "⛔ Attempt 2 FAILED with exit code $status2. Giving up."
-          fi
-
-          # If we reach here, both attempts failed
-          exit 1
-
-      - name: Upload artifact (previous game day data)
-        uses: actions/upload-artifact@v4
-        with:
-          name: previous_game_day_data
-          path: |
-            2026/output/Gathering_Data/**
-            !2026/output/Gathering_Data/Next_Game/**
-
-      - name: Commit and push scraped data back to repo
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add 2026/output/Gathering_Data
-
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-          else
-            commit_msg="auto-update scraped game data ($(date -u +%Y-%m-%dT%H:%MZ))"
-            git commit -m "$commit_msg"
-            git push origin 2026
-          fi
+          timeout 1200s python 2026/src/1_get_data_previous_game_day_2026.py
