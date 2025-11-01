@@ -12,14 +12,14 @@ Script 1 of 5 (2026): Get Data for Previous Game Day
   (so 2025-10-24 games → nba_games_2025-10-25.csv)
 
 In GitHub Actions:
-  - Selenium is headless via nba_utils_2026.get_html()
-  - We added safe fetching with retries + timeouts so the job won't hang
-  - No interactive input() blocking at the end
+  - We create ONE Selenium driver (headless, hardened) via build_driver()
+  - All page loads reuse that driver via get_html_with_driver()
+  - We quit the driver exactly once in a finally: block
+  - We do not hang forever waiting on Selenium init
 """
 
 import os
 import re
-import sys
 import time
 import argparse
 import logging
@@ -35,7 +35,8 @@ from nba_utils_2026 import (
     CURRENT_SEASON,
     get_current_date,
     get_directory_paths,
-    get_html,
+    build_driver,
+    get_html_with_driver,
     parse_html,
     rename_duplicated_columns,
     copy_missing_files,
@@ -86,7 +87,9 @@ def read_season_info(soup: BeautifulSoup) -> str:
     # Example href like '/leagues/NBA_2026_games.html'
     return os.path.basename(hrefs[1]).split("_")[0]
 
+
 def fetch_boxscore_html_safe(
+    driver,
     url: str,
     css_selector: str = "#content",
     timeout_seconds: int = 40,
@@ -96,7 +99,6 @@ def fetch_boxscore_html_safe(
     Robust fetch of a single box score page.
 
     - Tries up to `retry` times
-    - Gives each attempt a hard wall-clock budget
     - Catches Selenium timeouts / crashes instead of hanging the whole pipeline
 
     Returns:
@@ -106,10 +108,13 @@ def fetch_boxscore_html_safe(
     for attempt in range(1, retry + 1):
         start = time.time()
         try:
-            # NOTE:
-            # If your get_html() does NOT accept timeout_seconds yet,
-            # change the next line to: html = get_html(url, css_selector)
-            html = get_html(url, css_selector)
+            html = get_html_with_driver(
+                driver,
+                url,
+                css_selector,
+                sleep=5,
+                retries=1,  # we already loop ourselves
+            )
 
             if html:
                 return html
@@ -137,13 +142,19 @@ def fetch_boxscore_html_safe(
                     f"[WARN] Hard-stop: {url} exceeded ~{timeout_seconds}s wall clock"
                 )
 
-        # short pause so we don't hammer BRef + let Chrome reset
+        # short pause so we don't hammer BRef + let Chrome breathe
         time.sleep(2)
 
     logging.error(f"[ERROR] Failed to fetch {url} after {retry} tries. Skipping.")
     return None
 
-def scrape_season_for_month(season: str, month_name: str, standings_dir: str) -> str | None:
+
+def scrape_season_for_month(
+    driver,
+    season: str,
+    month_name: str,
+    standings_dir: str
+) -> str | None:
     """
     Always download a *fresh* monthly schedule HTML for the given month.
     We delete any stale local file first so we always pull new data.
@@ -167,7 +178,8 @@ def scrape_season_for_month(season: str, month_name: str, standings_dir: str) ->
     # hit the main season page to discover month-specific URLs
     url = f"https://www.basketball-reference.com/leagues/NBA_{season}_games.html"
     selector = "#content .filter"
-    html_content = get_html(url, selector)
+
+    html_content = get_html_with_driver(driver, url, selector)
     if not html_content:
         logging.error(f"Failed to retrieve {url}")
         return None
@@ -193,7 +205,7 @@ def scrape_season_for_month(season: str, month_name: str, standings_dir: str) ->
 
     logging.info(f"Fetching fresh month page: {wanted_url}")
     # Pull the month page itself
-    month_html = get_html(wanted_url, "#all_schedule")
+    month_html = get_html_with_driver(driver, wanted_url, "#all_schedule")
     if not month_html:
         logging.warning(f"Could not fetch monthly page: {wanted_url}")
         return None
@@ -208,7 +220,9 @@ def scrape_season_for_month(season: str, month_name: str, standings_dir: str) ->
 
     return monthly_path
 
+
 def scrape_game_day_boxscores(
+    driver,
     standings_file: str,
     scores_dir: str,
     target_games_date: date
@@ -246,8 +260,9 @@ def scrape_game_day_boxscores(
         if os.path.exists(save_path):
             continue
 
-        # robust fetch with retries / timeout
+        # robust fetch with retries / timeout using shared driver
         page_html = fetch_boxscore_html_safe(
+            driver,
             url,
             css_selector="#content",
             timeout_seconds=40,
@@ -267,6 +282,7 @@ def scrape_game_day_boxscores(
             logging.error(f"Error saving {save_path}: {e}")
 
     return saved
+
 
 def process_saved_boxscores(
     scores_dir: str,
@@ -356,6 +372,7 @@ def process_saved_boxscores(
 
     return games_df
 
+
 def _pause_and_exit_ok():
     """
     Local run: keep console window open.
@@ -368,6 +385,7 @@ def _pause_and_exit_ok():
         input("Done. Press Enter to close this window...")
     except EOFError:
         pass
+
 
 # -----------------------------------------------------------------------------
 # main()
@@ -390,7 +408,7 @@ def main():
     args = parser.parse_args()
 
     # figure out which day we're collecting
-    now_dt, _, today_str_ymd = get_current_date(days_offset=0)
+    now_dt, _, _ = get_current_date(days_offset=0)
     today_date = now_dt.date()
 
     if args.collect_date:
@@ -419,102 +437,114 @@ def main():
     STAT_DIR = paths["STAT_DIR"]
     STANDINGS_DIR = paths["STANDINGS_DIR"]
     SCORES_DIR = paths["SCORES_DIR"]
-    DST_DIR = STAT_DIR  # you mirror to same place at the end
+    DST_DIR = STAT_DIR  # mirror back into same dir
 
-    # always refresh the monthly file for that game's month
-    month_name = month_name_lower(target_games_date)
-    fresh_monthly_file = scrape_season_for_month(
-        CURRENT_SEASON,
-        month_name,
-        STANDINGS_DIR
-    )
-
-    if fresh_monthly_file is None:
-        # fallback: maybe we already have a saved file from a previous run
-        fresh_monthly_file = os.path.join(
-            STANDINGS_DIR,
-            f"NBA_{CURRENT_SEASON}_games-{month_name}.html"
+    # create ONE Selenium driver for the whole run
+    driver = build_driver()
+    try:
+        # always refresh the monthly file for that game's month
+        month_name = month_name_lower(target_games_date)
+        fresh_monthly_file = scrape_season_for_month(
+            driver,
+            CURRENT_SEASON,
+            month_name,
+            STANDINGS_DIR
         )
-        if not os.path.exists(fresh_monthly_file):
+
+        if fresh_monthly_file is None:
+            # fallback: maybe we already have a saved file from a previous run
+            fresh_monthly_file = os.path.join(
+                STANDINGS_DIR,
+                f"NBA_{CURRENT_SEASON}_games-{month_name}.html"
+            )
+            if not os.path.exists(fresh_monthly_file):
+                logging.warning(
+                    f"No monthly file available for {month_name}, cannot continue."
+                )
+                _pause_and_exit_ok()
+                return
+
+        # try to load an existing statistics CSV to match the schema
+        existing_statistics = None
+        try:
+            for back in range(0, 151):
+                cand = (target_games_date - timedelta(days=back)).strftime("%Y-%m-%d")
+                fpath = os.path.join(STAT_DIR, f"nba_games_{cand}.csv")
+                if os.path.exists(fpath):
+                    existing_statistics = pd.read_csv(fpath)
+                    logging.info(
+                        f"Using existing statistics layout from: {fpath}"
+                    )
+                    break
+        except Exception as e:
             logging.warning(
-                f"No monthly file available for {month_name}, cannot continue."
+                f"Could not load existing stats layout: {e}"
+            )
+
+        # download box scores for the target date (robust)
+        saved = scrape_game_day_boxscores(
+            driver,
+            fresh_monthly_file,
+            SCORES_DIR,
+            target_games_date
+        )
+        logging.info(
+            f"Saved {saved} new box score file(s) for {target_games_date}"
+        )
+
+        # parse box scores into a tidy game-level DataFrame
+        games_df = process_saved_boxscores(
+            SCORES_DIR,
+            existing_statistics,
+            target_games_date
+        )
+
+        if games_df is None or games_df.empty:
+            logging.warning(
+                f"No games parsed for {target_games_date}. Nothing to append."
             )
             _pause_and_exit_ok()
             return
 
-    # try to load an existing statistics CSV to match the schema
-    existing_statistics = None
-    try:
-        for back in range(0, 151):
-            cand = (target_games_date - timedelta(days=back)).strftime("%Y-%m-%d")
-            f = os.path.join(STAT_DIR, f"nba_games_{cand}.csv")
-            if os.path.exists(f):
-                existing_statistics = pd.read_csv(f)
-                logging.info(
-                    f"Using existing statistics layout from: {f}"
-                )
-                break
-    except Exception as e:
-        logging.warning(
-            f"Could not load existing stats layout: {e}"
+        # align columns once more (safety)
+        if existing_statistics is not None and not existing_statistics.empty:
+            games_df = games_df.reindex(columns=existing_statistics.columns)
+
+        out_daily = os.path.join(
+            STAT_DIR,
+            f"nba_games_{save_as_date}.csv"
         )
 
-    # download box scores for the target date (robust)
-    saved = scrape_game_day_boxscores(
-        fresh_monthly_file,
-        SCORES_DIR,
-        target_games_date
-    )
-    logging.info(
-        f"Saved {saved} new box score file(s) for {target_games_date}"
-    )
+        # combine:
+        # - if we already have today's snapshot, append fresh rows
+        # - else, glue new games_df onto the historical layout
+        if os.path.exists(out_daily):
+            prev = pd.read_csv(out_daily)
+            combined = pd.concat([prev, games_df], ignore_index=True)
+        elif existing_statistics is not None:
+            combined = pd.concat(
+                [existing_statistics, games_df],
+                ignore_index=True
+            ).drop_duplicates()
+        else:
+            combined = games_df
 
-    # parse box scores into a tidy game-level DataFrame
-    games_df = process_saved_boxscores(
-        SCORES_DIR,
-        existing_statistics,
-        target_games_date
-    )
-
-    if games_df is None or games_df.empty:
-        logging.warning(
-            f"No games parsed for {target_games_date}. Nothing to append."
+        combined.to_csv(out_daily, index=False)
+        logging.info(
+            f"Combined statistics saved → {out_daily}"
         )
+
+        # optional sync / copy to DST_DIR
+        copy_missing_files(STAT_DIR, DST_DIR)
+
         _pause_and_exit_ok()
-        return
 
-    # align columns once more (safety)
-    if existing_statistics is not None and not existing_statistics.empty:
-        games_df = games_df.reindex(columns=existing_statistics.columns)
-
-    out_daily = os.path.join(
-        STAT_DIR,
-        f"nba_games_{save_as_date}.csv"
-    )
-
-    # combine:
-    # - if we already have today's snapshot, append fresh rows
-    # - else, glue new games_df onto the historical layout
-    if os.path.exists(out_daily):
-        prev = pd.read_csv(out_daily)
-        combined = pd.concat([prev, games_df], ignore_index=True)
-    elif existing_statistics is not None:
-        combined = pd.concat(
-            [existing_statistics, games_df],
-            ignore_index=True
-        ).drop_duplicates()
-    else:
-        combined = games_df
-
-    combined.to_csv(out_daily, index=False)
-    logging.info(
-        f"Combined statistics saved → {out_daily}"
-    )
-
-    # optional sync / copy to DST_DIR
-    copy_missing_files(STAT_DIR, DST_DIR)
-
-    _pause_and_exit_ok()
+    finally:
+        # SUPER IMPORTANT: always quit the driver so GitHub runner doesn't hang
+        try:
+            driver.quit()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
