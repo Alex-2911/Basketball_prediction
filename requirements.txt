@@ -9,3 +9,6 @@ scikit-learn==1.2.2
 xlsxwriter==3.1.2
 lxml==5.4.0
 matplotlib>=3.0
+html5lib==1.1
+
+
