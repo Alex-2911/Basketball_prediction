@@ -301,13 +301,158 @@ def process_saved_boxscores(
     target_games_date: date
 ) -> pd.DataFrame:
     """
-    Load each downloaded boxscore .html from scores_dir for exactly target_games_date,
-    build per-team rows, align with existing_statistics columns.
+    Read each saved box score HTML for target_games_date, extract per-team stats,
+    stitch home/away rows, mirror opponent columns, attach metadata.
 
-    We ALSO handle Basketball Reference's anti-scrape trick where they wrap tables
-    (line_score, box-XXX-game-basic, box-XXX-game-advanced, etc.) inside <!-- ... -->.
-    We strip those comment markers before feeding the HTML to pandas.read_html().
+    Handles:
+    - Basketball Reference hiding tables inside <!-- --> comments
+    - Basketball Reference returning MultiIndex columns in box score tables
     """
+
+    def flatten_cols(df_in: pd.DataFrame) -> pd.DataFrame:
+        """
+        Take a DataFrame that may have a MultiIndex for columns and
+        turn it into a normal 1-level Index of clean snake-ish names.
+
+        Example:
+            ('Starters', 'MP') -> 'mp'
+            ('Team Totals', 'FG%') -> 'fg%'
+            ('Unnamed: 5_level_0', 'DRB') -> 'drb'
+
+        We:
+        - join non-empty parts with '_'
+        - drop 'unnamed' noise
+        - lowercase
+        - strip spaces and %
+        """
+        df = df_in.copy()
+        new_cols = []
+        for col in df.columns:
+            if isinstance(col, tuple):
+                pieces = [str(x) for x in col if x and not str(x).lower().startswith("unnamed")]
+                if not pieces:
+                    pieces = [str(col[-1])]  # fallback: last level
+                flat = "_".join(pieces)
+            else:
+                flat = str(col)
+
+            flat = flat.strip().lower()
+            flat = flat.replace(" ", "_")
+            flat = flat.replace("__", "_")
+            new_cols.append(flat)
+
+        df.columns = new_cols
+        return df
+
+    def build_game_rows_from_html(raw_html: str) -> pd.DataFrame:
+        """
+        raw_html -> cleaned_html -> parse line_score, box-{TEAM}-basic/advanced,
+        return 2-row DataFrame (away first, home second) with:
+         - team stats
+         - final points
+         - home flag
+         - opponent mirror columns
+         - won, date, season
+        """
+        # 1) remove <!-- --> so pandas can see the real tables
+        cleaned_html = raw_html.replace("<!--", "").replace("-->", "")
+
+        # 2) get final score table
+        line_score_list = pd.read_html(
+            StringIO(cleaned_html),
+            attrs={'id': 'line_score'}
+        )
+        if not line_score_list:
+            raise ValueError("line_score table still not found after cleaning")
+
+        line_score = line_score_list[0]
+
+        # normalize that table
+        cols = list(line_score.columns)
+        cols[0] = "team"
+        cols[-1] = "total"
+        line_score.columns = cols
+        line_score = line_score[["team", "total"]]
+
+        # teams appear as [away_team, home_team]
+        teams = list(line_score["team"])
+
+        summaries = []
+        for team_abbr in teams:
+            # basic
+            basic_list = pd.read_html(
+                StringIO(cleaned_html),
+                attrs={'id': f'box-{team_abbr}-game-basic'},
+                index_col=0
+            )
+            if not basic_list:
+                raise ValueError(f"basic table for {team_abbr} not found")
+            basic = basic_list[0]
+            basic = flatten_cols(basic)
+            basic = basic.apply(pd.to_numeric, errors="coerce")
+
+            # advanced
+            adv_list = pd.read_html(
+                StringIO(cleaned_html),
+                attrs={'id': f'box-{team_abbr}-game-advanced'},
+                index_col=0
+            )
+            if not adv_list:
+                raise ValueError(f"advanced table for {team_abbr} not found")
+            advanced = adv_list[0]
+            advanced = flatten_cols(advanced)
+            advanced = advanced.apply(pd.to_numeric, errors="coerce")
+
+            # "team totals" row: last row in both
+            totals = pd.concat([basic.iloc[-1], advanced.iloc[-1]])
+
+            # totals.index is now 1-level strings, good. normalize just in case
+            totals.index = [str(x).lower() for x in totals.index]
+
+            # max single-player line in that game (exclude the very last row)
+            maxes = pd.concat([basic.iloc[:-1].max(), advanced.iloc[:-1].max()])
+            maxes.index = [str(x).lower() + "_max" for x in maxes.index]
+
+            summary = pd.concat([totals, maxes])
+
+            summaries.append(summary)
+
+        # at this point summaries[0] = away stats, summaries[1] = home stats
+        # we also want to lock a consistent set/order of columns and drop junk like bpm
+        # but we need to compute that across both summaries
+        all_cols_in_order = []
+        for ser in summaries:
+            for cname in ser.index:
+                if "bpm" in cname:
+                    continue
+                if cname not in all_cols_in_order:
+                    all_cols_in_order.append(cname)
+
+        # align each summary to same col order
+        aligned = []
+        for ser in summaries:
+            aligned.append(ser[all_cols_in_order])
+        summary_df = pd.concat(aligned, axis=1).T  # shape (2, ncols)
+
+        # add team + total points
+        summary_df = pd.concat([summary_df.reset_index(drop=True), line_score.reset_index(drop=True)], axis=1)
+
+        # home flag: first row is away=0, second row is home=1
+        summary_df["home"] = [0, 1]
+
+        # mirror opponent columns by flipping the two rows
+        game_opp = summary_df.iloc[::-1].reset_index(drop=True)
+        # make sure opponent col names don't collide: add _opp suffix
+        game_opp.columns = [c + "_opp" for c in game_opp.columns]
+
+        full_game = pd.concat([summary_df.reset_index(drop=True), game_opp], axis=1)
+
+        return full_game, all_cols_in_order
+
+    # -------------------------------------------------
+    # main body of process_saved_boxscores starts here
+    # -------------------------------------------------
+
     box_files = [
         os.path.join(scores_dir, f)
         for f in os.listdir(scores_dir)
@@ -323,111 +468,53 @@ def process_saved_boxscores(
 
     for p in box_files:
         try:
-            # filenames start with YYYYMMDD...
-            fdate = pd.Timestamp(os.path.basename(p)[:8]).date()
+            game_date_tag = os.path.basename(p)[:8]  # '20251031'
+            fdate = pd.Timestamp(game_date_tag).date()
             if fdate != target_games_date:
                 continue
 
-            # read raw HTML
             with open(p, "r", encoding="utf-8") as fh:
                 raw_txt = fh.read()
 
-            # sanity check: must vaguely look like a real box score
             if 'id="line_score"' not in raw_txt:
                 logging.warning(
-                    f"[SKIP PARSE] {p} is missing line_score marker "
-                    "(probably still bot-blocked HTML)"
+                    f"[SKIP PARSE] {p} missing line_score marker (still bot-blocked?)"
                 )
                 continue
 
-            # --- NEW: un-comment Basketball Reference tables -----------------
-            # BRef often does: <!-- <table id="line_score"> ... </table> -->
-            # pandas.read_html() won't see it unless we remove <!-- and -->
-            cleaned_html = raw_txt.replace("<!--", "").replace("-->", "")
+            game_frame, cols_this_game = build_game_rows_from_html(raw_txt)
 
-            # === line score table (final scores home/away) ===
-            line_score_list = pd.read_html(
-                StringIO(cleaned_html),
-                attrs={'id': 'line_score'}
-            )
-            if not line_score_list:
-                raise ValueError("line_score table still not found after cleaning")
-            line_score = line_score_list[0]
+            # Add metadata: season, date, won
+            game_frame["season"] = CURRENT_SEASON
+            game_frame["date"] = pd.Timestamp(game_date_tag)
 
-            cols = list(line_score.columns)
-            cols[0] = "team"
-            cols[-1] = "total"
-            line_score.columns = cols
-            line_score = line_score[["team", "total"]]
+            # 'total' vs 'total_opp' determines winner
+            game_frame["won"] = game_frame["total"] > game_frame["total_opp"]
 
-            teams = list(line_score["team"])  # [away_team, home_team]
+            # Track a canonical column order for ALL games in this run,
+            # excluding columns we will add like season/date/won later.
+            if base_cols is None:
+                # take columns from game_frame before we appended season/date/won
+                # but keep them in their current order
+                core_order = [
+                    c for c in game_frame.columns
+                    if c not in ["season", "date", "won"]
+                ]
+                base_cols = core_order + ["season", "date", "won"]
 
-            # === per-team stats ===
-            summaries = []
-            for team in teams:
-                # basic box
-                basic_list = pd.read_html(
-                    StringIO(cleaned_html),
-                    attrs={'id': f'box-{team}-game-basic'},
-                    index_col=0
-                )
-                if not basic_list:
-                    raise ValueError(f"basic table for {team} not found")
-                basic = basic_list[0]
-                basic = basic.apply(pd.to_numeric, errors="coerce")
+            # reindex to base_cols union, so every game has same shape
+            # (if new cols appear mid-season, we'll just union them)
+            missing_cols = [c for c in base_cols if c not in game_frame.columns]
+            extra_cols   = [c for c in game_frame.columns if c not in base_cols]
+            if extra_cols:
+                # extend base_cols so we keep any new columns we haven't seen yet
+                base_cols += extra_cols
+            for m in missing_cols:
+                game_frame[m] = pd.NA
 
-                # advanced box
-                adv_list = pd.read_html(
-                    StringIO(cleaned_html),
-                    attrs={'id': f'box-{team}-game-advanced'},
-                    index_col=0
-                )
-                if not adv_list:
-                    raise ValueError(f"advanced table for {team} not found")
-                advanced = adv_list[0]
-                advanced = advanced.apply(pd.to_numeric, errors="coerce")
+            game_frame = game_frame.reindex(columns=base_cols)
 
-                # last row in each table is "Team Totals"
-                totals = pd.concat([basic.iloc[-1], advanced.iloc[-1]])
-                totals.index = totals.index.str.lower()
-
-                # max row values across players (exclude the last "Team Totals" row)
-                maxes = pd.concat([basic.iloc[:-1].max(), advanced.iloc[:-1].max()])
-                maxes.index = maxes.index.str.lower() + "_max"
-
-                summary = pd.concat([totals, maxes])
-
-                if base_cols is None:
-                    # lock schema once, drop BPM noise etc.
-                    base_cols = [
-                        b for b in summary.index.drop_duplicates(keep="first")
-                        if "bpm" not in b
-                    ]
-
-                summary = summary[base_cols]
-                summaries.append(summary)
-
-            # shape: 2 rows, stats columns (away first, home second)
-            summary = pd.concat(summaries, axis=1).T
-
-            # attach final team scores
-            game = pd.concat([summary, line_score], axis=1)
-
-            # first row = away, second row = home
-            game["home"] = [0, 1]
-
-            # create opponent columns by reversing rows
-            game_opp = game.iloc[::-1].reset_index()
-            game_opp.columns += "_opp"
-
-            full_game = pd.concat([game, game_opp], axis=1)
-
-            # add metadata
-            full_game["season"] = CURRENT_SEASON
-            full_game["date"] = pd.Timestamp(os.path.basename(p)[:8])
-            full_game["won"] = full_game["total"] > full_game["total_opp"]
-
-            games.append(full_game)
+            games.append(game_frame)
 
         except Exception as e:
             logging.error(f"Error parsing/processing {p}: {e}")
@@ -438,13 +525,11 @@ def process_saved_boxscores(
     games_df = pd.concat(games, ignore_index=True)
     games_df = rename_duplicated_columns(games_df)
 
-    # align final columns to previous snapshot schema if available
+    # if we already have a historical schema (existing_statistics), align to that
     if existing_statistics is not None and not existing_statistics.empty:
-        games_df = games_df.reindex(columns=existing_statistics.columns)
+        games_df = games_df.reindex(columns=existing_statistics.columns, fill_value=pd.NA)
 
     return games_df
-
-
 
 def _pause_and_exit_ok():
     """
