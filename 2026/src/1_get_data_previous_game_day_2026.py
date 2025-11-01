@@ -4,39 +4,42 @@
 """
 Script 1 of 5 (2026): Get Data for Previous Game Day
 
-What it does:
-- downloads the current month's NBA schedule HTML from basketball-reference.com
-- finds yesterday's (or specified) games
-- downloads each box score page for those games
-- parses each box score into team-level stats
-- appends those stats to our rolling dataset
-- writes/updates a daily snapshot CSV like nba_games_2025-11-01.csv
+Pipeline:
+1. Figure out "target_games_date":
+   - default: yesterday
+   - --date X: scrape X-1
+   - --collect-date Y: scrape Y exactly
+   Also decide which date we save the snapshot under ("save_as_date").
 
-Key changes in this version:
-- Uses plain HTTP requests (fetch_html_requests) from nba_utils_2026.py.
-- Does NOT use Selenium or Chrome at all.
-- So it won't hang in GitHub Actions.
+2. Download fresh monthly schedule HTML from basketball-reference.com
+   for that date's month (NBA_2026_games-october.html etc.).
 
-Usage:
-- No args  -> scrape yesterday's games, save under today's date.
-- --date X -> treat X as "today", scrape X-1.
-- --collect-date Y -> scrape games from Y exactly, save under real today.
+3. From that HTML, collect all box score links for target_games_date.
 
-Examples:
-python 1_get_data_previous_game_day_2026.py
-python 1_get_data_previous_game_day_2026.py --date 2025-11-01
-python 1_get_data_previous_game_day_2026.py --collect-date 2025-10-31
+4. For each box score link:
+   - Check if we already have a VALID local copy in scores_dir
+     (valid = contains real <table id="line_score">).
+   - If not, first try fetch_html_requests().
+   - If that still isn't valid, try fetch_boxscore_via_selenium().
+   - Only save if valid.
+
+5. Parse all valid local box scores from that date into per-team rows
+   (away+home), attach metadata, align columns with our historical CSV,
+   and write/update nba_games_<save_as_date>.csv in Whole_Statistic.
+
+Why this works in CI:
+- We mostly use requests (fast, no hanging).
+- Selenium is only spun up *per game* IF requests gave us anti-bot junk.
+  That matches the pattern you just tested.
 """
 
 import os
 import re
-import sys
 import time
 import argparse
 import logging
 import calendar
 import pandas as pd
-
 from io import StringIO
 from datetime import datetime, timedelta, date
 from bs4 import BeautifulSoup
@@ -46,7 +49,8 @@ from nba_utils_2026 import (
     get_current_date,
     get_directory_paths,
     fetch_html_requests,
-    parse_html,
+    fetch_boxscore_via_selenium,
+    boxscore_html_is_valid,
     rename_duplicated_columns,
     copy_missing_files,
 )
@@ -60,26 +64,31 @@ logging.basicConfig(
 )
 
 # -----------------------------------------------------------------------------
-# helper fns (date utils, parsing, scraping)
+# helpers: dates
 # -----------------------------------------------------------------------------
 
 def parse_ymd(s: str) -> date:
-    """'2025-10-31' -> datetime.date(2025,10,31)"""
+    """'2025-10-31' -> datetime.date(2025, 10, 31)"""
     return datetime.strptime(s, "%Y-%m-%d").date()
 
 
 def month_name_lower(d: date) -> str:
-    """datetime.date -> 'october', 'november', ..."""
+    """datetime.date(2025,10,31) -> 'october'."""
     return calendar.month_name[d.month].lower()
 
 
-def read_line_score(soup: BeautifulSoup) -> pd.DataFrame:
+# -----------------------------------------------------------------------------
+# helpers: table readers
+# -----------------------------------------------------------------------------
+
+def read_line_score_from_html(raw_html: str) -> pd.DataFrame:
     """
-    Read the #line_score table to get final team scores.
-    Returns DataFrame with columns ['team','total'].
+    Pull the final score table (#line_score) from a box score HTML string.
+    Return DataFrame with columns ['team','total'].
+    Raise if the table isn't there → caller will handle.
     """
     line_score = pd.read_html(
-        StringIO(str(soup)),
+        StringIO(raw_html),
         attrs={'id': 'line_score'}
     )[0]
 
@@ -91,61 +100,51 @@ def read_line_score(soup: BeautifulSoup) -> pd.DataFrame:
     return line_score
 
 
-def read_stats(soup: BeautifulSoup, team: str, stat: str) -> pd.DataFrame:
+def read_team_tables_from_html(raw_html: str, team_abbr: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Read team stats table like id='box-CHI-game-basic' or '-advanced'.
-    Returns numeric DataFrame (players + 'Team Totals' as last row).
+    Get that team's 'basic' and 'advanced' tables from a box score HTML string.
+
+    Returns (basic_df, advanced_df) where both are numeric frames.
     """
-    df = pd.read_html(
-        StringIO(str(soup)),
-        attrs={'id': f'box-{team}-game-{stat}'},
+    basic = pd.read_html(
+        StringIO(raw_html),
+        attrs={'id': f'box-{team_abbr}-game-basic'},
         index_col=0
     )[0]
-    return df.apply(pd.to_numeric, errors="coerce")
+    basic = basic.apply(pd.to_numeric, errors="coerce")
+
+    adv = pd.read_html(
+        StringIO(raw_html),
+        attrs={'id': f'box-{team_abbr}-game-advanced'},
+        index_col=0
+    )[0]
+    adv = adv.apply(pd.to_numeric, errors="coerce")
+
+    return basic, adv
 
 
-def fetch_boxscore_html_safe(
-    url: str,
-    retry: int = 3,
-    sleep_between: float = 2.0,
-) -> str | None:
-    """
-    Fetch a single box score page via requests with retries.
-    Returns HTML (string) or None after all attempts fail.
-    """
-    for attempt in range(1, retry + 1):
-        html = fetch_html_requests(url)
-        if html:
-            return html
-
-        logging.warning(
-            f"[WARN] Empty/failed HTML from {url} (attempt {attempt}/{retry})"
-        )
-        time.sleep(sleep_between)
-
-    logging.error(f"[ERROR] Failed to fetch {url} after {retry} tries. Skipping.")
-    return None
-
+# -----------------------------------------------------------------------------
+# step 1: fetch monthly page and save locally
+# -----------------------------------------------------------------------------
 
 def scrape_season_for_month(
-    season: str,
+    season: int,
     month_name: str,
     standings_dir: str
 ) -> str | None:
     """
-    Download the fresh monthly schedule HTML for `month_name`
-    (e.g. 'october') for the given season.
-    Saves as .../NBA_2026_games-october.html
+    Download fresh monthly schedule HTML for `month_name`
+    (e.g. 'october') for the given season (e.g. 2026),
+    and save it to STANDINGS_DIR/NBA_2026_games-october.html.
 
-    Returns:
-        path to saved file on success
-        None on total failure
+    Return path to saved file OR None if we couldn't get anything.
     """
     os.makedirs(standings_dir, exist_ok=True)
+
     monthly_filename = f"NBA_{season}_games-{month_name}.html"
     monthly_path = os.path.join(standings_dir, monthly_filename)
 
-    # delete any stale file first so we're guaranteed a fresh pull
+    # delete stale copy first → forces fresh pull
     if os.path.exists(monthly_path):
         try:
             os.remove(monthly_path)
@@ -153,24 +152,24 @@ def scrape_season_for_month(
         except Exception as e:
             logging.error(f"Could not delete {monthly_path}: {e}")
 
-    # 1. fetch season overview page: /leagues/NBA_2026_games.html
+    # 1. fetch the season overview page: /leagues/NBA_2026_games.html
     season_url = f"https://www.basketball-reference.com/leagues/NBA_{season}_games.html"
     html_season = fetch_html_requests(season_url)
     if not html_season:
         logging.error(f"Failed to retrieve {season_url}")
         return None
 
-    soup_season = BeautifulSoup(html_season, 'html.parser')
+    soup_season = BeautifulSoup(html_season, "html.parser")
 
-    # find monthly page link that matches this month
+    # 2. find link for this specific month
     links = soup_season.find_all(
         "a",
         href=re.compile(r"/leagues/NBA_[0-9]{4}_games-[a-z]+\.html")
     )
 
     wanted_url = None
-    for l in links:
-        href = l.get("href", "")
+    for a in links:
+        href = a.get("href", "")
         if f"NBA_{season}_games-{month_name}" in href:
             wanted_url = "https://www.basketball-reference.com" + href
             break
@@ -181,14 +180,14 @@ def scrape_season_for_month(
         )
         return None
 
-    # 2. fetch that month subpage, which actually contains the schedule table
+    # 3. get that month subpage
     logging.info(f"Fetching fresh month page: {wanted_url}")
     month_html = fetch_html_requests(wanted_url)
     if not month_html:
         logging.warning(f"Could not fetch monthly page: {wanted_url}")
         return None
 
-    # 3. save it
+    # 4. save
     try:
         with open(monthly_path, "w", encoding="utf-8") as f:
             f.write(month_html)
@@ -200,38 +199,38 @@ def scrape_season_for_month(
     return monthly_path
 
 
+# -----------------------------------------------------------------------------
+# step 2: download / refresh boxscore HTMLs
+# -----------------------------------------------------------------------------
+
 def scrape_game_day_boxscores(
     standings_file: str,
     scores_dir: str,
     target_games_date: date
 ) -> int:
     """
-    For each game on target_games_date:
-    - find the box score URL
-    - ensure we have a GOOD local copy (real tables, not anti-bot placeholders)
-    - if local copy is bad, refetch
-    - save/overwrite only if the fetched HTML is truly good
+    For each game played on target_games_date:
+    - Build the box score URL from schedule page.
+    - Check if local cached file exists AND is valid (has real line_score).
+      * If valid: keep.
+      * If missing or invalid:
+          1. Try fetch_html_requests(url)
+          2. If still invalid, try fetch_boxscore_via_selenium(url)
+      * Only save HTML if valid.
 
-    Returns: number of box score files that were (re)written with good data
+    Return the number of box score files we actually wrote/overwrote.
     """
     os.makedirs(scores_dir, exist_ok=True)
 
-    # helper: does this HTML actually contain a real <table id="line_score"> … </table> ?
-    def html_has_real_table(html_text: str, table_id: str = "line_score") -> bool:
-        if not html_text or "line_score" not in html_text:
-            return False
-        soup_check = BeautifulSoup(html_text, "html.parser")
-        table_tag = soup_check.find("table", id=table_id)
-        return table_tag is not None  # must be an actual table node, not just a comment
+    # read the monthly standings HTML we just saved
+    with open(standings_file, "r", encoding="utf-8") as f:
+        monthly_html = f.read()
 
-    # read the monthly schedule page and collect that day's boxscore links
-    with open(standings_file, 'r', encoding='utf-8') as f:
-        html = f.read()
-    soup = BeautifulSoup(html, 'html.parser')
-    hrefs = [a.get('href') for a in soup.find_all("a")]
+    soup = BeautifulSoup(monthly_html, "html.parser")
+    hrefs = [a.get("href") for a in soup.find_all("a")]
 
     wanted_tag = target_games_date.strftime("%Y%m%d")
-    box_scores = [
+    box_urls = [
         "https://www.basketball-reference.com" + h
         for h in hrefs
         if h
@@ -242,53 +241,68 @@ def scrape_game_day_boxscores(
 
     saved = 0
 
-    for url in box_scores:
+    for url in box_urls:
         filename = os.path.basename(url)
         save_path = os.path.join(scores_dir, filename)
 
-        # Step 1: check if we already have a GOOD file on disk
-        need_fetch = True
-        if os.path.exists(save_path):
+        # helper: check local cache
+        def load_local_html_if_any(path: str) -> str | None:
+            if not os.path.exists(path):
+                return None
             try:
-                with open(save_path, "r", encoding="utf-8") as f_local:
-                    cached_txt = f_local.read()
-                if html_has_real_table(cached_txt, table_id="line_score"):
-                    # cached file is legit -> we can reuse it
-                    logging.info(f"Local box score OK, reusing → {save_path}")
-                    need_fetch = False
-                else:
-                    logging.info(
-                        f"Local box score STALE/bad → {save_path} (no real line_score table)"
-                    )
-            except Exception as e:
-                logging.warning(f"Couldn't read cached {save_path}: {e}")
+                with open(path, "r", encoding="utf-8") as fh:
+                    return fh.read()
+            except Exception:
+                return None
 
-        # Step 2: if needed, re-download until we get a REAL table
-        if need_fetch:
-            page_html = None
-            # retry a few times in case BRef rate-limits first attempt
-            for attempt in range(3):
-                attempt_html = fetch_boxscore_html_safe(url, retry=1, sleep_between=1.5)
-                if attempt_html and html_has_real_table(attempt_html, "line_score"):
-                    page_html = attempt_html
-                    break
-                time.sleep(1.5)
+        local_html = load_local_html_if_any(save_path)
+        local_valid = boxscore_html_is_valid(local_html) if local_html else False
 
-            if page_html is None:
-                logging.warning(f"[SKIP] Could not obtain a clean box score for {url}")
-                # don't overwrite with junk
-                continue
+        if local_valid:
+            logging.info(f"Local box score OK, reusing → {save_path}")
+            # nothing to write
+            continue
+        else:
+            # local is missing or stale/anti-bot
+            if local_html:
+                logging.info(
+                    f"Local box score STALE/bad → {save_path} "
+                    "(no real line_score table)"
+                )
 
-            # Step 3: save the GOOD html to disk (overwriting stale copy if any)
+        # Try plain requests first
+        html_req = fetch_html_requests(url)
+        if html_req and boxscore_html_is_valid(html_req):
             try:
-                with open(save_path, "w", encoding="utf-8") as f_out:
-                    f_out.write(page_html)
+                with open(save_path, "w", encoding="utf-8") as fh:
+                    fh.write(html_req)
                 saved += 1
                 logging.info(f"Saved/updated valid box score → {save_path}")
             except Exception as e:
                 logging.error(f"Error saving {save_path}: {e}")
+            continue  # next game
+
+        # Requests version still not valid -> try selenium fallback
+        html_sel = fetch_boxscore_via_selenium(url)
+        if html_sel and boxscore_html_is_valid(html_sel):
+            try:
+                with open(save_path, "w", encoding="utf-8") as fh:
+                    fh.write(html_sel)
+                saved += 1
+                logging.info(f"Saved/updated valid box score (selenium) → {save_path}")
+            except Exception as e:
+                logging.error(f"Error saving {save_path}: {e}")
+        else:
+            logging.warning(
+                f"[SKIP] Could not obtain a clean box score for {url}"
+            )
 
     return saved
+
+
+# -----------------------------------------------------------------------------
+# step 3: parse (now-valid) local boxscores into rows
+# -----------------------------------------------------------------------------
 
 def process_saved_boxscores(
     scores_dir: str,
@@ -296,40 +310,20 @@ def process_saved_boxscores(
     target_games_date: date
 ) -> pd.DataFrame:
     """
-    Load each downloaded boxscore .html from scores_dir for exactly target_games_date,
-    build per-team rows, align with existing_statistics columns.
+    Look at every .html in scores_dir, keep only those:
+    - with filename prefix == target_games_date (YYYYMMDD),
+    - that actually contain the <table id="line_score">.
 
-    Output rows (2 per game: away row then home row) look like:
-      - numeric stats from 'basic' + 'advanced'
-      - *_max columns (max single-player stat lines for that game)
-      - 'total', 'team', etc.
-      - 'home' flag (0 for away, 1 for home)
-      - mirrored opponent columns with suffix _opp
-      - won (True/False)
-      - date, season
+    For each valid game:
+      - read final score (line_score)
+      - read team stats (basic + advanced)
+      - build one row per team (away/home)
+      - attach opponent mirror columns
+      - attach metadata: season, date, won
+
+    Return concatenated DataFrame of all games that date,
+    optionally reindexed to match existing_statistics columns.
     """
-
-    # --- small helper: grab a single table by id and parse it with pandas ---
-    def extract_table_df(raw_html: str, table_id: str, index_col=None) -> pd.DataFrame:
-        """
-        - Find <table id="{table_id}">...</table> using BeautifulSoup
-        - Run pd.read_html() on JUST that table markup
-        - Return the first (and only) DataFrame
-        Raises ValueError if table not found or unreadable.
-        """
-        soup_local = BeautifulSoup(raw_html, "html.parser")
-        table_tag = soup_local.find("table", id=table_id)
-        if table_tag is None:
-            raise ValueError(f"Table id='{table_id}' not found in HTML.")
-
-        table_html = str(table_tag)
-        df_list = pd.read_html(StringIO(table_html), index_col=index_col)
-        if not df_list:
-            raise ValueError(f"pd.read_html() returned no tables for id='{table_id}'.")
-        return df_list[0]
-
-    # -----------------------------------------------------------------------
-
     box_files = [
         os.path.join(scores_dir, f)
         for f in os.listdir(scores_dir)
@@ -345,91 +339,67 @@ def process_saved_boxscores(
 
     for p in box_files:
         try:
-            # filenames start with YYYYMMDD...
+            # 1. match file date to target_games_date
             fdate = pd.Timestamp(os.path.basename(p)[:8]).date()
             if fdate != target_games_date:
                 continue
 
-            # read raw HTML
             with open(p, "r", encoding="utf-8") as fh:
-                raw_txt = fh.read()
+                raw_html = fh.read()
 
-            # sanity check: must look like a real box score
-            if 'id="line_score"' not in raw_txt:
+            # 2. validate HTML is real
+            if not boxscore_html_is_valid(raw_html):
                 logging.warning(
-                    f"[SKIP PARSE] {p} is missing line_score table "
-                    "(probably anti-bot HTML)"
+                    f"[SKIP PARSE] {p} is missing a valid line_score table "
+                    "(likely anti-bot HTML)"
                 )
                 continue
 
-            # === line score table (final scores home/away) ===
-            line_score = extract_table_df(raw_txt, "line_score", index_col=None)
-
-            cols = list(line_score.columns)
-            cols[0] = "team"
-            cols[-1] = "total"
-            line_score.columns = cols
-            line_score = line_score[["team", "total"]]
-
+            # 3. line_score = final scores
+            line_score = read_line_score_from_html(raw_html)
             teams = list(line_score["team"])  # [away_team, home_team]
 
-            # === per-team stats ===
+            # 4. build per-team summary for both teams
             summaries = []
-            for team in teams:
-                # team "CHI", "PHI", etc.
-                basic = extract_table_df(
-                    raw_txt,
-                    f"box-{team}-game-basic",
-                    index_col=0
-                )
-                basic = basic.apply(pd.to_numeric, errors="coerce")
+            for team_abbr in teams:
+                basic_df, adv_df = read_team_tables_from_html(raw_html, team_abbr)
 
-                advanced = extract_table_df(
-                    raw_txt,
-                    f"box-{team}-game-advanced",
-                    index_col=0
-                )
-                advanced = advanced.apply(pd.to_numeric, errors="coerce")
-
-                # last row in each table is "Team Totals"
-                totals = pd.concat([basic.iloc[-1], advanced.iloc[-1]])
+                # last row is "Team Totals"
+                totals = pd.concat([basic_df.iloc[-1], adv_df.iloc[-1]])
                 totals.index = totals.index.str.lower()
 
-                # max row values across players (exclude the last "Team Totals" row)
-                maxes = pd.concat([
-                    basic.iloc[:-1].max(),
-                    advanced.iloc[:-1].max()
-                ])
+                # max per-player stats (exclude last row)
+                maxes = pd.concat([basic_df.iloc[:-1].max(), adv_df.iloc[:-1].max()])
                 maxes.index = maxes.index.str.lower() + "_max"
 
                 summary = pd.concat([totals, maxes])
 
+                # lock column ordering (base_cols) on the first team we parse
                 if base_cols is None:
-                    # first time -> lock in a base_col ordering, minus BPM noise
                     base_cols = [
-                        b for b in summary.index.drop_duplicates(keep="first")
-                        if "bpm" not in b
+                        c for c in summary.index.drop_duplicates(keep="first")
+                        if "bpm" not in c.lower()
                     ]
 
                 summary = summary[base_cols]
                 summaries.append(summary)
 
-            # shape: 2 rows, stats columns (away first, home second)
-            summary = pd.concat(summaries, axis=1).T
+            # shape now: 2 rows, same columns (away first, home second)
+            summary_df = pd.concat(summaries, axis=1).T
 
-            # attach final team scores from line_score
-            game = pd.concat([summary, line_score], axis=1)
+            # add final scores
+            game_df = pd.concat([summary_df, line_score], axis=1)
 
-            # first row = away, second row = home
-            game["home"] = [0, 1]
+            # mark home flag: first row = away(0), second row = home(1)
+            game_df["home"] = [0, 1]
 
-            # create opponent columns by reversing rows
-            game_opp = game.iloc[::-1].reset_index()
-            game_opp.columns += "_opp"
+            # create mirrored opponent columns by reversing rows
+            opp_df = game_df.iloc[::-1].reset_index(drop=True)
+            opp_df.columns = [f"{c}_opp" for c in opp_df.columns]
 
-            full_game = pd.concat([game, game_opp], axis=1)
+            full_game = pd.concat([game_df.reset_index(drop=True), opp_df], axis=1)
 
-            # add metadata
+            # attach metadata
             full_game["season"] = CURRENT_SEASON
             full_game["date"] = pd.Timestamp(os.path.basename(p)[:8])
             full_game["won"] = full_game["total"] > full_game["total_opp"]
@@ -445,16 +415,21 @@ def process_saved_boxscores(
     games_df = pd.concat(games, ignore_index=True)
     games_df = rename_duplicated_columns(games_df)
 
-    # align final columns to previous snapshot schema if available
+    # Align with existing stats columns from historical CSV
     if existing_statistics is not None and not existing_statistics.empty:
         games_df = games_df.reindex(columns=existing_statistics.columns)
 
     return games_df
 
+
+# -----------------------------------------------------------------------------
+# interactive pause helper (for local runs)
+# -----------------------------------------------------------------------------
+
 def _pause_and_exit_ok():
     """
-    Local run: keep console window open.
-    In GitHub Actions: exit immediately (GITHUB_ACTIONS is 'true').
+    Local run: wait for Enter so the console window doesn't close.
+    In GitHub Actions: just return.
     """
     in_ci = os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
     if in_ci:
@@ -485,7 +460,7 @@ def main():
     )
     args = parser.parse_args()
 
-    # figure out which day to collect
+    # figure out which day we're collecting
     now_dt, _, _ = get_current_date(days_offset=0)
     today_date = now_dt.date()
 
@@ -510,14 +485,14 @@ def main():
             f"and saving snapshot as {save_as_date}"
         )
 
-    # resolve directory layout
+    # directory layout
     paths = get_directory_paths()
     STAT_DIR = paths["STAT_DIR"]
     STANDINGS_DIR = paths["STANDINGS_DIR"]
     SCORES_DIR = paths["SCORES_DIR"]
-    DST_DIR = STAT_DIR  # end-of-run mirror (right now they are the same)
+    DST_DIR = STAT_DIR  # right now same, but keep hook
 
-    # 1. refresh the monthly schedule HTML for the target_games_date month
+    # STEP 1: refresh monthly schedule HTML for that date's month
     month_name = month_name_lower(target_games_date)
     fresh_monthly_file = scrape_season_for_month(
         CURRENT_SEASON,
@@ -526,7 +501,7 @@ def main():
     )
 
     if fresh_monthly_file is None:
-        # fallback: use an existing file if any
+        # fallback: reuse previous monthly file if available
         fallback_path = os.path.join(
             STANDINGS_DIR,
             f"NBA_{CURRENT_SEASON}_games-{month_name}.html"
@@ -539,16 +514,16 @@ def main():
             return
         fresh_monthly_file = fallback_path
 
-    # 2. figure out an existing statistics layout to align new rows to
+    # STEP 2: load existing snapshot schema so we can align columns
     existing_statistics = None
     try:
         for back in range(0, 151):
-            cand = (target_games_date - timedelta(days=back)).strftime("%Y-%m-%d")
-            fpath = os.path.join(STAT_DIR, f"nba_games_{cand}.csv")
-            if os.path.exists(fpath):
-                existing_statistics = pd.read_csv(fpath)
+            cand_date = (target_games_date - timedelta(days=back)).strftime("%Y-%m-%d")
+            candidate_csv = os.path.join(STAT_DIR, f"nba_games_{cand_date}.csv")
+            if os.path.exists(candidate_csv):
+                existing_statistics = pd.read_csv(candidate_csv)
                 logging.info(
-                    f"Using existing statistics layout from: {fpath}"
+                    f"Using existing statistics layout from: {candidate_csv}"
                 )
                 break
     except Exception as e:
@@ -556,17 +531,17 @@ def main():
             f"Could not load existing stats layout: {e}"
         )
 
-    # 3. download/refresh box score HTMLs for the target day
-    saved = scrape_game_day_boxscores(
+    # STEP 3: (re)download box scores for the target date (requests → fallback selenium)
+    saved_ct = scrape_game_day_boxscores(
         fresh_monthly_file,
         SCORES_DIR,
         target_games_date
     )
     logging.info(
-        f"Saved {saved} new box score file(s) for {target_games_date}"
+        f"Saved {saved_ct} new box score file(s) for {target_games_date}"
     )
 
-    # 4. parse those box scores into a tidy per-team/per-game frame
+    # STEP 4: parse all valid box scores for that date into rows
     games_df = process_saved_boxscores(
         SCORES_DIR,
         existing_statistics,
@@ -580,16 +555,16 @@ def main():
         _pause_and_exit_ok()
         return
 
-    # safety align columns again
+    # final column alignment safety
     if existing_statistics is not None and not existing_statistics.empty:
         games_df = games_df.reindex(columns=existing_statistics.columns)
 
+    # STEP 5: write/update today's snapshot
     out_daily = os.path.join(
         STAT_DIR,
         f"nba_games_{save_as_date}.csv"
     )
 
-    # 5. merge new data into the rolling snapshot for save_as_date
     if os.path.exists(out_daily):
         prev = pd.read_csv(out_daily)
         combined = pd.concat([prev, games_df], ignore_index=True)
@@ -606,7 +581,7 @@ def main():
         f"Combined statistics saved → {out_daily}"
     )
 
-    # 6. mirror to DST_DIR (right now DST_DIR == STAT_DIR, but we keep hook)
+    # STEP 6: mirror/sync (right now a no-op because dirs are same, but we keep it)
     copy_missing_files(STAT_DIR, DST_DIR)
 
     _pause_and_exit_ok()
