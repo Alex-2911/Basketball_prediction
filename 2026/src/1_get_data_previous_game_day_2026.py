@@ -26,11 +26,6 @@ Pipeline:
 5. Parse all valid local box scores from that date into per-team rows
    (away+home), attach metadata, align columns with our historical CSV,
    and write/update nba_games_<save_as_date>.csv in Whole_Statistic.
-
-Why this works in CI:
-- We mostly use requests (fast, no hanging).
-- Selenium is only spun up *per game* IF requests gave us anti-bot junk.
-  That matches the pattern you just tested.
 """
 
 import os
@@ -40,8 +35,10 @@ import argparse
 import logging
 import calendar
 import pandas as pd
+
 from io import StringIO
 from datetime import datetime, timedelta, date
+from typing import Tuple, Optional
 from bs4 import BeautifulSoup
 
 from nba_utils_2026 import (
@@ -131,7 +128,7 @@ def scrape_season_for_month(
     season: int,
     month_name: str,
     standings_dir: str
-) -> str | None:
+) -> Optional[str]:
     """
     Download fresh monthly schedule HTML for `month_name`
     (e.g. 'october') for the given season (e.g. 2026),
@@ -245,8 +242,8 @@ def scrape_game_day_boxscores(
         filename = os.path.basename(url)
         save_path = os.path.join(scores_dir, filename)
 
-        # helper: check local cache
-        def load_local_html_if_any(path: str) -> str | None:
+        # helper: load local HTML if present
+        def load_local_html_if_any(path: str) -> Optional[str]:
             if not os.path.exists(path):
                 return None
             try:
@@ -260,17 +257,15 @@ def scrape_game_day_boxscores(
 
         if local_valid:
             logging.info(f"Local box score OK, reusing → {save_path}")
-            # nothing to write
             continue
         else:
-            # local is missing or stale/anti-bot
             if local_html:
                 logging.info(
                     f"Local box score STALE/bad → {save_path} "
                     "(no real line_score table)"
                 )
 
-        # Try plain requests first
+        # Try requests first
         html_req = fetch_html_requests(url)
         if html_req and boxscore_html_is_valid(html_req):
             try:
@@ -280,16 +275,18 @@ def scrape_game_day_boxscores(
                 logging.info(f"Saved/updated valid box score → {save_path}")
             except Exception as e:
                 logging.error(f"Error saving {save_path}: {e}")
-            continue  # next game
+            continue
 
-        # Requests version still not valid -> try selenium fallback
+        # Still not valid → try selenium fallback
         html_sel = fetch_boxscore_via_selenium(url)
         if html_sel and boxscore_html_is_valid(html_sel):
             try:
                 with open(save_path, "w", encoding="utf-8") as fh:
                     fh.write(html_sel)
                 saved += 1
-                logging.info(f"Saved/updated valid box score (selenium) → {save_path}")
+                logging.info(
+                    f"Saved/updated valid box score (selenium) → {save_path}"
+                )
             except Exception as e:
                 logging.error(f"Error saving {save_path}: {e}")
         else:
@@ -387,7 +384,7 @@ def process_saved_boxscores(
             # shape now: 2 rows, same columns (away first, home second)
             summary_df = pd.concat(summaries, axis=1).T
 
-            # add final scores
+            # add final team scores
             game_df = pd.concat([summary_df, line_score], axis=1)
 
             # mark home flag: first row = away(0), second row = home(1)
@@ -531,7 +528,7 @@ def main():
             f"Could not load existing stats layout: {e}"
         )
 
-    # STEP 3: (re)download box scores for the target date (requests → fallback selenium)
+    # STEP 3: (re)download box scores for the target date (requests → selenium fallback)
     saved_ct = scrape_game_day_boxscores(
         fresh_monthly_file,
         SCORES_DIR,
@@ -581,7 +578,7 @@ def main():
         f"Combined statistics saved → {out_daily}"
     )
 
-    # STEP 6: mirror/sync (right now a no-op because dirs are same, but we keep it)
+    # STEP 6: mirror/sync (no-op for now but we leave the call so future dirs stay in sync)
     copy_missing_files(STAT_DIR, DST_DIR)
 
     _pause_and_exit_ok()
