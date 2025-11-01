@@ -215,7 +215,98 @@ def rename_duplicated_columns(df: pd.DataFrame) -> pd.DataFrame:
         ]
     df.columns = cols
     return df
+# -----------------------------------------------------------------------------
+# BASIC FILE OPS
+# -----------------------------------------------------------------------------
 
+def copy_missing_files(src_dir: str, dst_dir: str) -> None:
+    """
+    Copy any files from src_dir to dst_dir that dst_dir doesn't have.
+    Skip hidden files and notebooks.
+    """
+    src_files = set(os.listdir(src_dir))
+    dst_files = set(os.listdir(dst_dir))
+    for name in (src_files - dst_files):
+        if not name.startswith(".") and not name.endswith(".ipynb"):
+            shutil.copy2(os.path.join(src_dir, name), dst_dir)
+            logging.info(f"File {name} copied successfully")
+
+
+def rename_duplicated_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Basketball Reference sometimes repeats column names ('mp', etc.).
+    This gives duplicates suffixes _1, _2... so pandas doesn't break.
+    """
+    cols = pd.Series(df.columns)
+    for dup in cols[cols.duplicated()].unique():
+        idxs = cols[cols == dup].index.tolist()
+        cols[idxs] = [
+            dup if i == 0 else f"{dup}_{i}" for i in range(len(idxs))
+        ]
+    df.columns = cols
+    return df
+
+
+def get_latest_file(folder: str, prefix: str, ext: str) -> Optional[str]:
+    """
+    Return the most recently modified file in `folder`
+    that matches <prefix>*<ext>, or None if nothing matches.
+
+    Example:
+        get_latest_file(
+            folder=STAT_DIR,
+            prefix="nba_games_",
+            ext=".csv"
+        )
+    """
+    pattern = os.path.join(folder, f"{prefix}*{ext}")
+    candidates = glob.glob(pattern)
+    if not candidates:
+        return None
+    return max(candidates, key=os.path.getctime)
+
+
+def find_file_in_date_range(
+    directory: str,
+    filename_pattern: str,
+    max_days_back: int = 120,
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Try to find a dated file walking backward in time.
+
+    filename_pattern MUST have exactly one '{}' placeholder where
+    the date string (YYYY-MM-DD) goes.
+
+    We'll try:
+      today (0 days back),
+      yesterday (1 day back),
+      ...
+      today-max_days_back.
+
+    We return:
+        (full_path, matched_date_string)
+    or
+        (None, None) if nothing was found.
+
+    Example call:
+        file_path, date_used = find_file_in_date_range(
+            STAT_DIR,
+            "nba_games_{}.csv",
+            max_days_back=150
+        )
+    """
+    for days_back in range(max_days_back + 1):
+        date_to_check = (
+            datetime.now() - timedelta(days=days_back)
+        ).strftime("%Y-%m-%d")
+
+        candidate_name = filename_pattern.format(date_to_check)
+        full_path = os.path.join(directory, candidate_name)
+
+        if os.path.exists(full_path):
+            return full_path, date_to_check
+
+    return None, None
 
 # -----------------------------------------------------------------------------
 # HTML CLEANING / PARSING
