@@ -7,10 +7,17 @@ NBA Prediction Utilities Library (2025-26 / 2026 season)
 Common utility functions and configuration shared across all scripts:
 - Date/paths
 - File ops
-- Web scraping (Selenium)
+- Web scraping (requests + Selenium)
 - Data wrangling (preprocess, rolling averages, next-game columns)
 - Betting helpers (odds conversion, Kelly)
 - Team code normalization (PHO→PHX, BKN↔BRK, etc.)
+
+IMPORTANT:
+- For GitHub Actions scraping (Script 1: previous game day), prefer fetch_html_requests()
+  because Selenium on Actions can hang. That flow does not require Chrome at all.
+
+- Selenium helpers (build_driver, get_html_with_driver, get_html) are kept for
+  local runs / future scripts that might need JS or dynamic content.
 """
 
 import os
@@ -20,11 +27,12 @@ from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Tuple
 
 import time
+import requests
 import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
 
-# Selenium / scraping imports
+# Selenium / scraping imports (still available for local use or future scripts)
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -188,15 +196,49 @@ def copy_missing_files(src_dir: str, dst_dir: str) -> None:
 
 
 # ============================================================================
-# WEB SCRAPING
+# WEB SCRAPING HELPERS
 # ============================================================================
+
+def fetch_html_requests(url: str, timeout: int = 20) -> Optional[str]:
+    """
+    Fetch raw HTML via plain HTTP (requests). Returns the response text or None.
+
+    We send a desktop-like User-Agent so basketball-reference doesn't insta-block
+    us as some weird bot. This is the preferred method in GitHub Actions,
+    because Selenium can hang headless Chrome on shared runners.
+    """
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (X11; Linux x86_64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0 Safari/537.36"
+        )
+    }
+    try:
+        resp = requests.get(url, headers=headers, timeout=timeout)
+        if resp.status_code == 200:
+            return resp.text
+        logging.warning(
+            f"[fetch_html_requests] {url} -> status {resp.status_code}"
+        )
+        return None
+    except Exception as e:
+        logging.warning(
+            f"[fetch_html_requests] error for {url}: {e}"
+        )
+        return None
+
+
+# ---------- Selenium-based helpers (kept for local / future use) ----------
 
 def build_driver() -> webdriver.Chrome:
     """
     Create one hardened Chrome driver for CI (headless, no-sandbox, etc.).
-    Call this once per script run, reuse it.
 
-    The caller is responsible for quitting it later with driver.quit().
+    NOTE:
+    - Script 1 SHOULD NOT rely on this in GitHub Actions anymore.
+      Use fetch_html_requests() instead.
+    - We keep this for future scripts that truly need JS.
     """
     chrome_options = Options()
     chrome_options.add_argument("--headless=new")
@@ -211,7 +253,7 @@ def build_driver() -> webdriver.Chrome:
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=chrome_options)
 
-    # keep page load from hanging forever
+    # limit how long page loads are allowed to block internally
     driver.set_page_load_timeout(20)
 
     return driver
@@ -228,8 +270,10 @@ def get_html_with_driver(
     Use an EXISTING Selenium driver to fetch `url`, wait, and return innerHTML
     of the first element matching `selector`.
 
-    We intentionally do NOT .quit() the driver here.
-    The caller controls driver lifetime.
+    We do NOT quit() the driver here. Caller controls lifetime.
+
+    This is NOT used in GitHub Actions for Script 1 anymore,
+    but can still be used locally if you want real browser rendering.
     """
     html = None
 
@@ -237,11 +281,10 @@ def get_html_with_driver(
         try:
             driver.get(url)
 
-            # optional "be polite / let dynamic content load" pause that
-            # scales per attempt: 5s, 10s, 20s...
+            # politeness / load delay backoff: 5s, 10s, 20s...
             time.sleep(sleep * (2 ** attempt))
 
-            # robust wait for selector to exist
+            # wait for selector to exist in DOM
             WebDriverWait(driver, 20).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, selector))
             )
@@ -252,17 +295,18 @@ def get_html_with_driver(
 
         except (TimeoutException, NoSuchElementException):
             logging.warning(
-                f"Timeout / missing selector {selector} on {url} "
+                f"[get_html_with_driver] Timeout / missing {selector} on {url} "
                 f"(attempt {attempt+1}/{retries})"
             )
         except WebDriverException as e:
             logging.error(
-                f"WebDriver error for {url}: {e} (attempt {attempt+1}/{retries})"
+                f"[get_html_with_driver] WebDriver error for {url}: {e} "
+                f"(attempt {attempt+1}/{retries})"
             )
             break
 
     if html is None:
-        logging.error(f"Failed to retrieve HTML from {url}")
+        logging.error(f"[get_html_with_driver] Failed to retrieve HTML from {url}")
     return html
 
 
@@ -277,14 +321,10 @@ def get_html(
     Legacy convenience helper.
 
     Spin up a temporary driver, grab one page, quit.
-    This is fine for local debugging or one-off calls.
+    Still here so older scripts don't explode immediately.
 
-    In CI / GitHub Actions you should:
-        driver = build_driver()
-        html = get_html_with_driver(driver, url, selector)
-        driver.quit()
-
-    We keep this function so older code doesn't instantly break.
+    For GitHub Actions Script 1 (daily box score scrape):
+      DO NOT USE THIS. Use fetch_html_requests() instead.
     """
     driver = None
     try:
