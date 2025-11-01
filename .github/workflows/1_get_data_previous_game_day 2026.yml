@@ -34,3 +34,26 @@ jobs:
         run: |
           echo "=== Starting scrape for PREVIOUS game day (attempt 1) ==="
           timeout 1200s python 2026/src/1_get_data_previous_game_day_2026.py
+
+      - name: Commit updated scraped game data
+        run: |
+          echo "Configuring git user"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+  
+          # stage ONLY the folders we want to version
+          git add 2026/output/Gathering_Data/Whole_Statistic \
+                  2026/output/Gathering_Data/data/${CURRENT_SEASON}_scores \
+                  2026/output/Gathering_Data/data/${CURRENT_SEASON}_standings || true
+  
+          # if there's nothing new, bail quietly
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            commit_msg="auto-update scraped game data ($(date -u +%Y-%m-%dT%H:%MZ))"
+            git commit -m "$commit_msg"
+            git push origin 2026
+          fi
+        env:
+          CURRENT_SEASON: "2026"
+    
