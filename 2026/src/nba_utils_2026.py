@@ -16,14 +16,27 @@ Common utility functions and configuration shared across all scripts:
 import os
 import glob
 import logging
-import calendar
 from datetime import datetime, timedelta
-from io import StringIO
 from typing import Optional, List, Dict, Tuple
 
+import time
 import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
+
+# Selenium / scraping imports
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import (
+    TimeoutException,
+    WebDriverException,
+    NoSuchElementException,
+)
+from webdriver_manager.chrome import ChromeDriverManager
 
 
 # ============================================================================
@@ -39,7 +52,7 @@ ROLLING_WINDOW_SIZE = 9
 # ----------------------------------------------------------------------------
 def get_current_date(days_offset: int = 0) -> Tuple[datetime, str, str]:
     """
-    Return "current" date with an optional offset (default=1 day back).
+    Return "current" date with an optional offset (default=0).
 
     Returns:
         (datetime_obj, friendly_str, ymd_str)
@@ -74,7 +87,7 @@ def get_directory_paths() -> Dict[str, str]:
         "STANDINGS_DIR": os.path.join(data_dir, "data", f"{CURRENT_SEASON}_standings"),
         "SCORES_DIR": os.path.join(data_dir, "data", f"{CURRENT_SEASON}_scores"),
         "NEXT_GAME_DIR": os.path.join(data_dir, "Next_Game"),
-        "PREDICTION_DIR": os.path.join(base_dir,"2026","output","LightGBM"),
+        "PREDICTION_DIR": os.path.join(base_dir, "2026", "output", "LightGBM"),
     }
 
     for p in paths.values():
@@ -178,6 +191,81 @@ def copy_missing_files(src_dir: str, dst_dir: str) -> None:
 # WEB SCRAPING
 # ============================================================================
 
+def build_driver() -> webdriver.Chrome:
+    """
+    Create one hardened Chrome driver for CI (headless, no-sandbox, etc.).
+    Call this once per script run, reuse it.
+
+    The caller is responsible for quitting it later with driver.quit().
+    """
+    chrome_options = Options()
+    chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--window-size=1920,1080")
+    chrome_options.add_argument("--disable-extensions")
+    chrome_options.add_argument("--disable-dev-tools")
+    chrome_options.add_argument("--remote-debugging-port=9222")
+
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+
+    # keep page load from hanging forever
+    driver.set_page_load_timeout(20)
+
+    return driver
+
+
+def get_html_with_driver(
+    driver: webdriver.Chrome,
+    url: str,
+    selector: str,
+    sleep: int = 5,
+    retries: int = 3,
+) -> Optional[str]:
+    """
+    Use an EXISTING Selenium driver to fetch `url`, wait, and return innerHTML
+    of the first element matching `selector`.
+
+    We intentionally do NOT .quit() the driver here.
+    The caller controls driver lifetime.
+    """
+    html = None
+
+    for attempt in range(retries):
+        try:
+            driver.get(url)
+
+            # optional "be polite / let dynamic content load" pause that
+            # scales per attempt: 5s, 10s, 20s...
+            time.sleep(sleep * (2 ** attempt))
+
+            # robust wait for selector to exist
+            WebDriverWait(driver, 20).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, selector))
+            )
+
+            el = driver.find_element(By.CSS_SELECTOR, selector)
+            html = el.get_attribute("innerHTML")
+            break
+
+        except (TimeoutException, NoSuchElementException):
+            logging.warning(
+                f"Timeout / missing selector {selector} on {url} "
+                f"(attempt {attempt+1}/{retries})"
+            )
+        except WebDriverException as e:
+            logging.error(
+                f"WebDriver error for {url}: {e} (attempt {attempt+1}/{retries})"
+            )
+            break
+
+    if html is None:
+        logging.error(f"Failed to retrieve HTML from {url}")
+    return html
+
+
 def get_html(
     url: str,
     selector: str,
@@ -186,67 +274,40 @@ def get_html(
     headless: bool = True,
 ) -> Optional[str]:
     """
-    Fetch element.innerHTML from `selector` on `url` using a fresh headless Chrome.
-    Every call creates & disposes the driver so GitHub Actions won't hang.
+    Legacy convenience helper.
 
-    Returns the innerHTML of `selector`, or None if failed.
+    Spin up a temporary driver, grab one page, quit.
+    This is fine for local debugging or one-off calls.
+
+    In CI / GitHub Actions you should:
+        driver = build_driver()
+        html = get_html_with_driver(driver, url, selector)
+        driver.quit()
+
+    We keep this function so older code doesn't instantly break.
     """
-    from selenium import webdriver
-    from selenium.webdriver.chrome.service import Service
-    from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.common.by import By
-    from selenium.common.exceptions import TimeoutException, WebDriverException
-    from webdriver_manager.chrome import ChromeDriverManager
-    import time
-
     driver = None
-    html = None
-
     try:
-        chrome_options = Options()
-        if headless:
-            chrome_options.add_argument("--headless=new")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--window-size=1920,1080")
-        chrome_options.add_argument("--disable-extensions")
-        chrome_options.add_argument("--disable-dev-tools")
-        chrome_options.add_argument("--remote-debugging-port=9222")
-
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=chrome_options)
-
-        # try up to `retries` with exponential backoff
-        for attempt in range(retries):
-            try:
-                driver.set_page_load_timeout(20)
-                driver.get(url)
-                time.sleep(sleep * (2 ** attempt))
-
-                el = driver.find_element(By.CSS_SELECTOR, selector)
-                html = el.get_attribute("innerHTML")
-                break
-            except TimeoutException:
-                logging.warning(
-                    f"Timeout while loading {url} (attempt {attempt+1}/{retries})"
-                )
-            except WebDriverException as e:
-                logging.error(f"WebDriver error for {url}: {e}")
-                break
-
+        driver = build_driver()
+        return get_html_with_driver(
+            driver,
+            url,
+            selector,
+            sleep=sleep,
+            retries=retries,
+        )
     finally:
         if driver is not None:
-            driver.quit()
-
-    if html is None:
-        logging.error(f"Failed to retrieve HTML from {url}")
-    return html
+            try:
+                driver.quit()
+            except Exception:
+                pass
 
 
 def parse_html(html_or_path: str) -> Optional[BeautifulSoup]:
     """
-    Accept raw HTML or a file path, return soup stripped of header rows.
+    Accept raw HTML or a file path, return soup stripped of Basketball Reference's
+    repeated header rows.
     """
     try:
         if os.path.isfile(html_or_path):
@@ -256,9 +317,11 @@ def parse_html(html_or_path: str) -> Optional[BeautifulSoup]:
             html = html_or_path
 
         soup = BeautifulSoup(html, "html.parser")
+
         # Drop repeated table headers from Basketball Reference
         for s in soup.select("tr.over_header, tr.thead"):
             s.decompose()
+
         return soup
     except Exception as e:
         logging.error(f"Error parsing HTML: {e}")
