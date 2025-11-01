@@ -3,11 +3,14 @@ name: "🏀 1. Collect and Prepare NBA Game Data (Previous Game Day)"
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 20 * * *"   # example: run daily 20:00 UTC, keep whatever you already use
+    - cron: "0 20 * * *"   # run daily 20:00 UTC (adjust if needed)
 
 jobs:
   collect_data:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write    # allow this job to push to the repo branch
 
     steps:
       - name: Checkout repository (branch 2026)
@@ -25,9 +28,10 @@ jobs:
 
       - name: Install dependencies
         run: |
+          pip install --upgrade pip
           pip install -r requirements.txt
 
-            - name: Scrape and prepare PREVIOUS game day data (retry with timeout)
+      - name: Scrape and prepare PREVIOUS game day data (retry with timeout)
         run: |
           echo "=== Starting scrape for PREVIOUS game day (attempt 1) ==="
           timeout 900s python 2026/src/1_get_data_previous_game_day_2026.py
@@ -55,7 +59,7 @@ jobs:
             echo "⛔ Attempt 2 FAILED with exit code $status2. Giving up."
           fi
 
-          # if we reach here, both attempts failed
+          # If we reach here, both attempts failed
           exit 1
 
       - name: Upload artifact (previous game day data)
