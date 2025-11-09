@@ -1,0 +1,4 @@
+date,home_team,away_team,home_win_rate,prob_iso,prob_used,odds_1,EV_€_per_100,kelly_full,kelly_fraction_used,stake_eur,exp_profit_eur,param_home_win_rate_threshold,param_odds_min,param_odds_max,param_prob_threshold,bankroll_at_bettime,fair_odds,edge_pct
+2025-11-09,GSW,IND,1.0,0.789,0.75,1.14,-14.5,-1.036,0.0,0.0,-0.0,0.55,1.1,2.9,0.4,1595.31,1.333,-14.48
+2025-11-09,MIL,HOU,0.8,0.789,0.75,2.45,83.75,0.578,0.1,159.53,133.61,0.55,1.1,2.9,0.4,1595.31,1.333,83.8
+2025-11-09,PHI,DET,0.75,0.5,0.55,2.36,29.8,0.219,0.1,159.53,47.54,0.55,1.1,2.9,0.4,1595.31,1.818,29.81
