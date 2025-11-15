@@ -332,84 +332,165 @@ def merge_today_predictions(
 
 
 def attach_home_win_rate(
-    df_all: pd.DataFrame,
-    pred_dir: str,
-    ymd_str: str,
+    df: pd.DataFrame,
+    hwr_path: str,
+    logger,
 ) -> pd.DataFrame:
     """
-    Try to merge a home win rate per team from home_win_rates_sorted_YYYY-MM-DD.csv.
+    Attach home win rate (home_win_rate) to df based on the
+    home_win_rates_sorted_YYYY-MM-DD.csv file.
 
-    We try to be robust about column names:
-    - look for a team column ('home_team' or something containing 'team')
-    - look for a numeric win-rate-like column (contains 'home' & 'win' & 'rate', or 'win_rate')
+    Your current file format is:
 
-    If anything fails, we log a warning and continue without home win rate.
+        Total Last 20 Games | Total Home Games | Home Wins | Home Win Rate
+        GSW                 | 14               | 5         | 1.0
+        ...
+
+    So:
+      - first column is actually the TEAM CODE
+      - last column is the HOME WIN RATE
     """
-    hwr_path = os.path.join(pred_dir, f"home_win_rates_sorted_{ymd_str}.csv")
+
     if not os.path.exists(hwr_path):
-        logging.info("No home_win_rates_sorted file found (%s) – skipping home win rate merge.", hwr_path)
-        return df_all
+        logger.warning(f"Home win rate file not found at {hwr_path}; skipping merge.")
+        return df
 
     try:
-        hwr = pd.read_csv(hwr_path, encoding="utf-7")
+        hwr = pd.read_csv(
+            hwr_path,
+            encoding="utf-7",
+            sep=",",
+            decimal=","
+        )
     except Exception as e:
-        logging.warning("Failed to read home win rate file %s: %s", hwr_path, e)
-        return df_all
+        logger.warning(f"Failed to read home win rate file {hwr_path}: {e}")
+        return df
 
-    hwr.columns = (
-        hwr.columns
-           .astype(str)
-           .str.strip()
-           .str.lower()
-           .str.replace(r"\s+", "_", regex=True)
-    )
+    if hwr.empty:
+        logger.warning(f"Home win rate file {hwr_path} is empty; skipping merge.")
+        return df
 
-    # team column
+    # --- SPECIAL CASE: current 4-column format ---
+    cols = list(hwr.columns)
+    cols_lower = [c.lower().strip() for c in cols]
+
     team_col = None
-    if "home_team" in hwr.columns:
-        team_col = "home_team"
+    winrate_col = None
+
+    if len(cols) == 4 and "home win rate" in cols_lower:
+        # by your sample file:
+        #   col0 = team code, col3 = home win rate
+        team_col = cols[0]
+        winrate_col = cols[cols_lower.index("home win rate")]
+        logger.info(
+            f"Detected home-win-rate file format with 4 columns; "
+            f"using '{team_col}' as team column and '{winrate_col}' as win-rate column."
+        )
     else:
-        candidates = [c for c in hwr.columns if "team" in c]
-        if candidates:
-            team_col = candidates[0]
+        # ---- fallback: generic detection (in case you change the format later) ----
+        lower_to_orig = {c.lower().strip(): c for c in cols}
 
-    if team_col is None:
-        logging.warning("Could not identify team column in home win rate file; skipping merge.")
-        return df_all
+        # team column by name
+        for lc, orig in lower_to_orig.items():
+            if lc in {"team", "home_team", "team_code"}:
+                team_col = orig
+                break
+            if "team" in lc and ("abbr" in lc or "code" in lc or "home" in lc):
+                team_col = orig
+                break
 
-    # win-rate column
-    rate_col = None
-    candidates = [c for c in hwr.columns if "home" in c and "win" in c and "rate" in c]
-    if not candidates:
-        candidates = [c for c in hwr.columns if "win_rate" in c]
-    if candidates:
-        rate_col = candidates[0]
+        # winrate column by name
+        for lc, orig in lower_to_orig.items():
+            if "home_win_rate" in lc or "home win rate" in lc or "win_rate" in lc:
+                winrate_col = orig
+                break
 
-    if rate_col is None:
-        logging.warning("Could not identify win-rate column in home win rate file; skipping merge.")
-        return df_all
+        # if still not found, heuristics for win-rate column
+        if winrate_col is None:
+            for c in cols:
+                try:
+                    vals = pd.to_numeric(hwr[c], errors="coerce")
+                    if vals.notna().sum() == 0:
+                        continue
+                    frac_between = (
+                        ((vals >= 0.0) & (vals <= 1.0)).sum()
+                        / vals.notna().sum()
+                    )
+                    if frac_between > 0.9:
+                        winrate_col = c
+                        break
+                except Exception:
+                    continue
 
-    hwr_small = hwr[[team_col, rate_col]].copy()
-    hwr_small = hwr_small.rename(
-        columns={
-            team_col: "home_team",
-            rate_col: HOMEWR_COL,
-        }
+        # last fallback for team column: any short string column
+        if team_col is None:
+            for c in cols:
+                sample = (
+                    hwr[c].dropna().astype(str).str.strip().head(20).tolist()
+                )
+                if not sample:
+                    continue
+                # all values length <= 4 and mostly uppercase
+                if all(len(x) <= 4 for x in sample) and all(x.upper() == x for x in sample):
+                    team_col = c
+                    break
+
+        if team_col is None or winrate_col is None:
+            logger.warning(
+                "Could not identify team and/or win-rate columns in "
+                f"{hwr_path}; cols={cols} – skipping merge."
+            )
+            return df
+
+        logger.info(
+            f"Using '{team_col}' as team column and '{winrate_col}' as win-rate column."
+        )
+
+    # --- normalize team codes and merge ---
+    hwr["_team_norm"] = (
+        hwr[team_col]
+        .astype(str)
+        .str.strip()
+        .map(normalize_team_code)
     )
-    hwr_small[HOMEWR_COL] = to_float_series(hwr_small[HOMEWR_COL])
 
-    if "home_team" not in df_all.columns:
-        logging.warning("No 'home_team' column in main df; cannot merge home win rate.")
-        return df_all
+    df["_home_team_norm"] = (
+        df["home_team"]
+        .astype(str)
+        .str.strip()
+        .map(normalize_team_code)
+    )
 
-    df_all = df_all.merge(
-        hwr_small,
-        on="home_team",
+    hwr_for_merge = hwr[["_team_norm", winrate_col]].drop_duplicates("_team_norm")
+
+    df = df.merge(
+        hwr_for_merge,
+        left_on="_home_team_norm",
+        right_on="_team_norm",
         how="left",
-        suffixes=("", "_hwrdup"),
     )
 
-    return df_all
+    # standardize to 'home_win_rate'
+    if HOME_WIN_RATE_COL in df.columns and HOME_WIN_RATE_COL != winrate_col:
+        df[HOME_WIN_RATE_COL] = df[HOME_WIN_RATE_COL].fillna(df[winrate_col])
+        df.drop(columns=[winrate_col], inplace=True)
+    else:
+        df.rename(columns={winrate_col: HOME_WIN_RATE_COL}, inplace=True)
+
+    # cleanup
+    df.drop(columns=["_team_norm", "_home_team_norm"], inplace=True, errors="ignore")
+
+    df[HOME_WIN_RATE_COL] = pd.to_numeric(
+        df[HOME_WIN_RATE_COL], errors="coerce"
+    ).fillna(0.0)
+
+    logger.info(
+        f"Merged home win rates into dataframe; "
+        f"{df[HOME_WIN_RATE_COL].notna().sum()} rows with non-null values."
+    )
+
+    return df
+
 
 
 def split_past_future(
@@ -675,7 +756,13 @@ def main() -> None:
     df_all = merge_today_predictions(df_all, pred_dir, target_ymd, today_date)
 
     # 3) ATTACH HOME WIN RATE IF AVAILABLE
-    df_all = attach_home_win_rate(df_all, pred_dir, target_ymd)
+
+    # 2) merge home win rate (this is the new bit)
+    hwr_path = os.path.join(
+           PRED_DIR,
+           f"home_win_rates_sorted_{ymd}.csv"
+    )
+    df_all = attach_home_win_rate(df, hwr_path, logger)   
 
     # 4) SPLIT PAST / FUTURE
     df_past, df_future = split_past_future(df_all, today_date, tomorrow_date)
