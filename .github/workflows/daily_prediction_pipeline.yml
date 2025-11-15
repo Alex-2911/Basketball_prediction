@@ -46,6 +46,16 @@ jobs:
         run: |
           echo "ODDS_API_KEY=${{ secrets.ODDS_API_KEY }}" > .env
 
+      # 5.5. Run unit tests
+      - name: Run unit tests
+        env:
+          PYTHONWARNINGS: "ignore"
+        run: |
+          echo "🧪 Running unit tests with coverage..."
+          pytest tests/ -v --cov=2026/src --cov-report=term-missing --cov-report=html
+          echo "✅ All tests passed"
+        continue-on-error: false  # Fail workflow if tests fail
+
       # 6. Run Script 1: Collect previous game data
       - name: "Step 1: Collect previous game data"
         env:
