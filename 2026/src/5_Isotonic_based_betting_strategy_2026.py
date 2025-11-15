@@ -1,3 +1,23 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+"""
+5_kelly_isotonic_and_shortlist_2026.py
+
+Step 5 of the 2026 pipeline:
+- Load combined_nba_predictions_acc_{DATE}.csv from PREDICTION_DIR
+- Fit Isotonic Regression calibration on past games
+- Run a grid search over filter params (home win rate, odds, iso prob)
+- Evaluate flat-stake + Kelly P&L historically
+- Pick best strategy
+- Save:
+    - nba_grid_search_results_{DATE}.csv
+    - combined_nba_predictions_iso_{DATE}.csv  (adds iso_proba_home_win)
+    - nba_bets_shortlist_{DATE}.csv           (recommended bets for future games)
+    - nba_bets_why_not_{DATE}.csv             (diagnostics: why each game is NOT a bet)
+All paths are taken from nba_utils_2026.get_directory_paths().
+"""
+
 import argparse
 import logging
 from dataclasses import dataclass
@@ -10,34 +30,30 @@ import pandas as pd
 from sklearn.isotonic import IsotonicRegression
 from sklearn.metrics import brier_score_loss, log_loss
 
+# Import shared utils
+from nba_utils_2026 import get_directory_paths, get_current_date
 
 # -----------------------------------------------------------------------------
-# Configuration
+# Column configuration – ADJUST HERE IF YOUR FILE CHANGES
 # -----------------------------------------------------------------------------
 
-
-# Columns in combined_nba_predictions_acc_YYYY-MM-DD.csv
-# Adjust these if your file uses different names.
 GAME_ID_COL = "game_id"
-DATE_COL = "game_date"                  # parsed as datetime
+DATE_COL = "game_date"
 HOME_TEAM_COL = "home_team"
 AWAY_TEAM_COL = "away_team"
-PRED_PROBA_COL = "pred_home_win_proba"  # model probability for home win (uncalibrated)
-RESULT_COL = "home_team_won"            # 1 if home team actually won, 0 if lost, NaN for future games
-HOME_ODDS_COL = "closing_home_odds"     # decimal odds for home side
-AWAY_ODDS_COL = "closing_away_odds"     # optional; not required
+PRED_PROBA_COL = "pred_home_win_proba"      # model prob for home win
+RESULT_COL = "home_team_won"                # 1/0, NaN for future
+HOME_ODDS_COL = "closing_home_odds"         # decimal odds for home
+AWAY_ODDS_COL = "closing_away_odds"         # optional
 HOME_WIN_RATE_COL: Optional[str] = "home_team_win_rate_last_20"  # set to None to disable
 
+# -----------------------------------------------------------------------------
+# Kelly & grid search configuration
+# -----------------------------------------------------------------------------
 
-# Default paths – change BASE_DIR to your project root or override with CLI.
-BASE_DIR = Path(".")
-
-# Kelly configuration
 INITIAL_BANKROLL = 1000.0
-KELLY_CAP = 0.10  # never bet more than 10% of bankroll on a single game
+KELLY_CAP = 0.10  # max % of bankroll per bet
 
-
-# Grid search configuration
 MIN_HOME_WIN_RATE_LIST = [0.50, 0.55, 0.60, 0.65]
 MIN_ODDS_LIST = [1.20, 1.25, 1.30, 1.35]
 MAX_ODDS_LIST = [1.70, 1.80, 1.90, 2.10]
@@ -47,7 +63,6 @@ MIN_ISO_PROBA_LIST = [0.55, 0.60, 0.65, 0.70]
 # -----------------------------------------------------------------------------
 # Data classes
 # -----------------------------------------------------------------------------
-
 
 @dataclass
 class StrategyParams:
@@ -76,7 +91,6 @@ class StrategyResult:
 # Helpers
 # -----------------------------------------------------------------------------
 
-
 def setup_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -87,31 +101,35 @@ def setup_logging() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Script 5/5 – Isotonic calibration + Kelly optimization + shortlist export"
+        description="Step 5/5 – Isotonic calibration + Kelly optimization + shortlist export (2026)"
     )
     parser.add_argument(
         "--date",
         type=str,
-        default=datetime.today().strftime("%Y-%m-%d"),
-        help="Prediction date in YYYY-MM-DD format (default: today)",
-    )
-    parser.add_argument(
-        "--base-dir",
-        type=str,
-        default=str(BASE_DIR),
-        help="Base project directory (default: current directory)",
+        default=None,
+        help="Prediction date in YYYY-MM-DD (default: today via nba_utils_2026.get_current_date)",
     )
     parser.add_argument(
         "--input-filename-template",
         type=str,
         default="combined_nba_predictions_acc_{date}.csv",
-        help="Template for input file name, must contain '{date}' placeholder",
+        help="Template for input file name inside PREDICTION_DIR (must contain '{date}')",
+    )
+    parser.add_argument(
+        "--initial-bankroll",
+        type=float,
+        default=INITIAL_BANKROLL,
+        help=f"Initial bankroll for Kelly simulation (default: {INITIAL_BANKROLL})",
     )
     return parser.parse_args()
 
 
-def load_predictions(base_dir: Path, date_str: str, filename_template: str) -> pd.DataFrame:
-    input_path = base_dir / "data" / "predictions" / filename_template.format(date=date_str)
+def load_predictions(
+    prediction_dir: Path,
+    date_str: str,
+    filename_template: str,
+) -> pd.DataFrame:
+    input_path = prediction_dir / filename_template.format(date=date_str)
     if not input_path.exists():
         raise FileNotFoundError(f"Input file not found: {input_path}")
     logging.info("Loading predictions from %s", input_path)
@@ -120,7 +138,11 @@ def load_predictions(base_dir: Path, date_str: str, filename_template: str) -> p
     if DATE_COL in df.columns:
         df[DATE_COL] = pd.to_datetime(df[DATE_COL])
     else:
-        logging.warning("DATE_COL '%s' not in dataframe. Using date argument for all rows.", DATE_COL)
+        logging.warning(
+            "DATE_COL '%s' not in dataframe – using --date for all rows (%s).",
+            DATE_COL,
+            date_str,
+        )
         df[DATE_COL] = pd.to_datetime(date_str)
 
     return df
@@ -129,8 +151,7 @@ def load_predictions(base_dir: Path, date_str: str, filename_template: str) -> p
 def split_past_future(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     if RESULT_COL not in df.columns:
         logging.info(
-            "RESULT_COL '%s' not found – assuming all games are past (results known). "
-            "Isotonic calibration and grid search will still run.",
+            "RESULT_COL '%s' not found – assuming all games are past (results known).",
             RESULT_COL,
         )
         return df.copy(), df.iloc[0:0].copy()
@@ -144,13 +165,12 @@ def split_past_future(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
 def fit_isotonic(df_past: pd.DataFrame) -> Tuple[IsotonicRegression, Tuple[float, float, float, float]]:
     """
-    Fit isotonic regression on past games and compute Brier/log loss before & after.
-    Returns the fitted model and the metrics.
+    Fit Isotonic Regression on past games and compute Brier/log-loss
+    before & after calibration.
     """
     y_true = df_past[RESULT_COL].astype(int).values
     p_raw = df_past[PRED_PROBA_COL].astype(float).values
 
-    # For log_loss, clip probabilities away from 0/1
     eps = 1e-6
     p_raw_clipped = np.clip(p_raw, eps, 1 - eps)
 
@@ -164,7 +184,7 @@ def fit_isotonic(df_past: pd.DataFrame) -> Tuple[IsotonicRegression, Tuple[float
     brier_after = brier_score_loss(y_true, p_iso_clipped)
     logloss_after = log_loss(y_true, p_iso_clipped)
 
-    logging.info("Isotonic calibration fitted on %d games.", len(df_past))
+    logging.info("Isotonic fitted on %d games.", len(df_past))
     logging.info("Brier before: %.6f | after: %.6f", brier_before, brier_after)
     logging.info("Log-loss before: %.6f | after: %.6f", logloss_before, logloss_after)
 
@@ -179,8 +199,8 @@ def apply_isotonic(df: pd.DataFrame, iso: IsotonicRegression) -> pd.DataFrame:
 
 def kelly_fraction(prob: float, odds: float) -> float:
     """
-    Standard Kelly fraction for a single-outcome bet.
-    Returns fraction of bankroll to stake (can be negative if edge < 0).
+    Standard Kelly fraction for a single-outcome bet (home win).
+    Returns fraction of bankroll to stake; clipped later with KELLY_CAP.
     """
     if odds <= 1.0:
         return 0.0
@@ -208,9 +228,9 @@ def simulate_kelly(df_bets: pd.DataFrame, initial_bankroll: float) -> Tuple[floa
             continue
 
         n_bets += 1
+
         if result is None:
-            # For simulation on historical data we always have results,
-            # but guard anyway.
+            # Should not happen for historical backtest, but just in case:
             continue
 
         if result == 1:
@@ -227,10 +247,8 @@ def evaluate_strategy(
     df_past_iso: pd.DataFrame,
     params: StrategyParams,
     metrics_before_after: Tuple[float, float, float, float],
+    initial_bankroll: float,
 ) -> StrategyResult:
-    """
-    Filter past games according to params and evaluate flat-stake + Kelly P&L.
-    """
     df = df_past_iso.copy()
 
     conds = []
@@ -257,25 +275,23 @@ def evaluate_strategy(
             logloss_after=metrics_before_after[3],
         )
 
-    # Flat stake: 1 unit per bet
     df_bets["result_int"] = df_bets[RESULT_COL].astype(int)
     df_bets["profit_flat"] = np.where(
         df_bets["result_int"] == 1,
         df_bets[HOME_ODDS_COL] - 1.0,
         -1.0,
     )
-    total_profit_flat = df_bets["profit_flat"].sum()
+    total_profit_flat = float(df_bets["profit_flat"].sum())
     roi_flat = total_profit_flat / len(df_bets)
 
-    # Kelly simulation
-    total_profit_kelly, _, _ = simulate_kelly(df_bets, INITIAL_BANKROLL)
-    roi_kelly = total_profit_kelly / INITIAL_BANKROLL
+    total_profit_kelly, _, _ = simulate_kelly(df_bets, initial_bankroll)
+    roi_kelly = total_profit_kelly / initial_bankroll
 
     return StrategyResult(
         params=params,
         n_bets=len(df_bets),
         n_wins=int(df_bets["result_int"].sum()),
-        total_profit_flat=float(total_profit_flat),
+        total_profit_flat=total_profit_flat,
         roi_flat=float(roi_flat),
         total_profit_kelly=float(total_profit_kelly),
         roi_kelly=float(roi_kelly),
@@ -289,6 +305,7 @@ def evaluate_strategy(
 def grid_search(
     df_past_iso: pd.DataFrame,
     metrics_before_after: Tuple[float, float, float, float],
+    initial_bankroll: float,
 ) -> List[StrategyResult]:
     logging.info("Starting grid search...")
     results: List[StrategyResult] = []
@@ -305,7 +322,12 @@ def grid_search(
                         max_odds=max_odds,
                         min_iso_proba=min_iso_proba,
                     )
-                    res = evaluate_strategy(df_past_iso, params, metrics_before_after)
+                    res = evaluate_strategy(
+                        df_past_iso,
+                        params,
+                        metrics_before_after,
+                        initial_bankroll=initial_bankroll,
+                    )
                     results.append(res)
 
     logging.info("Grid search finished with %d combinations.", len(results))
@@ -313,7 +335,7 @@ def grid_search(
 
 
 def select_best_strategy(results: List[StrategyResult]) -> StrategyResult:
-    # Sort primarily by total_profit_flat, then by n_bets (more bets preferred), then by roi_flat.
+    # sort by (flat profit, number of bets, ROI per bet)
     results_sorted = sorted(
         results,
         key=lambda r: (r.total_profit_flat, r.n_bets, r.roi_flat),
@@ -333,24 +355,25 @@ def select_best_strategy(results: List[StrategyResult]) -> StrategyResult:
 def results_to_dataframe(results: List[StrategyResult]) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     for r in results:
-        row = {
-            "min_home_win_rate": r.params.min_home_win_rate,
-            "min_odds": r.params.min_odds,
-            "max_odds": r.params.max_odds,
-            "min_iso_proba": r.params.min_iso_proba,
-            "n_bets": r.n_bets,
-            "n_wins": r.n_wins,
-            "win_rate": r.n_wins / r.n_bets if r.n_bets > 0 else 0.0,
-            "total_profit_flat": r.total_profit_flat,
-            "roi_flat_per_bet": r.roi_flat,
-            "total_profit_kelly": r.total_profit_kelly,
-            "roi_kelly": r.roi_kelly,
-            "brier_before": r.brier_before,
-            "brier_after": r.brier_after,
-            "logloss_before": r.logloss_before,
-            "logloss_after": r.logloss_after,
-        }
-        rows.append(row)
+        rows.append(
+            {
+                "min_home_win_rate": r.params.min_home_win_rate,
+                "min_odds": r.params.min_odds,
+                "max_odds": r.params.max_odds,
+                "min_iso_proba": r.params.min_iso_proba,
+                "n_bets": r.n_bets,
+                "n_wins": r.n_wins,
+                "win_rate": r.n_wins / r.n_bets if r.n_bets > 0 else 0.0,
+                "total_profit_flat": r.total_profit_flat,
+                "roi_flat_per_bet": r.roi_flat,
+                "total_profit_kelly": r.total_profit_kelly,
+                "roi_kelly": r.roi_kelly,
+                "brier_before": r.brier_before,
+                "brier_after": r.brier_after,
+                "logloss_before": r.logloss_before,
+                "logloss_after": r.logloss_after,
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -360,39 +383,41 @@ def build_shortlist(
     bankroll: float,
 ) -> pd.DataFrame:
     df = df_future_iso.copy()
-    params = best.params
+    p = best.params
 
     conds = []
-    conds.append(df[HOME_ODDS_COL].between(params.min_odds, params.max_odds))
-    conds.append(df["iso_proba_home_win"] >= params.min_iso_proba)
+    conds.append(df[HOME_ODDS_COL].between(p.min_odds, p.max_odds))
+    conds.append(df["iso_proba_home_win"] >= p.min_iso_proba)
     if HOME_WIN_RATE_COL is not None and HOME_WIN_RATE_COL in df.columns:
-        conds.append(df[HOME_WIN_RATE_COL] >= params.min_home_win_rate)
+        conds.append(df[HOME_WIN_RATE_COL] >= p.min_home_win_rate)
 
     mask = np.logical_and.reduce(conds)
     df_bets = df.loc[mask].copy()
 
     if df_bets.empty:
-        logging.info("No bets for today with the best strategy parameters.")
+        logging.info("No bets for today with best strategy parameters.")
         return df_bets
 
-    # Compute Kelly fraction and recommended stake
     fractions = []
     stakes = []
+    edges = []
+
     for _, row in df_bets.iterrows():
         prob = float(row["iso_proba_home_win"])
         odds = float(row[HOME_ODDS_COL])
         f = kelly_fraction(prob, odds)
         f = max(0.0, min(KELLY_CAP, f))
         stake = bankroll * f
+        edge = prob * odds - 1.0
 
         fractions.append(f)
         stakes.append(stake)
+        edges.append(edge)
 
     df_bets["kelly_fraction"] = fractions
     df_bets["stake_recommended"] = stakes
+    df_bets["edge"] = edges
 
-    # Sort by edge (prob * odds - 1)
-    df_bets["edge"] = df_bets["iso_proba_home_win"] * df_bets[HOME_ODDS_COL] - 1.0
     df_bets = df_bets.sort_values("edge", ascending=False)
 
     cols_order = [
@@ -416,22 +441,19 @@ def attach_why_not(
     df_future_iso: pd.DataFrame,
     best: StrategyResult,
 ) -> pd.DataFrame:
-    """
-    For each future game, show which filter(s) failed so that it didn't become a bet.
-    """
     df = df_future_iso.copy()
     p = best.params
 
     reasons = []
     for _, row in df.iterrows():
         r: List[str] = []
+
         odds = float(row.get(HOME_ODDS_COL, np.nan))
         iso_p = float(row.get("iso_proba_home_win", np.nan))
-        win_rate = (
-            float(row.get(HOME_WIN_RATE_COL, np.nan))
-            if HOME_WIN_RATE_COL and HOME_WIN_RATE_COL in df.columns
-            else np.nan
-        )
+        if HOME_WIN_RATE_COL is not None and HOME_WIN_RATE_COL in df.columns:
+            win_rate = float(row.get(HOME_WIN_RATE_COL, np.nan))
+        else:
+            win_rate = np.nan
 
         if not np.isfinite(odds):
             r.append("missing_home_odds")
@@ -448,10 +470,7 @@ def attach_why_not(
             if not np.isfinite(win_rate) or win_rate < p.min_home_win_rate:
                 r.append(f"{HOME_WIN_RATE_COL}<{p.min_home_win_rate}")
 
-        if not r:
-            reasons.append("passes_all_filters")
-        else:
-            reasons.append(";".join(r))
+        reasons.append(";".join(r) if r else "passes_all_filters")
 
     df["why_not_bet"] = reasons
     return df
@@ -461,24 +480,36 @@ def attach_why_not(
 # Main
 # -----------------------------------------------------------------------------
 
-
 def main() -> None:
     setup_logging()
     args = parse_args()
 
-    base_dir = Path(args.base_dir)
-    date_str = args.date
+    # Resolve paths once via nba_utils_2026
+    paths = get_directory_paths()
+    prediction_dir = Path(paths["PREDICTION_DIR"])
+    kelly_output_dir = prediction_dir / "Kelly"
+    kelly_output_dir.mkdir(parents=True, exist_ok=True)
 
-    output_dir = base_dir / "data" / "output"
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Resolve date
+    if args.date is None:
+        _, _, ymd = get_current_date(days_offset=0)
+        date_str = ymd
+        logging.info("No --date passed, using today's date from nba_utils_2026: %s", date_str)
+    else:
+        # quick sanity check
+        try:
+            datetime.strptime(args.date, "%Y-%m-%d")
+        except ValueError as e:
+            raise SystemExit(f"Invalid --date format (expected YYYY-MM-DD): {args.date}") from e
+        date_str = args.date
 
-    df = load_predictions(base_dir, date_str, args.input_filename_template)
+    df = load_predictions(prediction_dir, date_str, args.input_filename_template)
     df_past, df_future = split_past_future(df)
 
     if df_past.empty:
         logging.warning(
-            "No past games (with known results) found. "
-            "Isotonic calibration / grid search can't run – exiting."
+            "No past games with known results found. "
+            "Isotonic calibration / grid search cannot run – exiting."
         )
         return
 
@@ -487,25 +518,33 @@ def main() -> None:
     df_iso = apply_isotonic(df, iso)
     df_past_iso, df_future_iso = split_past_future(df_iso)
 
-    # 2) Grid search on past games
-    results = grid_search(df_past_iso, metrics_before_after)
+    # 2) Grid search
+    results = grid_search(
+        df_past_iso,
+        metrics_before_after,
+        initial_bankroll=args.initial_bankroll,
+    )
     best = select_best_strategy(results)
 
     # 3) Save grid-search overview
     df_results = results_to_dataframe(results)
-    grid_out = output_dir / f"nba_grid_search_results_{date_str}.csv"
+    grid_out = kelly_output_dir / f"nba_grid_search_results_{date_str}.csv"
     df_results.to_csv(grid_out, index=False)
     logging.info("Saved grid search results to %s", grid_out)
 
-    # 4) Save full dataframe with isotonic probability
-    full_out = output_dir / f"combined_nba_predictions_iso_{date_str}.csv"
+    # 4) Save full dataframe with iso_proba_home_win
+    full_out = kelly_output_dir / f"combined_nba_predictions_iso_{date_str}.csv"
     df_iso.to_csv(full_out, index=False)
     logging.info("Saved full dataframe with iso_proba_home_win to %s", full_out)
 
-    # 5) Shortlist for today's bets (if future games exist)
+    # 5) Shortlist + why-not for future games
     if not df_future_iso.empty:
-        shortlist = build_shortlist(df_future_iso, best, INITIAL_BANKROLL)
-        shortlist_out = output_dir / f"nba_bets_shortlist_{date_str}.csv"
+        shortlist = build_shortlist(
+            df_future_iso,
+            best,
+            bankroll=args.initial_bankroll,
+        )
+        shortlist_out = kelly_output_dir / f"nba_bets_shortlist_{date_str}.csv"
         shortlist.to_csv(shortlist_out, index=False)
         logging.info(
             "Saved shortlist for %d future games to %s",
@@ -513,15 +552,14 @@ def main() -> None:
             shortlist_out,
         )
 
-        # Why-not diagnostics
         why_not_df = attach_why_not(df_future_iso, best)
-        why_not_out = output_dir / f"nba_bets_why_not_{date_str}.csv"
+        why_not_out = kelly_output_dir / f"nba_bets_why_not_{date_str}.csv"
         why_not_df.to_csv(why_not_out, index=False)
         logging.info("Saved why-not diagnostics to %s", why_not_out)
     else:
         logging.info("No future games found in file – nothing to bet on today.")
 
-    logging.info("Done.")
+    logging.info("Step 5 finished.")
 
 
 if __name__ == "__main__":
