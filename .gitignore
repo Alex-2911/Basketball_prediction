@@ -1,2 +1,26 @@
 /.venv
 **/__pycache__/
+
+# Environment variables (contains sensitive data)
+.env
+.env.local
+
+# Logs
+logs/
+*.log
+
+# Python cache
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

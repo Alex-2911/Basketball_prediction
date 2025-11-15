@@ -1,0 +1,131 @@
+name: "🏀 Complete Daily NBA Prediction Pipeline"
+
+on:
+  workflow_dispatch:      # Manual trigger
+  schedule:
+    # Run every day at 06:00 UTC (before games typically start)
+    - cron: "0 6 * * *"
+
+jobs:
+  run_pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 2. Set up Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      # 3. Install Google Chrome (required for Selenium web scraping)
+      - name: Install Google Chrome
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg unzip
+          wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo gpg --dearmor -o /usr/share/keyrings/google-linux-signing-keyring.gpg
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-linux-signing-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+          google-chrome --version
+
+      # 4. Install Python dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 5. Create .env file from secrets
+      - name: Create .env file
+        run: |
+          echo "ODDS_API_KEY=${{ secrets.ODDS_API_KEY }}" > .env
+
+      # 6. Run Script 1: Collect previous game data
+      - name: "Step 1: Collect previous game data"
+        env:
+          PYTHONWARNINGS: "ignore"
+        run: |
+          echo "🚀 Step 1: Scraping previous game data..."
+          python 2026/src/1_get_data_previous_game_day_2026.py
+          echo "✅ Step 1 completed"
+
+      # 7. Run Script 2: Get next game schedule
+      - name: "Step 2: Get next game schedule"
+        env:
+          PYTHONWARNINGS: "ignore"
+        run: |
+          echo "🚀 Step 2: Fetching next game schedule..."
+          python 2026/src/2_get_data_next_game_day_2026.py
+          echo "✅ Step 2 completed"
+
+      # 8. Run Script 3: Generate predictions with LightGBM
+      - name: "Step 3: Generate predictions"
+        env:
+          PYTHONWARNINGS: "ignore"
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+        run: |
+          echo "🚀 Step 3: Generating predictions with LightGBM..."
+          python 2026/src/3_predict_games_hybrid_2026.py
+          echo "✅ Step 3 completed"
+
+      # 9. Run Script 4: Calculate betting statistics
+      - name: "Step 4: Calculate betting statistics"
+        env:
+          PYTHONWARNINGS: "ignore"
+        run: |
+          echo "🚀 Step 4: Calculating betting statistics..."
+          python 2026/src/4_calculate_betting_statistics_2026.py
+          echo "✅ Step 4 completed"
+        continue-on-error: true  # Don't fail if no new games to evaluate
+
+      # 10. Run Script 5: Calculate Kelly betting parameters
+      - name: "Step 5: Calculate Kelly betting parameters"
+        env:
+          PYTHONWARNINGS: "ignore"
+        run: |
+          echo "🚀 Step 5: Calculating Kelly betting parameters..."
+          python 2026/src/5_kelly_betting_parameters_2026.py
+          echo "✅ Step 5 completed"
+
+      # 11. Configure Git for committing
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      # 12. Commit and push new data files
+      - name: Commit and push updates
+        run: |
+          git add 2026/output/
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "🤖 Automated daily prediction update - $(date +'%Y-%m-%d')"
+            git push
+          fi
+
+      # 13. Upload artifacts for manual download
+      - name: Upload prediction artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nba-predictions-${{ github.run_number }}
+          path: |
+            2026/output/Gathering_Data/**/*.csv
+            2026/output/LightGBM/**/*.csv
+          if-no-files-found: warn
+          retention-days: 30
+
+      # 14. Create summary of today's bets (optional)
+      - name: Display today's recommended bets
+        env:
+          PYTHONWARNINGS: "ignore"
+        run: |
+          echo "🎯 Today's Recommended Bets:"
+          python 2026/src/6_proposed_bets_2026.py || echo "No bets recommended for today"
+        continue-on-error: true

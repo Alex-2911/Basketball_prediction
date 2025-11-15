@@ -21,8 +21,10 @@ Main outputs:
 """
 
 import os
+import sys
 import glob
 import logging
+from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Tuple, List, Dict
 
@@ -36,6 +38,10 @@ from sklearn.metrics import accuracy_score
 import requests
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
+
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
 
 TEAM_ALIAS_FOR_ODDS = {
     "PHO": "PHX",
@@ -72,20 +78,30 @@ def normalize_code_for_odds(abbr: str) -> str:
 
 ROLLING_WINDOW_SIZE = 9
 CURRENT_SEASON = 2025   # mostly for reference/logging
-API_KEY = "8e9d506f8573b01023028cef1bf645b5"
 
-# you already have these folders in the 2026 repo structure;
-# adjust if your paths differ
+# Load API key from environment variable
+API_KEY = os.getenv("ODDS_API_KEY")
+if not API_KEY:
+    raise ValueError(
+        "ODDS_API_KEY not found in environment variables. "
+        "Please create a .env file based on .env.example and add your API key."
+    )
+
+# Get base directory using relative paths (cross-platform compatible)
 def get_directory_paths() -> Dict[str, str]:
     """
-    Return a dictionary of important directories.
-    You should keep these paths consistent with your repo.
+    Return a dictionary of important directories using relative paths.
+    Works cross-platform (Windows, Linux, macOS).
     """
-    base_repo = r"D:\1. Python\6. GitHub\Basketball_prediction\2026"
+    # Get the directory where this script is located
+    script_dir = Path(__file__).parent
+    # Navigate to the 2026 directory (parent of src)
+    base_repo = script_dir.parent
+
     return {
-        "STAT_DIR": os.path.join(base_repo, r"output\Gathering_Data\Whole_Statistic"),
-        "NEXT_GAME_DIR": os.path.join(base_repo, r"output\Gathering_Data\Next_Game"),
-        "PREDICTION_DIR": os.path.join(base_repo, r"output\LightGBM"),
+        "STAT_DIR": str(base_repo / "output" / "Gathering_Data" / "Whole_Statistic"),
+        "NEXT_GAME_DIR": str(base_repo / "output" / "Gathering_Data" / "Next_Game"),
+        "PREDICTION_DIR": str(base_repo / "output" / "LightGBM"),
     }
 
 def get_current_date(offset_days: int = 0) -> Tuple[datetime, str, str]:

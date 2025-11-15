@@ -1,9 +1,24 @@
 import pandas as pd
 import os
+from pathlib import Path
+import glob
 
-# --- Path to your latest enriched file ---
-directory_path = r"D:\1. Python\6. GitHub\Basketball_prediction\2026\output\LightGBM"
-enriched_path = os.path.join(directory_path, "combined_nba_predictions_enriched_2025-10-26.csv")
+# --- Path to your latest enriched file (cross-platform compatible) ---
+# Get the directory where this script is located
+script_dir = Path(__file__).parent
+# Navigate to the 2026 directory (parent of src)
+base_repo = script_dir.parent
+directory_path = base_repo / "output" / "LightGBM"
+
+# Find the most recent enriched file
+enriched_files = list(directory_path.glob("combined_nba_predictions_enriched_*.csv"))
+if not enriched_files:
+    raise FileNotFoundError(
+        f"No enriched predictions file found in {directory_path}. "
+        "Please run script 5 first to generate the enriched data."
+    )
+# Sort by modification time and get the most recent
+enriched_path = max(enriched_files, key=lambda p: p.stat().st_mtime)
 
 # --- Load and filter ---
 df = pd.read_csv(enriched_path)
