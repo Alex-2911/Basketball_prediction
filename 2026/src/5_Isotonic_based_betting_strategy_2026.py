@@ -1,879 +1,126 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
-"""
-5_Isotonic_based_betting_strategy_2026.py
-
-Step 5 of the 2026 pipeline:
-
-1) Load combined historical predictions:
-       combined_nba_predictions_acc_YYYY-MM-DD.csv
-   from 2026/output/LightGBM
-
-2) Make sure the following columns exist (creating them if necessary):
-   - game_date           (from 'date')
-   - home_team_won       (from 'result' == 'home_team', only for played games)
-   - pred_home_win_proba (from 'home_team_prob')
-   - closing_home_odds   (from 'odds_1')
-   - closing_away_odds   (from 'odds_2')
-
-3) Optionally merge in:
-   - tonight's predictions from nba_games_predict_YYYY-MM-DD.csv
-   - home win rates from home_win_rates_sorted_YYYY-MM-DD.csv
-
-4) Split into:
-   - df_past   (played games, for calibration + grid search)
-   - df_future (upcoming games today/tomorrow, for shortlist)
-
-5) Fit an Isotonic Regression on df_past and compute:
-   - iso_proba_home_win
-
-6) Run a grid search over a small parameter space:
-   StrategyParams(min_home_win_rate, min_odds, max_odds, min_iso_proba)
-
-   Backtest on df_past with flat stakes, and pick the best combo
-   (by ROI per bet, tie-breaking by number of bets).
-
-7) Save:
-   - Kelly/nba_grid_search_results_YYYY-MM-DD.csv
-   - Kelly/combined_nba_predictions_iso_YYYY-MM-DD.csv
-
-8) Apply the BEST strategy to df_future (today/tomorrow) and write
-   a shortlist:
-   - bet_shortlist_YYYY-MM-DD.csv
-
-If there are no upcoming games OR no suitable bets, script still succeeds.
-"""
-
-from __future__ import annotations
-
-import argparse
-import logging
-import os
-from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Tuple
-
-import numpy as np
-import pandas as pd
-from sklearn.isotonic import IsotonicRegression
-from sklearn.metrics import brier_score_loss, log_loss
-
-from nba_utils_2026 import (
-    get_current_date,
-    get_directory_paths,
-    normalize_team_code,
-)
-
-# -------------------------------------------------------------------------
-# CONFIG / CONSTANTS
-# -------------------------------------------------------------------------
-
-DATE_COL = "game_date"
-RESULT_COL = "home_team_won"
-RESULT_RAW_COL = "result_raw"
-PRED_PROBA_COL = "pred_home_win_proba"
-HOME_ODDS_COL = "closing_home_odds"
-AWAY_ODDS_COL = "closing_away_odds"
-HOMEWR_COL = "home_win_rate"
-ISO_COL = "iso_proba_home_win"
-
-FLAT_STAKE = 100.0
-
-# 4 x 4 x 4 x 4 = 256 combinations
-ODDS_MIN_GRID = [1.10, 1.25, 1.40, 1.60]
-ODDS_MAX_GRID = [2.00, 2.10, 2.50, 3.00]
-PROB_MIN_GRID = [0.55, 0.60, 0.65, 0.70]
-HOMEWR_MIN_GRID = [0.50, 0.55, 0.60, 0.65]
-
-
-@dataclass
-class StrategyParams:
-    min_home_win_rate: float
-    min_odds: float
-    max_odds: float
-    min_iso_proba: float
-
-
-# -------------------------------------------------------------------------
-# LOGGING
-# -------------------------------------------------------------------------
-
-def setup_logging() -> None:
-    logging.basicConfig(
-        format="[%(asctime)s] %(levelname)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        level=logging.INFO,
-    )
-
-
-# -------------------------------------------------------------------------
-# HELPERS
-# -------------------------------------------------------------------------
-
-def to_float_series(s: pd.Series) -> pd.Series:
-    """
-    Robust numeric cleanup (also ok if already floats).
-    """
-    return (
-        s.astype(str)
-         .str.replace(",", ".", regex=False)
-         .str.replace("[^0-9.]", "", regex=True)
-         .replace("", np.nan)
-         .astype(float)
-    )
-
-
-def load_combined_df(pred_dir: str, ymd_str: str) -> pd.DataFrame:
-    """
-    Load combined_nba_predictions_acc_YYYY-MM-DD.csv and guarantee that
-    basic columns exist and are in a normalized format.
-    """
-    path = os.path.join(pred_dir, f"combined_nba_predictions_acc_{ymd_str}.csv")
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"Combined predictions file not found: {path}")
-
-    logging.info("Loading predictions from %s", path)
-
-    df = pd.read_csv(path, encoding="utf-7")
-
-    # Normalize column names
-    df.columns = (
-        df.columns
-          .astype(str)
-          .str.strip()
-          .str.lower()
-          .str.replace(r"\s+", "_", regex=True)
-    )
-
-    # Keep the raw 'result' for played/upcoming detection
-    if "result" in df.columns:
-        df[RESULT_RAW_COL] = df["result"]
-    else:
-        df[RESULT_RAW_COL] = np.nan
-
-    # DATE_COL
-    if DATE_COL not in df.columns:
-        if "date" in df.columns:
-            logging.info("DATE_COL 'game_date' not in dataframe – creating it from 'date' column.")
-            df[DATE_COL] = pd.to_datetime(df["date"], errors="coerce")
-        else:
-            logging.warning("No 'date' column in dataframe; DATE_COL will be NaT.")
-            df[DATE_COL] = pd.NaT
-    else:
-        df[DATE_COL] = pd.to_datetime(df[DATE_COL], errors="coerce")
-
-    # PRED_PROBA_COL
-    if PRED_PROBA_COL not in df.columns:
-        src = None
-        if "home_team_prob" in df.columns:
-            src = "home_team_prob"
-
-        if src is not None:
-            logging.info(
-                "PRED_PROBA_COL 'pred_home_win_proba' not in dataframe – creating it from '%s'.",
-                src,
-            )
-            df[PRED_PROBA_COL] = to_float_series(df[src])
-        else:
-            logging.warning(
-                "No suitable probability column found. Setting pred_home_win_proba to NaN."
-            )
-            df[PRED_PROBA_COL] = np.nan
-
-    # HOME / AWAY odds
-    if HOME_ODDS_COL not in df.columns:
-        if "odds_1" in df.columns:
-            logging.info(
-                "HOME_ODDS_COL 'closing_home_odds' not in dataframe – "
-                "creating it from 'odds_1' (home odds from Odds API)."
-            )
-            df[HOME_ODDS_COL] = to_float_series(df["odds_1"])
-        else:
-            logging.warning("No 'odds_1' column – setting closing_home_odds to NaN.")
-            df[HOME_ODDS_COL] = np.nan
-
-    if AWAY_ODDS_COL not in df.columns:
-        if "odds_2" in df.columns:
-            logging.info(
-                "AWAY_ODDS_COL 'closing_away_odds' not in dataframe – "
-                "creating it from 'odds_2' (away odds from Odds API)."
-            )
-            df[AWAY_ODDS_COL] = to_float_series(df["odds_2"])
-        else:
-            logging.warning("No 'odds_2' column – setting closing_away_odds to NaN.")
-            df[AWAY_ODDS_COL] = np.nan
-
-    # RESULT_COL (but we must NOT mark future games as 0-loss)
-    if RESULT_COL not in df.columns:
-        logging.info(
-            "RESULT_COL 'home_team_won' not in dataframe – "
-            "creating it as 1 if result==home_team, NaN otherwise."
-        )
-        if "home_team" in df.columns and "result" in df.columns:
-            mask_valid = df["result"].notna() & (df["result"].astype(str) != "0")
-            df.loc[mask_valid, RESULT_COL] = (
-                df.loc[mask_valid, "result"].astype(str)
-                == df.loc[mask_valid, "home_team"].astype(str)
-            ).astype(int)
-            df.loc[~mask_valid, RESULT_COL] = np.nan
-        else:
-            df[RESULT_COL] = np.nan
-
-    return df
-
-
-def merge_today_predictions(
-    df_all: pd.DataFrame,
-    pred_dir: str,
-    ymd_str: str,
-    today_date,
-) -> pd.DataFrame:
-    """
-    Merge in upcoming games from nba_games_predict_YYYY-MM-DD.csv
-    if they are not already present in df_all.
-
-    We assume columns (or fallback to header=None):
-    home_team, away_team, home_team_prob, odds_1, odds_2, result, date.
-    """
-    today_pred_path = os.path.join(pred_dir, f"nba_games_predict_{ymd_str}.csv")
-    if not os.path.exists(today_pred_path):
-        logging.info(
-            "No TODAY_PRED file found (%s) – skipping merge of upcoming games.",
-            today_pred_path,
-        )
-        return df_all
-
-    logging.info("Merging upcoming games from %s", today_pred_path)
-
-    tmp = pd.read_csv(
-        today_pred_path,
-        encoding="utf-7",
-        sep=",",
-        quotechar='"',
-        decimal=",",
-    )
-
-    # If schema is weird, fallback to manual header
-    expected = {"home_team", "away_team", "home_team_prob"}
-    norm_cols = {c.lower().strip() for c in tmp.columns}
-    if not expected.issubset(norm_cols):
-        tmp = pd.read_csv(
-            today_pred_path,
-            encoding="utf-7",
-            sep=",",
-            quotechar='"',
-            decimal=",",
-            header=None,
-            names=[
-                "home_team",
-                "away_team",
-                "home_team_prob",
-                "odds_1",
-                "odds_2",
-                "result",
-                "date",
-            ],
-        )
-
-    tmp.columns = (
-        tmp.columns
-           .astype(str)
-           .str.strip()
-           .str.lower()
-           .str.replace(r"\s+", "_", regex=True)
-    )
-
-    # numeric cleanup
-    if "home_team_prob" in tmp.columns:
-        tmp["home_team_prob"] = to_float_series(tmp["home_team_prob"])
-    if "odds_1" in tmp.columns:
-        tmp["odds_1"] = to_float_series(tmp["odds_1"])
-    if "odds_2" in tmp.columns:
-        tmp["odds_2"] = to_float_series(tmp["odds_2"])
-
-    # date cleanup
-    if "date" in tmp.columns:
-        tmp["date"] = pd.to_datetime(tmp["date"], errors="coerce")
-    else:
-        tmp["date"] = pd.NaT
-
-    # if still NaT, assume "today"
-    tmp.loc[tmp["date"].isna(), "date"] = pd.Timestamp(today_date)
-
-    # ensure these exist
-    if "result" not in tmp.columns:
-        tmp["result"] = np.nan
-
-    tmp[DATE_COL] = pd.to_datetime(tmp["date"], errors="coerce")
-
-    # Make sure main df has away_team for key matching
-    if "away_team" not in df_all.columns:
-        df_all["away_team"] = np.nan
-
-    key_cols = [DATE_COL, "home_team", "away_team"]
-    for col in key_cols:
-        if col not in df_all.columns:
-            df_all[col] = np.nan
-
-    existing_keys = df_all[key_cols].drop_duplicates()
-
-    tmp_merge = tmp.merge(
-        existing_keys,
-        on=key_cols,
-        how="left",
-        indicator=True,
-    )
-    new_rows = tmp_merge[tmp_merge["_merge"] == "left_only"].drop(columns=["_merge"])
-
-    if new_rows.empty:
-        logging.info("No new upcoming games to add from TODAY_PRED.")
-        return df_all
-
-    # Align columns between df_all and new_rows
-    needed_cols = set(df_all.columns) | set(new_rows.columns)
-    for col in needed_cols:
-        if col not in df_all.columns:
-            df_all[col] = np.nan
-        if col not in new_rows.columns:
-            new_rows[col] = np.nan
-
-    # 'home_team_won' is unknown for future games
-    new_rows[RESULT_COL] = np.nan
-    new_rows[RESULT_RAW_COL] = new_rows["result"]
-
-    df_all = pd.concat(
-        [df_all, new_rows[df_all.columns]],
-        ignore_index=True,
-    )
-
-    return df_all
-
-
-def attach_home_win_rate(
-    df: pd.DataFrame,
-    hwr_path: str,
-) -> pd.DataFrame:
-    """
-    Attach home win rate (HOMEWR_COL) to df based on the
-    home_win_rates_sorted_YYYY-MM-DD.csv file.
-
-    Your current file format (sample):
-
-        Total Last 20 Games,Total Home Games,Home Wins,Home Win Rate
-        GSW,14,5,1.0
-        OKC,13,6,1.0
-        ...
-
-    So:
-      - first column is actually TEAM CODE
-      - last column is the HOME WIN RATE
-    """
-    if not os.path.exists(hwr_path):
-        logging.warning(
-            "Home win rate file not found at %s; skipping merge.",
-            hwr_path,
-        )
-        return df
-
-    try:
-        hwr = pd.read_csv(
-            hwr_path,
-            encoding="utf-7",
-            sep=",",
-            decimal=",",
-        )
-    except Exception as e:
-        logging.warning(
-            "Failed to read home win rate file %s: %s",
-            hwr_path,
-            e,
-        )
-        return df
-
-    if hwr.empty:
-        logging.warning(
-            "Home win rate file %s is empty; skipping merge.",
-            hwr_path,
-        )
-        return df
-
-    cols = list(hwr.columns)
-    cols_lower = [c.lower().strip() for c in cols]
-
-    team_col = None
-    winrate_col = None
-
-    # --- SPECIAL CASE: current 4-column format ---
-    if len(cols) == 4 and "home win rate" in cols_lower:
-        team_col = cols[0]
-        winrate_col = cols[cols_lower.index("home win rate")]
-        logging.info(
-            "Detected home-win-rate file format with 4 columns; "
-            "using '%s' as team column and '%s' as win-rate column.",
-            team_col,
-            winrate_col,
-        )
-    else:
-        # Generic detection (future proof if you change the format later)
-        lower_to_orig = {c.lower().strip(): c for c in cols}
-
-        # team column by name
-        for lc, orig in lower_to_orig.items():
-            if lc in {"team", "home_team", "team_code"}:
-                team_col = orig
-                break
-            if "team" in lc and ("abbr" in lc or "code" in lc or "home" in lc):
-                team_col = orig
-                break
-
-        # winrate column by name
-        for lc, orig in lower_to_orig.items():
-            if "home_win_rate" in lc or "home win rate" in lc or "win_rate" in lc:
-                winrate_col = orig
-                break
-
-        # fallback for win-rate: numeric column in [0,1]
-        if winrate_col is None:
-            for c in cols:
-                try:
-                    vals = pd.to_numeric(hwr[c], errors="coerce")
-                    if vals.notna().sum() == 0:
-                        continue
-                    frac_between = (
-                        ((vals >= 0.0) & (vals <= 1.0)).sum()
-                        / vals.notna().sum()
-                    )
-                    if frac_between > 0.9:
-                        winrate_col = c
-                        break
-                except Exception:
-                    continue
-
-        # last fallback for team column: any short uppercase string column
-        if team_col is None:
-            for c in cols:
-                sample = (
-                    hwr[c].dropna().astype(str).str.strip().head(20).tolist()
-                )
-                if not sample:
-                    continue
-                if all(len(x) <= 4 for x in sample) and all(x.upper() == x for x in sample):
-                    team_col = c
-                    break
-
-        if team_col is None or winrate_col is None:
-            logging.warning(
-                "Could not identify team and/or win-rate columns in %s; "
-                "cols=%s – skipping merge.",
-                hwr_path,
-                cols,
-            )
-            return df
-
-        logging.info(
-            "Using '%s' as team column and '%s' as win-rate column.",
-            team_col,
-            winrate_col,
-        )
-
-    # --- normalize team codes and merge ---
-    hwr["_team_norm"] = (
-        hwr[team_col]
-        .astype(str)
-        .str.strip()
-        .map(normalize_team_code)
-    )
-
-    df["_home_team_norm"] = (
-        df["home_team"]
-        .astype(str)
-        .str.strip()
-        .map(normalize_team_code)
-    )
-
-    hwr_for_merge = hwr[["_team_norm", winrate_col]].drop_duplicates("_team_norm")
-
-    df = df.merge(
-        hwr_for_merge,
-        left_on="_home_team_norm",
-        right_on="_team_norm",
-        how="left",
-    )
-
-    # standardize to HOMEWR_COL
-    if HOMEWR_COL in df.columns and HOMEWR_COL != winrate_col:
-        df[HOMEWR_COL] = df[HOMEWR_COL].fillna(df[winrate_col])
-        df.drop(columns=[winrate_col], inplace=True)
-    else:
-        df.rename(columns={winrate_col: HOMEWR_COL}, inplace=True)
-
-    # cleanup
-    df.drop(columns=["_team_norm", "_home_team_norm"], inplace=True, errors="ignore")
-
-    df[HOMEWR_COL] = pd.to_numeric(df[HOMEWR_COL], errors="coerce").fillna(0.0)
-
-    logging.info(
-        "Merged home win rates into dataframe; %d rows with non-null values.",
-        df[HOMEWR_COL].notna().sum(),
-    )
-
-    return df
-
-
-def split_past_future(
-    df_all: pd.DataFrame,
-    today_date,
-    tomorrow_date,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Past = games where RESULT_RAW_COL is non-null and != '0'
-    Future = games where RESULT_RAW_COL is null or '0' and
-             game_day in {today, tomorrow}
-    """
-    df_all[DATE_COL] = pd.to_datetime(df_all[DATE_COL], errors="coerce")
-    df_all["game_day"] = df_all[DATE_COL].dt.date
-
-    if RESULT_RAW_COL not in df_all.columns:
-        df_all[RESULT_RAW_COL] = np.nan
-
-    played_mask = df_all[RESULT_RAW_COL].notna() & (
-        df_all[RESULT_RAW_COL].astype(str) != "0"
-    )
-
-    df_past = df_all[played_mask].copy()
-    df_future = df_all[
-        ~played_mask & df_all["game_day"].isin([today_date, tomorrow_date])
-    ].copy()
-
-    logging.info(
-        "Split into %d past games and %d future games.",
-        len(df_past),
-        len(df_future),
-    )
-    return df_past, df_future
-
-
-def fit_isotonic(df_past: pd.DataFrame) -> IsotonicRegression:
-    """
-    Fit isotonic regression on past games.
-    """
-    mask = df_past[RESULT_COL].notna() & df_past[PRED_PROBA_COL].notna()
-    if mask.sum() == 0:
-        raise RuntimeError(
-            "No valid rows to fit isotonic regression "
-            "(missing y_true or probabilities)."
-        )
-
-    y_true = df_past.loc[mask, RESULT_COL].astype(int).values
-    p_raw = df_past.loc[mask, PRED_PROBA_COL].astype(float).values
-
-    iso = IsotonicRegression(out_of_bounds="clip")
-    iso.fit(p_raw, y_true)
-
-    logging.info("Isotonic fitted on %d games.", mask.sum())
-    return iso
-
-
-def compute_calibration_metrics(df_past: pd.DataFrame) -> Tuple[float, float, float, float]:
-    """
-    Brier score + log loss before/after isotonic.
-    """
-    mask = (
-        df_past[RESULT_COL].notna()
-        & df_past[PRED_PROBA_COL].notna()
-        & df_past[ISO_COL].notna()
-    )
-    if mask.sum() == 0:
-        return np.nan, np.nan, np.nan, np.nan
-
-    y_true = df_past.loc[mask, RESULT_COL].astype(int).values
-    p_raw = df_past.loc[mask, PRED_PROBA_COL].astype(float).values
-    p_iso = df_past.loc[mask, ISO_COL].astype(float).values
-
-    brier_before = brier_score_loss(y_true, p_raw)
-    brier_after = brier_score_loss(y_true, p_iso)
-
-    logloss_before = log_loss(y_true, p_raw, eps=1e-15)
-    logloss_after = log_loss(y_true, p_iso, eps=1e-15)
-
-    return brier_before, brier_after, logloss_before, logloss_after
-
-
-def evaluate_strategy(df: pd.DataFrame, params: StrategyParams) -> dict:
-    """
-    Evaluate one parameter combo on a backtest dataframe (df_past).
-    """
-    if df.empty:
-        return {
-            "n_bets": 0,
-            "total_profit": 0.0,
-            "roi_per_bet": 0.0,
-        }
-
-    conds = []
-
-    # home win rate filter
-    if HOMEWR_COL in df.columns and pd.api.types.is_numeric_dtype(df[HOMEWR_COL]):
-        conds.append(df[HOMEWR_COL] >= params.min_home_win_rate)
-
-    # odds range
-    conds.append(df[HOME_ODDS_COL].between(params.min_odds, params.max_odds))
-
-    # probability threshold
-    conds.append(df[ISO_COL] >= params.min_iso_proba)
-
-    # valid rows: need closing_home_odds + iso prob + result
-    conds.append(df[HOME_ODDS_COL].notna())
-    conds.append(df[ISO_COL].notna())
-    conds.append(df[RESULT_COL].notna())
-
-    mask = np.logical_and.reduce(conds)
-
-    df_sel = df[mask].copy()
-    n_bets = len(df_sel)
-    if n_bets == 0:
-        return {
-            "n_bets": 0,
-            "total_profit": 0.0,
-            "roi_per_bet": 0.0,
-        }
-
-    stake = FLAT_STAKE
-    df_sel["profit"] = np.where(
-        df_sel[RESULT_COL].astype(int) == 1,
-        (df_sel[HOME_ODDS_COL] - 1.0) * stake,
-        -stake,
-    )
-
-    total_profit = float(df_sel["profit"].sum())
-    roi_per_bet = total_profit / (n_bets * stake)
-
-    return {
-        "n_bets": n_bets,
-        "total_profit": total_profit,
-        "roi_per_bet": roi_per_bet,
-    }
-
-
-def grid_search(
-    df_past: pd.DataFrame,
-) -> Tuple[StrategyParams, pd.DataFrame]:
-    """
-    Try a small grid of StrategyParams and pick the best by ROI per bet.
-    Tie-breaker: more bets.
-    """
-    results = []
-
-    for min_hwr in HOMEWR_MIN_GRID:
-        for min_odds in ODDS_MIN_GRID:
-            for max_odds in ODDS_MAX_GRID:
-                if max_odds <= min_odds:
-                    continue
-                for min_prob in PROB_MIN_GRID:
-                    params = StrategyParams(
-                        min_home_win_rate=min_hwr,
-                        min_odds=min_odds,
-                        max_odds=max_odds,
-                        min_iso_proba=min_prob,
-                    )
-                    metrics = evaluate_strategy(df_past, params)
-                    metrics.update(
-                        min_home_win_rate=min_hwr,
-                        min_odds=min_odds,
-                        max_odds=max_odds,
-                        min_iso_proba=min_prob,
-                    )
-                    results.append(metrics)
-
-    df_res = pd.DataFrame(results)
-    if df_res.empty:
-        raise RuntimeError("Grid search produced no results (df_res is empty).")
-
-    # pick best by ROI; tie-break by number of bets
-    df_res = df_res.sort_values(
-        by=["roi_per_bet", "n_bets"],
-        ascending=[False, False],
-    ).reset_index(drop=True)
-
-    best_row = df_res.iloc[0]
-    best_params = StrategyParams(
-        min_home_win_rate=float(best_row["min_home_win_rate"]),
-        min_odds=float(best_row["min_odds"]),
-        max_odds=float(best_row["max_odds"]),
-        min_iso_proba=float(best_row["min_iso_proba"]),
-    )
-
-    return best_params, df_res
-
-
-def build_shortlist(
-    df_future: pd.DataFrame,
-    params: StrategyParams,
-) -> pd.DataFrame:
-    """
-    Apply best params to upcoming games (today/tomorrow) and build shortlist.
-    """
-    if df_future.empty:
-        return df_future.copy()
-
-    conds = []
-
-    # home win rate filter
-    if HOMEWR_COL in df_future.columns and pd.api.types.is_numeric_dtype(df_future[HOMEWR_COL]):
-        conds.append(df_future[HOMEWR_COL] >= params.min_home_win_rate)
-
-    # odds range
-    conds.append(df_future[HOME_ODDS_COL].between(params.min_odds, params.max_odds))
-
-    # iso proba threshold
-    conds.append(df_future[ISO_COL] >= params.min_iso_proba)
-
-    # need odds + iso prob
-    conds.append(df_future[HOME_ODDS_COL].notna())
-    conds.append(df_future[ISO_COL].notna())
-
-    mask = np.logical_and.reduce(conds)
-
-    shortlist = df_future[mask].copy()
-    if shortlist.empty:
-        return shortlist
-
-    shortlist["stake_flat"] = FLAT_STAKE
-    shortlist["expected_value_per_unit"] = (
-        shortlist[ISO_COL] * (shortlist[HOME_ODDS_COL] - 1.0)
-        - (1.0 - shortlist[ISO_COL])
-    )
-
-    return shortlist
-
-
-# -------------------------------------------------------------------------
-# MAIN
-# -------------------------------------------------------------------------
-
-def main() -> None:
-    setup_logging()
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--date",
-        type=str,
-        default=None,
-        help="Target date in YYYY-MM-DD (default: today from nba_utils_2026).",
-    )
-    args = parser.parse_args()
-
-    if args.date:
-        target_dt = datetime.strptime(args.date, "%Y-%m-%d")
-        target_ymd = args.date
-        logging.info("Using explicit --date: %s", target_ymd)
-    else:
-        now_dt, friendly, ymd_str = get_current_date()
-        target_dt = now_dt
-        target_ymd = ymd_str
-        logging.info(
-            "No --date passed, using today's date from nba_utils_2026: %s",
-            target_ymd,
-        )
-
-    today_date = target_dt.date()
-    tomorrow_date = (target_dt + timedelta(days=1)).date()
-
-    # PATHS
-    paths = get_directory_paths()
-    pred_dir = paths["PREDICTION_DIR"]
-    kelly_dir = os.path.join(pred_dir, "Kelly")
-    os.makedirs(kelly_dir, exist_ok=True)
-
-    # 1) LOAD COMBINED
-    df_all = load_combined_df(pred_dir, target_ymd)
-
-    # 2) MERGE TODAY'S PREDICTIONS (if any) TO GET FUTURE GAMES INTO df_all
-    df_all = merge_today_predictions(df_all, pred_dir, target_ymd, today_date)
-
-    # 3) ATTACH HOME WIN RATE IF AVAILABLE
-    hwr_path = os.path.join(
-        pred_dir,
-        f"home_win_rates_sorted_{target_ymd}.csv",
-    )
-    df_all = attach_home_win_rate(df_all, hwr_path)
-
-    # 4) SPLIT PAST / FUTURE
-    df_past, df_future = split_past_future(df_all, today_date, tomorrow_date)
-
-    # 5) FIT ISOTONIC ON PAST, APPLY TO ALL (PAST + FUTURE)
-    if df_past.empty:
-        logging.warning("No past games available – cannot fit isotonic. Exiting.")
-        return
-
-    iso = fit_isotonic(df_past)
-
-    df_all[ISO_COL] = np.nan
-    mask_iso = df_all[PRED_PROBA_COL].notna()
-    df_all.loc[mask_iso, ISO_COL] = iso.transform(
-        df_all.loc[mask_iso, PRED_PROBA_COL].astype(float).values
-    )
-
-    # For metrics we need ISO on df_past too
-    df_past = df_all.loc[df_all.index.isin(df_past.index)].copy()
-
-    brier_before, brier_after, logloss_before, logloss_after = compute_calibration_metrics(df_past)
-    logging.info("Brier before: %.6f | after: %.6f", brier_before, brier_after)
-    logging.info("Log-loss before: %.6f | after: %.6f", logloss_before, logloss_after)
-
-    # 6) GRID SEARCH ON PAST
-    logging.info("Starting grid search...")
-    best_params, df_grid = grid_search(df_past)
-    logging.info(
-        "Grid search finished with %d combinations.",
-        len(df_grid),
-    )
-
-    best_metrics = evaluate_strategy(df_past, best_params)
-    logging.info(
-        "Best strategy: %s | %d bets | flat profit %.2f | ROI per bet %.4f",
-        best_params,
-        best_metrics["n_bets"],
-        best_metrics["total_profit"],
-        best_metrics["roi_per_bet"],
-    )
-
-    # 7) SAVE GRID SEARCH + ISO DF
-    grid_path = os.path.join(kelly_dir, f"nba_grid_search_results_{target_ymd}.csv")
-    df_grid.to_csv(grid_path, index=False, encoding="utf-8")
-    logging.info("Saved grid search results to %s", grid_path)
-
-    iso_path = os.path.join(kelly_dir, f"combined_nba_predictions_iso_{target_ymd}.csv")
-    df_all.to_csv(iso_path, index=False, encoding="utf-8")
-    logging.info("Saved full dataframe with %s to %s", ISO_COL, iso_path)
-
-    # 8) BUILD SHORTLIST FOR FUTURE GAMES (TODAY / TOMORROW)
-    if df_future.empty:
-        logging.info("No future games found in file – nothing to bet on today.")
-        logging.info("Step 5 finished.")
-        print("=== Script 5 finished ===")
-        return
-
-    df_future = df_all.loc[df_all.index.isin(df_future.index)].copy()
-    shortlist = build_shortlist(df_future, best_params)
-
-    if shortlist.empty:
-        logging.info(
-            "Future games found but no bets passed the filters – empty shortlist for today."
-        )
-        logging.info("Step 5 finished.")
-        print("=== Script 5 finished ===")
-        return
-
-    # Save shortlist to standard LightGBM output folder
-    shortlist_path = os.path.join(pred_dir, f"bet_shortlist_{target_ymd}.csv")
-    shortlist.to_csv(shortlist_path, index=False, encoding="utf-8")
-    logging.info("Saved bet shortlist (%d rows) to %s", len(shortlist), shortlist_path)
-
-    logging.info("Step 5 finished.")
-    print("=== Script 5 finished ===")
-
-
-if __name__ == "__main__":
-    main()
+# 🏀 NBA Prediction & Betting Automation (2026)
+
+This repository automates the complete **end-to-end NBA prediction pipeline**, including:
+
+- Daily **scraping of historical & upcoming games**  
+- **Machine-learning predictions** using LightGBM  
+- **Isotonic regression calibration**  
+- **Grid search for optimal betting parameters**  
+- **Daily bet shortlist generation**  
+- Fully automated via **GitHub Actions**
+
+All outputs are saved under:  
+`2026/output/LightGBM/`
+
+---
+
+## 🔧 Pipeline Overview (Fully Automated Daily)
+
+The 2026 workflow consists of five Python scripts executed automatically in sequence:
+
+---
+
+## **1️⃣ Script 1 — Load Previous Game Day**
+**File:** `1_get_data_previous_game_day_2026.py`  
+**Purpose:**  
+- Scrapes and parses **yesterday’s NBA box scores**  
+- Updates the historical dataset  
+- Cleans and stores structured statistics  
+
+**Output:** Updated historical data.
+
+---
+
+## **2️⃣ Script 2 — Load Next Game Day**
+**File:** `2_get_data_next_game_day_2026.py`  
+**Purpose:**  
+- Scrapes **upcoming NBA games**  
+- Collects schedule, matchups, opening odds  
+- Prepares the input for predictions  
+
+**Output:**  
+`nba_games_predict_YYYY-MM-DD.csv`
+
+---
+
+## **3️⃣ Script 3 — Predict Next Game Day (LightGBM)**
+**File:** `3_predict_games_hybrid_2026.py`  
+**Purpose:**  
+- Creates ML features from rolling team stats  
+- Uses LightGBM to predict **home win probabilities**  
+- Merges predictions with historical data  
+
+**Output:**  
+`combined_nba_predictions_acc_YYYY-MM-DD.csv`
+
+---
+
+## **4️⃣ Script 4 — Merge Results & Betting Statistics**
+**File:** `4_calculate_betting_statistics_2026.py`  
+**Purpose:**  
+- Merges actual NBA results once games are finished  
+- Updates model accuracy and betting metrics  
+- Maintains the master combined prediction file  
+
+**Outputs:**  
+- Updated combined CSV  
+- Daily bet logs  
+- Daily betting summary sheets
+
+---
+
+## **5️⃣ Script 5 — Isotonic Calibration, Grid Search & Shortlist**
+**File:** `5_isotonic_based_betting_strategy_2026.py`  
+**Purpose:**  
+- Fits **Isotonic Regression** to calibrate predictions  
+- Loads **today’s predictions** and **home win rate data**  
+- Runs a **grid search over 256 parameter combinations**:
+  - Minimum home win rate  
+  - Minimum & maximum odds  
+  - Minimum calibrated win probability  
+- Selects the **best strategy** by ROI per bet  
+- Applies it to **today/tomorrow’s games**  
+- Generates the final **bet shortlist**  
+
+**Outputs:**  
+- `Kelly/nba_grid_search_results_YYYY-MM-DD.csv`  
+- `Kelly/combined_nba_predictions_iso_YYYY-MM-DD.csv`  
+- `bet_shortlist_YYYY-MM-DD.csv`
+
+If no bets pass the filters, the shortlist may be empty.
+
+---
+
+## 📁 Repository Structure
+
+```text
+2026/
+├── src/
+│   ├── 1_get_data_previous_game_day_2026.py
+│   ├── 2_get_data_next_game_day_2026.py
+│   ├── 3_predict_games_hybrid_2026.py
+│   ├── 4_calculate_betting_statistics_2026.py
+│   ├── 5_isotonic_based_betting_strategy_2026.py
+│   └── nba_utils_2026.py
+│
+└── output/
+    └── LightGBM/
+        ├── Kelly/
+        ├── bet logs (bet_log_YYYY-MM-DD.csv)
+        ├── bet summaries (betting_summary_YYYY-MM-DD.xlsx)
+        ├── predictions (combined_*.csv)
+        ├── home_win_rates_sorted_*.csv
+        └── nba_games_predict_*.csv
+
+
+## 🤖 GitHub Actions Automation
+
+- **Script 1** starts automatically every evening  
+- Scripts **2 → 3 → 4 → 5** run sequentially  
+- All outputs are automatically committed back into the repository  
+- A daily artifact is uploaded containing:
+  - Predictions  
+  - Isotonic-calibrated data  
+  - Grid search results  
+  - Bet shortlist  
+  - Bet logs + summaries
