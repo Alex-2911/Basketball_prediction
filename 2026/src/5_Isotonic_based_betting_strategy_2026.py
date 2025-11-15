@@ -135,6 +135,42 @@ def load_predictions(
     logging.info("Loading predictions from %s", input_path)
     df = pd.read_csv(input_path)
 
+    # ------------------------------------------------------------------
+    # Normalize column names from acc-file to what the script expects
+    # ------------------------------------------------------------------
+    RESULT_COL = "home_team_won"
+    DATE_COL = "game_date"
+    
+    # 1) Fix the date column: acc file uses 'date'
+    if DATE_COL not in df.columns:
+        if "date" in df.columns:
+            logging.info(
+                f"DATE_COL '{DATE_COL}' not in dataframe – creating it from 'date' column."
+            )
+            df[DATE_COL] = df["date"]
+        else:
+            logging.warning(
+                f"Neither '{DATE_COL}' nor 'date' found – "
+                f"using run date for all rows: {run_date_ymd}"
+            )
+            df[DATE_COL] = run_date_ymd
+    
+    # 2) Fix the result column: build home_team_won from 'home_team' vs 'result'
+    if RESULT_COL not in df.columns:
+        if {"home_team", "result"}.issubset(df.columns):
+            logging.info(
+                f"RESULT_COL '{RESULT_COL}' not in dataframe – "
+                f"creating it as 1 if result==home_team else 0."
+            )
+            df[RESULT_COL] = (df["result"] == df["home_team"]).astype(int)
+        else:
+            logging.warning(
+                f"Cannot construct '{RESULT_COL}' – "
+                f"missing either 'home_team' or 'result' in dataframe."
+            )
+
+
+    
     if DATE_COL in df.columns:
         df[DATE_COL] = pd.to_datetime(df[DATE_COL])
     else:
