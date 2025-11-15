@@ -1,0 +1,4 @@
+date,home_team,away_team,home_win_rate,prob_iso,odds_1,EV_€_per_100,kelly_full,kelly_fraction_used,stake_eur,param_home_win_rate_threshold,param_odds_min,param_odds_max,param_prob_threshold,bankroll_at_bettime
+2025-10-30,CHO,ORL,1.0,0.9,2.15,101.6,819,0.05,50.0,0.55,1.1,2.9,0.4,1000.0
+2025-10-30,MIL,GSW,1.0,857,2.3,97.14,747,0.05,50.0,0.55,1.1,2.9,0.4,1000.0
+2025-10-30,SAS,MIA,1.0,0.9,1.42,27.8,662,0.05,50.0,0.55,1.1,2.9,0.4,1000.0
