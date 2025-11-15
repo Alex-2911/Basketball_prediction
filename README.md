@@ -9,7 +9,7 @@ End-to-end NBA betting pipeline that:
 - Runs a **grid search** over betting parameters  
 - Builds a **daily bet shortlist** and updates a **live bet log + ROI stats**
 
-The codebase is structured by season (e.g. `2025/`, `2026/`) and can run locally or via **GitHub Actions** on a daily schedule.
+The codebase is structured by season (e.g. `2025/`, `2026/`) and can run via **GitHub Actions** on a daily schedule.
 
 ---
 
