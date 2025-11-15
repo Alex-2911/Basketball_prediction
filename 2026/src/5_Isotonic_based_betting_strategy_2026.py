@@ -185,6 +185,47 @@ def load_predictions(
                 "cannot run isotonic calibration."
             )
 
+        # ------------------------------------------------------------------
+    # Ensure odds columns exist in a unified way
+    # ------------------------------------------------------------------
+    if HOME_ODDS_COL not in df.columns:
+        if "closing_home_odds" in df.columns:
+            logging.info(
+                f"HOME_ODDS_COL '{HOME_ODDS_COL}' not in dataframe – "
+                "aliasing from existing 'closing_home_odds'."
+            )
+            df[HOME_ODDS_COL] = df["closing_home_odds"].astype(float)
+        elif "odds 1" in df.columns:
+            logging.info(
+                f"HOME_ODDS_COL '{HOME_ODDS_COL}' not in dataframe – "
+                "creating it from 'odds 1' (home odds from Odds API)."
+            )
+            df[HOME_ODDS_COL] = df["odds 1"].astype(float)
+        else:
+            raise KeyError(
+                f"HOME_ODDS_COL '{HOME_ODDS_COL}' not found and no "
+                "aliases like 'closing_home_odds' or 'odds 1' present."
+            )
+
+    if AWAY_ODDS_COL not in df.columns:
+        if "closing_away_odds" in df.columns:
+            logging.info(
+                f"AWAY_ODDS_COL '{AWAY_ODDS_COL}' not in dataframe – "
+                "aliasing from existing 'closing_away_odds'."
+            )
+            df[AWAY_ODDS_COL] = df["closing_away_odds"].astype(float)
+        elif "odds 2" in df.columns:
+            logging.info(
+                f"AWAY_ODDS_COL '{AWAY_ODDS_COL}' not in dataframe – "
+                "creating it from 'odds 2' (away odds from Odds API)."
+            )
+            df[AWAY_ODDS_COL] = df["odds 2"].astype(float)
+        else:
+            raise KeyError(
+                f"AWAY_ODDS_COL '{AWAY_ODDS_COL}' not found and no "
+                "aliases like 'closing_away_odds' or 'odds 2' present."
+            )
+
 
 
     
