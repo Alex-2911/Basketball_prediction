@@ -11,11 +11,11 @@ Step 5 of the 2026 pipeline:
    from 2026/output/LightGBM
 
 2) Make sure the following columns exist (creating them if necessary):
-   - game_date          (from 'date')
-   - home_team_won      (from 'result' == 'home_team')
+   - game_date           (from 'date')
+   - home_team_won       (from 'result' == 'home_team', only for played games)
    - pred_home_win_proba (from 'home_team_prob')
-   - closing_home_odds  (from 'odds 1')
-   - closing_away_odds  (from 'odds 2')
+   - closing_home_odds   (from 'odds_1')
+   - closing_away_odds   (from 'odds_2')
 
 3) Optionally merge in:
    - tonight's predictions from nba_games_predict_YYYY-MM-DD.csv
@@ -62,6 +62,7 @@ from sklearn.metrics import brier_score_loss, log_loss
 from nba_utils_2026 import (
     get_current_date,
     get_directory_paths,
+    normalize_team_code,
 )
 
 # -------------------------------------------------------------------------
@@ -79,7 +80,7 @@ ISO_COL = "iso_proba_home_win"
 
 FLAT_STAKE = 100.0
 
-# 4 x 4 x 4 x 4 = 256 combinations (matches log you saw)
+# 4 x 4 x 4 x 4 = 256 combinations
 ODDS_MIN_GRID = [1.10, 1.25, 1.40, 1.60]
 ODDS_MAX_GRID = [2.00, 2.10, 2.50, 3.00]
 PROB_MIN_GRID = [0.55, 0.60, 0.65, 0.70]
@@ -169,18 +170,23 @@ def load_combined_df(pred_dir: str, ymd_str: str) -> pd.DataFrame:
             src = "home_team_prob"
 
         if src is not None:
-            logging.info("PRED_PROBA_COL 'pred_home_win_proba' not in dataframe – creating it from '%s'.", src)
+            logging.info(
+                "PRED_PROBA_COL 'pred_home_win_proba' not in dataframe – creating it from '%s'.",
+                src,
+            )
             df[PRED_PROBA_COL] = to_float_series(df[src])
         else:
-            logging.warning("No suitable probability column found. Setting pred_home_win_proba to NaN.")
+            logging.warning(
+                "No suitable probability column found. Setting pred_home_win_proba to NaN."
+            )
             df[PRED_PROBA_COL] = np.nan
 
     # HOME / AWAY odds
     if HOME_ODDS_COL not in df.columns:
-        # try 'odds_1'
         if "odds_1" in df.columns:
             logging.info(
-                "HOME_ODDS_COL 'closing_home_odds' not in dataframe – creating it from 'odds_1' (home odds from Odds API)."
+                "HOME_ODDS_COL 'closing_home_odds' not in dataframe – "
+                "creating it from 'odds_1' (home odds from Odds API)."
             )
             df[HOME_ODDS_COL] = to_float_series(df["odds_1"])
         else:
@@ -190,7 +196,8 @@ def load_combined_df(pred_dir: str, ymd_str: str) -> pd.DataFrame:
     if AWAY_ODDS_COL not in df.columns:
         if "odds_2" in df.columns:
             logging.info(
-                "AWAY_ODDS_COL 'closing_away_odds' not in dataframe – creating it from 'odds_2' (away odds from Odds API)."
+                "AWAY_ODDS_COL 'closing_away_odds' not in dataframe – "
+                "creating it from 'odds_2' (away odds from Odds API)."
             )
             df[AWAY_ODDS_COL] = to_float_series(df["odds_2"])
         else:
@@ -200,7 +207,8 @@ def load_combined_df(pred_dir: str, ymd_str: str) -> pd.DataFrame:
     # RESULT_COL (but we must NOT mark future games as 0-loss)
     if RESULT_COL not in df.columns:
         logging.info(
-            "RESULT_COL 'home_team_won' not in dataframe – creating it as 1 if result==home_team, NaN otherwise."
+            "RESULT_COL 'home_team_won' not in dataframe – "
+            "creating it as 1 if result==home_team, NaN otherwise."
         )
         if "home_team" in df.columns and "result" in df.columns:
             mask_valid = df["result"].notna() & (df["result"].astype(str) != "0")
@@ -225,12 +233,15 @@ def merge_today_predictions(
     Merge in upcoming games from nba_games_predict_YYYY-MM-DD.csv
     if they are not already present in df_all.
 
-    We assume columns (or fallback to header=None): home_team, away_team, home_team_prob,
-    odds_1, odds_2, result, date.
+    We assume columns (or fallback to header=None):
+    home_team, away_team, home_team_prob, odds_1, odds_2, result, date.
     """
     today_pred_path = os.path.join(pred_dir, f"nba_games_predict_{ymd_str}.csv")
     if not os.path.exists(today_pred_path):
-        logging.info("No TODAY_PRED file found (%s) – skipping merge of upcoming games.", today_pred_path)
+        logging.info(
+            "No TODAY_PRED file found (%s) – skipping merge of upcoming games.",
+            today_pred_path,
+        )
         return df_all
 
     logging.info("Merging upcoming games from %s", today_pred_path)
@@ -254,7 +265,15 @@ def merge_today_predictions(
             quotechar='"',
             decimal=",",
             header=None,
-            names=["home_team", "away_team", "home_team_prob", "odds_1", "odds_2", "result", "date"],
+            names=[
+                "home_team",
+                "away_team",
+                "home_team_prob",
+                "odds_1",
+                "odds_2",
+                "result",
+                "date",
+            ],
         )
 
     tmp.columns = (
@@ -334,25 +353,27 @@ def merge_today_predictions(
 def attach_home_win_rate(
     df: pd.DataFrame,
     hwr_path: str,
-    logger,
 ) -> pd.DataFrame:
     """
-    Attach home win rate (home_win_rate) to df based on the
+    Attach home win rate (HOMEWR_COL) to df based on the
     home_win_rates_sorted_YYYY-MM-DD.csv file.
 
-    Your current file format is:
+    Your current file format (sample):
 
-        Total Last 20 Games | Total Home Games | Home Wins | Home Win Rate
-        GSW                 | 14               | 5         | 1.0
+        Total Last 20 Games,Total Home Games,Home Wins,Home Win Rate
+        GSW,14,5,1.0
+        OKC,13,6,1.0
         ...
 
     So:
-      - first column is actually the TEAM CODE
+      - first column is actually TEAM CODE
       - last column is the HOME WIN RATE
     """
-
     if not os.path.exists(hwr_path):
-        logger.warning(f"Home win rate file not found at {hwr_path}; skipping merge.")
+        logging.warning(
+            "Home win rate file not found at %s; skipping merge.",
+            hwr_path,
+        )
         return df
 
     try:
@@ -360,34 +381,41 @@ def attach_home_win_rate(
             hwr_path,
             encoding="utf-7",
             sep=",",
-            decimal=","
+            decimal=",",
         )
     except Exception as e:
-        logger.warning(f"Failed to read home win rate file {hwr_path}: {e}")
+        logging.warning(
+            "Failed to read home win rate file %s: %s",
+            hwr_path,
+            e,
+        )
         return df
 
     if hwr.empty:
-        logger.warning(f"Home win rate file {hwr_path} is empty; skipping merge.")
+        logging.warning(
+            "Home win rate file %s is empty; skipping merge.",
+            hwr_path,
+        )
         return df
 
-    # --- SPECIAL CASE: current 4-column format ---
     cols = list(hwr.columns)
     cols_lower = [c.lower().strip() for c in cols]
 
     team_col = None
     winrate_col = None
 
+    # --- SPECIAL CASE: current 4-column format ---
     if len(cols) == 4 and "home win rate" in cols_lower:
-        # by your sample file:
-        #   col0 = team code, col3 = home win rate
         team_col = cols[0]
         winrate_col = cols[cols_lower.index("home win rate")]
-        logger.info(
-            f"Detected home-win-rate file format with 4 columns; "
-            f"using '{team_col}' as team column and '{winrate_col}' as win-rate column."
+        logging.info(
+            "Detected home-win-rate file format with 4 columns; "
+            "using '%s' as team column and '%s' as win-rate column.",
+            team_col,
+            winrate_col,
         )
     else:
-        # ---- fallback: generic detection (in case you change the format later) ----
+        # Generic detection (future proof if you change the format later)
         lower_to_orig = {c.lower().strip(): c for c in cols}
 
         # team column by name
@@ -405,7 +433,7 @@ def attach_home_win_rate(
                 winrate_col = orig
                 break
 
-        # if still not found, heuristics for win-rate column
+        # fallback for win-rate: numeric column in [0,1]
         if winrate_col is None:
             for c in cols:
                 try:
@@ -422,7 +450,7 @@ def attach_home_win_rate(
                 except Exception:
                     continue
 
-        # last fallback for team column: any short string column
+        # last fallback for team column: any short uppercase string column
         if team_col is None:
             for c in cols:
                 sample = (
@@ -430,20 +458,23 @@ def attach_home_win_rate(
                 )
                 if not sample:
                     continue
-                # all values length <= 4 and mostly uppercase
                 if all(len(x) <= 4 for x in sample) and all(x.upper() == x for x in sample):
                     team_col = c
                     break
 
         if team_col is None or winrate_col is None:
-            logger.warning(
-                "Could not identify team and/or win-rate columns in "
-                f"{hwr_path}; cols={cols} – skipping merge."
+            logging.warning(
+                "Could not identify team and/or win-rate columns in %s; "
+                "cols=%s – skipping merge.",
+                hwr_path,
+                cols,
             )
             return df
 
-        logger.info(
-            f"Using '{team_col}' as team column and '{winrate_col}' as win-rate column."
+        logging.info(
+            "Using '%s' as team column and '%s' as win-rate column.",
+            team_col,
+            winrate_col,
         )
 
     # --- normalize team codes and merge ---
@@ -470,27 +501,24 @@ def attach_home_win_rate(
         how="left",
     )
 
-    # standardize to 'home_win_rate'
-    if HOME_WIN_RATE_COL in df.columns and HOME_WIN_RATE_COL != winrate_col:
-        df[HOME_WIN_RATE_COL] = df[HOME_WIN_RATE_COL].fillna(df[winrate_col])
+    # standardize to HOMEWR_COL
+    if HOMEWR_COL in df.columns and HOMEWR_COL != winrate_col:
+        df[HOMEWR_COL] = df[HOMEWR_COL].fillna(df[winrate_col])
         df.drop(columns=[winrate_col], inplace=True)
     else:
-        df.rename(columns={winrate_col: HOME_WIN_RATE_COL}, inplace=True)
+        df.rename(columns={winrate_col: HOMEWR_COL}, inplace=True)
 
     # cleanup
     df.drop(columns=["_team_norm", "_home_team_norm"], inplace=True, errors="ignore")
 
-    df[HOME_WIN_RATE_COL] = pd.to_numeric(
-        df[HOME_WIN_RATE_COL], errors="coerce"
-    ).fillna(0.0)
+    df[HOMEWR_COL] = pd.to_numeric(df[HOMEWR_COL], errors="coerce").fillna(0.0)
 
-    logger.info(
-        f"Merged home win rates into dataframe; "
-        f"{df[HOME_WIN_RATE_COL].notna().sum()} rows with non-null values."
+    logging.info(
+        "Merged home win rates into dataframe; %d rows with non-null values.",
+        df[HOMEWR_COL].notna().sum(),
     )
 
     return df
-
 
 
 def split_past_future(
@@ -514,9 +542,15 @@ def split_past_future(
     )
 
     df_past = df_all[played_mask].copy()
-    df_future = df_all[~played_mask & df_all["game_day"].isin([today_date, tomorrow_date])].copy()
+    df_future = df_all[
+        ~played_mask & df_all["game_day"].isin([today_date, tomorrow_date])
+    ].copy()
 
-    logging.info("Split into %d past games and %d future games.", len(df_past), len(df_future))
+    logging.info(
+        "Split into %d past games and %d future games.",
+        len(df_past),
+        len(df_future),
+    )
     return df_past, df_future
 
 
@@ -526,7 +560,10 @@ def fit_isotonic(df_past: pd.DataFrame) -> IsotonicRegression:
     """
     mask = df_past[RESULT_COL].notna() & df_past[PRED_PROBA_COL].notna()
     if mask.sum() == 0:
-        raise RuntimeError("No valid rows to fit isotonic regression (missing y_true or probabilities).")
+        raise RuntimeError(
+            "No valid rows to fit isotonic regression "
+            "(missing y_true or probabilities)."
+        )
 
     y_true = df_past.loc[mask, RESULT_COL].astype(int).values
     p_raw = df_past.loc[mask, PRED_PROBA_COL].astype(float).values
@@ -756,13 +793,11 @@ def main() -> None:
     df_all = merge_today_predictions(df_all, pred_dir, target_ymd, today_date)
 
     # 3) ATTACH HOME WIN RATE IF AVAILABLE
-
-    # 2) merge home win rate (this is the new bit)
     hwr_path = os.path.join(
-           PRED_DIR,
-           f"home_win_rates_sorted_{ymd}.csv"
+        pred_dir,
+        f"home_win_rates_sorted_{target_ymd}.csv",
     )
-    df_all = attach_home_win_rate(df, hwr_path, logger)   
+    df_all = attach_home_win_rate(df_all, hwr_path)
 
     # 4) SPLIT PAST / FUTURE
     df_past, df_future = split_past_future(df_all, today_date, tomorrow_date)
@@ -817,14 +852,18 @@ def main() -> None:
     if df_future.empty:
         logging.info("No future games found in file – nothing to bet on today.")
         logging.info("Step 5 finished.")
+        print("=== Script 5 finished ===")
         return
 
     df_future = df_all.loc[df_all.index.isin(df_future.index)].copy()
     shortlist = build_shortlist(df_future, best_params)
 
     if shortlist.empty:
-        logging.info("Future games found but no bets passed the filters – empty shortlist for today.")
+        logging.info(
+            "Future games found but no bets passed the filters – empty shortlist for today."
+        )
         logging.info("Step 5 finished.")
+        print("=== Script 5 finished ===")
         return
 
     # Save shortlist to standard LightGBM output folder
