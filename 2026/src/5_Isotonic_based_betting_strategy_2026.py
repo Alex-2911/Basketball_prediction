@@ -46,6 +46,8 @@ RESULT_COL = "home_team_won"                # 1/0, NaN for future
 HOME_ODDS_COL = "closing_home_odds"         # decimal odds for home
 AWAY_ODDS_COL = "closing_away_odds"         # optional
 HOME_WIN_RATE_COL: Optional[str] = "home_team_win_rate_last_20"  # set to None to disable
+PRED_PROBA_COL = "pred_home_win_proba"
+
 
 # -----------------------------------------------------------------------------
 # Kelly & grid search configuration
@@ -168,6 +170,21 @@ def load_predictions(
                 f"Cannot construct '{RESULT_COL}' – "
                 f"missing either 'home_team' or 'result' in dataframe."
             )
+
+        # Ensure we have the prediction probability column in the expected name
+    if PRED_PROBA_COL not in df.columns:
+        if "home_team_prob" in df.columns:
+            logging.info(
+                f"PRED_PROBA_COL '{PRED_PROBA_COL}' not in dataframe – "
+                "creating it from 'home_team_prob'."
+            )
+            df[PRED_PROBA_COL] = df["home_team_prob"].astype(float)
+        else:
+            raise KeyError(
+                f"Neither '{PRED_PROBA_COL}' nor 'home_team_prob' found in predictions file; "
+                "cannot run isotonic calibration."
+            )
+
 
 
     
