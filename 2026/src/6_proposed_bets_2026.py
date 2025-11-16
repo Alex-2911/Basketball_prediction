@@ -12,6 +12,9 @@ from error_handlers import (
     DataValidationError,
 )
 
+# Import database utilities
+from db_utils import DatabaseOperations, db_config
+
 # Initialize logger
 logger = get_logger(__name__)
 
@@ -38,7 +41,24 @@ def main():
     """Main execution function for displaying proposed bets."""
     # --- Load and filter ---
     with ErrorContext("Loading and filtering betting data", logger=logger):
-        df = pd.read_csv(enriched_path)
+        # Try database first if enabled
+        df = None
+        if db_config.enabled:
+            try:
+                db_ops = DatabaseOperations()
+                # Get latest enriched predictions from database
+                # Note: This requires a view or query that joins predictions with enriched_predictions
+                logger.info("Attempting to load enriched predictions from database...")
+                # For now, fall back to CSV as we don't have a specific method for this yet
+                # TODO: Add get_latest_enriched_predictions() method to DatabaseOperations
+            except Exception as e:
+                logger.warning(f"Failed to load from database: {e}")
+
+        # Fall back to CSV
+        if df is None or (isinstance(df, pd.DataFrame) and df.empty):
+            logger.info(f"Loading enriched predictions from CSV: {enriched_path}")
+            df = pd.read_csv(enriched_path)
+
         df['date'] = pd.to_datetime(df['date'], errors='coerce')
 
         log_dataframe_info(df, name="Enriched predictions", logger=logger)

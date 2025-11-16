@@ -59,6 +59,9 @@ from error_handlers import (
     ConfigurationError,
 )
 
+# Import database utilities
+from db_utils import DatabaseOperations, db_config
+
 # Initialize logger
 logger = get_logger(__name__)
 
@@ -1009,6 +1012,24 @@ def save_predictions_csv(df_to_save: pd.DataFrame,
         logger.info(f"Saved predictions to {filepath}")
 
     logger.info(f"Prediction CSV saved to {filepath}")
+
+    # Save to database if enabled
+    if db_config.enabled and not df_to_save.empty:
+        try:
+            db_ops = DatabaseOperations()
+            # Prepare DataFrame for database (ensure required columns exist)
+            df_db = df_to_save.copy()
+            if 'home_team_prob' not in df_db.columns and 'prob' in df_db.columns:
+                df_db['home_team_prob'] = df_db['prob']
+            if 'result' not in df_db.columns:
+                df_db['result'] = None
+
+            rows_saved = db_ops.save_predictions(df_db)
+            logger.info(f"Saved {rows_saved} predictions to database")
+        except Exception as e:
+            logger.warning(f"Failed to save to database: {e}")
+            logger.info("Data still saved to CSV successfully")
+
     return filepath
 
 

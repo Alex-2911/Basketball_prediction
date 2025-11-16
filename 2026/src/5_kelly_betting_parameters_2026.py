@@ -49,6 +49,9 @@ from error_handlers import (
     DataValidationError,
 )
 
+# Import database utilities
+from db_utils import DatabaseOperations, db_config
+
 # Initialize logger
 logger = get_logger(__name__)
 
@@ -311,6 +314,16 @@ def main():
         # Save outputs
         df_sim.to_csv(OUTPUT_FILE, index=False, float_format="%.4f")
         logger.info(f"✅ Wrote enriched file → {OUTPUT_FILE}")
+
+        # Save to database if enabled
+        if db_config.enabled and not df_sim.empty:
+            try:
+                db_ops = DatabaseOperations()
+                rows_saved = db_ops.save_enriched_predictions(df_sim)
+                logger.info(f"✅ Saved {rows_saved} enriched predictions to database")
+            except Exception as e:
+                logger.warning(f"Failed to save to database: {e}")
+                logger.info("Data still saved to CSV successfully")
 
         mask = (
             (df_sim["stake_raw"] > 0) |

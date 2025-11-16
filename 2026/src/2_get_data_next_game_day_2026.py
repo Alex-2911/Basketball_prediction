@@ -65,6 +65,9 @@ from error_handlers import (
     log_dataframe_info,
 )
 
+# Import database utilities
+from db_utils import DatabaseOperations, db_config
+
 # Initialize logger
 logger = get_logger(__name__)
 
@@ -391,6 +394,16 @@ def main() -> None:
         output_path = os.path.join(next_game_dir, csv_name)
         df.to_csv(output_path, index=False)
         logger.info(f"Saved upcoming games → {output_path}")
+
+        # Save to database if enabled
+        if db_config.enabled and not df.empty:
+            try:
+                db_ops = DatabaseOperations()
+                rows_saved = db_ops.save_game_schedule(df)
+                logger.info(f"Saved {rows_saved} upcoming games to database")
+            except Exception as e:
+                logger.warning(f"Failed to save to database: {e}")
+                logger.info("Data still saved to CSV successfully")
 
 
 if __name__ == "__main__":

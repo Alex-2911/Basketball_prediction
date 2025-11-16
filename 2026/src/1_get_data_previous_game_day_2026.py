@@ -49,6 +49,9 @@ from error_handlers import (
     DataValidationError,
 )
 
+# Import database utilities
+from db_utils import DatabaseOperations, db_config
+
 # Initialize logger
 logger = get_logger(__name__)
 
@@ -407,6 +410,16 @@ def main():
     logger.info(
         f"Combined statistics saved → {out_daily}"
     )
+
+    # Save to database if enabled
+    if db_config.enabled:
+        try:
+            db_ops = DatabaseOperations()
+            rows_saved = db_ops.save_game_statistics(games_df)
+            logger.info(f"Saved {rows_saved} new game statistics to database")
+        except Exception as e:
+            logger.warning(f"Failed to save to database: {e}")
+            logger.info("Data still saved to CSV successfully")
 
     copy_missing_files(STAT_DIR, DST_DIR)
 
