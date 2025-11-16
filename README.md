@@ -157,6 +157,32 @@ Enable database: `USE_DATABASE=true` in `.env`
 
 See **[DATABASE_SETUP.md](docs/DATABASE_SETUP.md)** for complete setup guide.
 
+### 📊 Interactive Dashboard
+
+![Streamlit](https://img.shields.io/badge/Streamlit-1.28.1-FF4B4B.svg)
+![Plotly](https://img.shields.io/badge/Plotly-5.17.0-3F4F75.svg)
+
+Launch the **interactive web dashboard** to visualize predictions and analytics:
+
+```bash
+streamlit run dashboard/app.py
+```
+
+**Dashboard Features**:
+- **📊 Today's Games**: Live predictions with win probabilities and betting recommendations
+- **📈 Performance Analytics**: Model accuracy, calibration plots, ROI trends
+- **🏀 Team Analytics**: Team-specific performance, home/away splits, matchup analysis
+- **💰 Betting History**: Complete betting history with profit/loss tracking
+
+**Key Visualizations**:
+- Win probability gauges and confidence indicators
+- Calibration plots (predicted vs actual outcomes)
+- Cumulative profit curves over time
+- Performance breakdown by confidence level
+- Interactive filtering and data export
+
+See **[dashboard/README.md](dashboard/README.md)** for complete dashboard documentation.
+
 ### 🧪 Testing
 
 ![Tests Passing](https://img.shields.io/badge/tests-262%20passing-brightgreen.svg)
