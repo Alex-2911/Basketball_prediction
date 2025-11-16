@@ -4,7 +4,7 @@ Pipeline orchestration
 Coordinates the complete NBA prediction workflow.
 """
 
-from logger import get_logger
+from src.utils.logger import get_logger
 from .analyze import run_all_analysis
 from .collect import run_historical_collection, run_upcoming_collection
 from .predict import run_prediction

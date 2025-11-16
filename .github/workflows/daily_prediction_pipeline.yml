@@ -56,52 +56,15 @@ jobs:
           echo "✅ All tests passed"
         continue-on-error: false  # Fail workflow if tests fail
 
-      # 6. Collect previous game data
-      - name: "Step 1: Collect previous game data"
-        env:
-          PYTHONWARNINGS: "ignore"
-        run: |
-          echo "🚀 Step 1: Scraping previous game data..."
-          python scripts/collect_historical_games.py
-          echo "✅ Step 1 completed"
-
-      # 7. Get next game schedule
-      - name: "Step 2: Get next game schedule"
-        env:
-          PYTHONWARNINGS: "ignore"
-        run: |
-          echo "🚀 Step 2: Fetching next game schedule..."
-          python scripts/collect_upcoming_games.py
-          echo "✅ Step 2 completed"
-
-      # 8. Generate predictions with LightGBM
-      - name: "Step 3: Generate predictions"
+      # 6-10. Run complete prediction pipeline using CLI
+      - name: "Run NBA Prediction Pipeline"
         env:
           PYTHONWARNINGS: "ignore"
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
         run: |
-          echo "🚀 Step 3: Generating predictions with LightGBM..."
-          python scripts/generate_predictions.py
-          echo "✅ Step 3 completed"
-
-      # 9. Calculate betting statistics
-      - name: "Step 4: Calculate betting statistics"
-        env:
-          PYTHONWARNINGS: "ignore"
-        run: |
-          echo "🚀 Step 4: Calculating betting statistics..."
-          python scripts/calculate_betting_statistics.py
-          echo "✅ Step 4 completed"
-        continue-on-error: true  # Don't fail if no new games to evaluate
-
-      # 10. Calculate Kelly betting parameters
-      - name: "Step 5: Calculate Kelly betting parameters"
-        env:
-          PYTHONWARNINGS: "ignore"
-        run: |
-          echo "🚀 Step 5: Calculating Kelly betting parameters..."
-          python scripts/calculate_kelly_parameters.py
-          echo "✅ Step 5 completed"
+          echo "🚀 Running complete NBA prediction pipeline..."
+          python -m src.cli pipeline
+          echo "✅ Pipeline completed"
 
       # 11. Configure Git for committing
       - name: Configure Git
@@ -131,11 +94,11 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      # 14. Create summary of today's bets (optional)
+      # 14. Display today's recommended bets (optional)
       - name: Display today's recommended bets
         env:
           PYTHONWARNINGS: "ignore"
         run: |
           echo "🎯 Today's Recommended Bets:"
-          python scripts/show_bet_recommendations.py || echo "No bets recommended for today"
+          python -m src.cli analyze recommendations || echo "No bets recommended for today"
         continue-on-error: true
