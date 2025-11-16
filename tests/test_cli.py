@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 # Path to the CLI module
-CLI_MODULE = Path(__file__).parent.parent / "2026" / "src" / "cli.py"
+CLI_MODULE = Path(__file__).parent.parent / "src" / "cli.py"
 
 
 class TestCLIStructure:
@@ -167,38 +167,20 @@ class TestCLICommandModules:
 
     def test_import_collect_module(self):
         """Test that collect command module can be imported"""
-        import sys
-        from pathlib import Path
-
-        src_dir = Path(__file__).parent.parent / "2026" / "src"
-        sys.path.insert(0, str(src_dir))
-
-        from commands import collect
+        from src.commands import collect
 
         assert hasattr(collect, "run_historical_collection")
         assert hasattr(collect, "run_upcoming_collection")
 
     def test_import_predict_module(self):
         """Test that predict command module can be imported"""
-        import sys
-        from pathlib import Path
-
-        src_dir = Path(__file__).parent.parent / "2026" / "src"
-        sys.path.insert(0, str(src_dir))
-
-        from commands import predict
+        from src.commands import predict
 
         assert hasattr(predict, "run_prediction")
 
     def test_import_analyze_module(self):
         """Test that analyze command module can be imported"""
-        import sys
-        from pathlib import Path
-
-        src_dir = Path(__file__).parent.parent / "2026" / "src"
-        sys.path.insert(0, str(src_dir))
-
-        from commands import analyze
+        from src.commands import analyze
 
         assert hasattr(analyze, "run_statistics")
         assert hasattr(analyze, "run_kelly")
@@ -207,12 +189,6 @@ class TestCLICommandModules:
 
     def test_import_pipeline_module(self):
         """Test that pipeline command module can be imported"""
-        import sys
-        from pathlib import Path
-
-        src_dir = Path(__file__).parent.parent / "2026" / "src"
-        sys.path.insert(0, str(src_dir))
-
-        from commands import pipeline
+        from src.commands import pipeline
 
         assert hasattr(pipeline, "run_full_pipeline")

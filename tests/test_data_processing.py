@@ -10,17 +10,11 @@ Tests data transformation and feature engineering including:
 Critical for ML model quality - errors here = bad features = poor predictions.
 """
 
-import sys
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import pytest
 
-# Add source directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "2026" / "src"))
-
-from nba_utils_2026 import (
+from src.utils.nba_utils import (
     add_next_game_columns,
     calculate_rolling_averages,
     preprocess_nba_data,
