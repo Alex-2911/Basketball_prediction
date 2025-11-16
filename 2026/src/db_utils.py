@@ -157,6 +157,10 @@ class DatabasePool:
             logger.info("Database connection pool closed")
             self._pool = None
 
+    def close(self):
+        """Alias for close_all() for convenience."""
+        self.close_all()
+
 
 # Global pool instance
 db_pool = DatabasePool()
@@ -406,6 +410,26 @@ class DatabaseOperations:
 
                 df = pd.read_sql_query(query, conn, params=[limit])
                 logger.info(f"Retrieved {len(df)} predictions")
+                return df
+
+    def get_all_predictions_for_matching(self) -> pd.DataFrame:
+        """
+        Get all predictions for matching with enriched predictions.
+        Used by migration scripts to link enriched data to base predictions.
+
+        Returns:
+            DataFrame with id, home_team, away_team, date columns
+        """
+        with ErrorContext("Retrieving all predictions for matching", logger=logger):
+            with self.pool.get_connection() as conn:
+                query = """
+                    SELECT id, home_team, away_team, date, prediction_date
+                    FROM predictions
+                    ORDER BY prediction_date DESC, date
+                """
+
+                df = pd.read_sql_query(query, conn)
+                logger.info(f"Retrieved {len(df)} predictions for matching")
                 return df
 
     # ─────────────────────────────────────────────────────
