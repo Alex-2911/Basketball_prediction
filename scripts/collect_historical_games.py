@@ -29,8 +29,8 @@ import pandas as pd
 from bs4 import BeautifulSoup
 
 # Import database utilities
-from db_utils import DatabaseOperations, db_config
-from error_handlers import (
+from src.utils.db_utils import DatabaseOperations, db_config
+from src.utils.error_handlers import (
     DataValidationError,
     ErrorContext,
     ScrapingError,
@@ -41,8 +41,8 @@ from error_handlers import (
 )
 
 # Import error handling and logging infrastructure
-from logger import get_logger
-from nba_utils_2026 import (
+from src.utils.logger import get_logger
+from src.utils.nba_utils import (
     CURRENT_SEASON,
     copy_missing_files,
     get_current_date,

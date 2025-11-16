@@ -31,4 +31,4 @@ __pycache__/
 
 # Output artifacts (optional - comment out if you want to commit these)
 # 2026/output/
-# 2025/output/
+# 2025/output/*.egg-info/

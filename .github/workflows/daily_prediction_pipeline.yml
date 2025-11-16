@@ -52,7 +52,7 @@ jobs:
           PYTHONWARNINGS: "ignore"
         run: |
           echo "🧪 Running unit tests with coverage..."
-          pytest tests/ -v --cov=2026/src --cov-report=term-missing --cov-report=html
+          pytest tests/ -v --cov=src --cov-report=term-missing --cov-report=html
           echo "✅ All tests passed"
         continue-on-error: false  # Fail workflow if tests fail
 
@@ -62,7 +62,7 @@ jobs:
           PYTHONWARNINGS: "ignore"
         run: |
           echo "🚀 Step 1: Scraping previous game data..."
-          python 2026/src/collect_historical_games.py
+          python scripts/collect_historical_games.py
           echo "✅ Step 1 completed"
 
       # 7. Get next game schedule
@@ -71,7 +71,7 @@ jobs:
           PYTHONWARNINGS: "ignore"
         run: |
           echo "🚀 Step 2: Fetching next game schedule..."
-          python 2026/src/collect_upcoming_games.py
+          python scripts/collect_upcoming_games.py
           echo "✅ Step 2 completed"
 
       # 8. Generate predictions with LightGBM
@@ -81,7 +81,7 @@ jobs:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
         run: |
           echo "🚀 Step 3: Generating predictions with LightGBM..."
-          python 2026/src/generate_predictions.py
+          python scripts/generate_predictions.py
           echo "✅ Step 3 completed"
 
       # 9. Calculate betting statistics
@@ -90,7 +90,7 @@ jobs:
           PYTHONWARNINGS: "ignore"
         run: |
           echo "🚀 Step 4: Calculating betting statistics..."
-          python 2026/src/calculate_betting_statistics.py
+          python scripts/calculate_betting_statistics.py
           echo "✅ Step 4 completed"
         continue-on-error: true  # Don't fail if no new games to evaluate
 
@@ -100,7 +100,7 @@ jobs:
           PYTHONWARNINGS: "ignore"
         run: |
           echo "🚀 Step 5: Calculating Kelly betting parameters..."
-          python 2026/src/calculate_kelly_parameters.py
+          python scripts/calculate_kelly_parameters.py
           echo "✅ Step 5 completed"
 
       # 11. Configure Git for committing
@@ -112,7 +112,7 @@ jobs:
       # 12. Commit and push new data files
       - name: Commit and push updates
         run: |
-          git add 2026/output/
+          git add output/
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
@@ -126,8 +126,8 @@ jobs:
         with:
           name: nba-predictions-${{ github.run_number }}
           path: |
-            2026/output/Gathering_Data/**/*.csv
-            2026/output/LightGBM/**/*.csv
+            output/Gathering_Data/**/*.csv
+            output/LightGBM/**/*.csv
           if-no-files-found: warn
           retention-days: 30
 
@@ -137,5 +137,5 @@ jobs:
           PYTHONWARNINGS: "ignore"
         run: |
           echo "🎯 Today's Recommended Bets:"
-          python 2026/src/show_bet_recommendations.py || echo "No bets recommended for today"
+          python scripts/show_bet_recommendations.py || echo "No bets recommended for today"
         continue-on-error: true

@@ -2,13 +2,16 @@
 
 from .logger import get_logger
 from .nba_utils import *
-from .config_loader import load_config
+from .config_loader import Config, get_config, get_value, get_required_value
 from .db_utils import DatabaseOperations, db_config
 from .error_handlers import *
 
 __all__ = [
     "get_logger",
-    "load_config",
+    "Config",
+    "get_config",
+    "get_value",
+    "get_required_value",
     "DatabaseOperations",
     "db_config",
 ]

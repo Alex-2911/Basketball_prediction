@@ -46,8 +46,8 @@ import requests
 from bs4 import BeautifulSoup
 
 # Import database utilities
-from db_utils import DatabaseOperations, db_config
-from error_handlers import (
+from src.utils.db_utils import DatabaseOperations, db_config
+from src.utils.error_handlers import (
     ErrorContext,
     NetworkError,
     ScrapingError,
@@ -58,10 +58,10 @@ from error_handlers import (
 )
 
 # Import error handling and logging infrastructure
-from logger import get_logger
+from src.utils.logger import get_logger
 
 # Import shared utilities
-from nba_utils_2026 import (
+from src.utils.nba_utils import (
     CURRENT_SEASON,
     get_current_date,
     get_directory_paths,

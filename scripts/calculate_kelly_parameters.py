@@ -29,8 +29,8 @@ import numpy as np
 import pandas as pd
 
 # Import database utilities
-from db_utils import DatabaseOperations, db_config
-from error_handlers import (
+from src.utils.db_utils import DatabaseOperations, db_config
+from src.utils.error_handlers import (
     DataValidationError,
     ErrorContext,
     log_dataframe_info,
@@ -38,10 +38,10 @@ from error_handlers import (
 )
 
 # Import error handling and logging infrastructure
-from logger import get_logger
+from src.utils.logger import get_logger
 
 # ---- 2026 utilities ----
-from nba_utils_2026 import (
+from src.utils.nba_utils import (
     get_current_date,
     get_directory_paths,
     get_home_win_rates,

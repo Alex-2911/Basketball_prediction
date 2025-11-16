@@ -44,8 +44,8 @@ from urllib3.util.retry import Retry
 load_dotenv()
 
 # Import database utilities
-from db_utils import DatabaseOperations, db_config
-from error_handlers import (
+from src.utils.db_utils import DatabaseOperations, db_config
+from src.utils.error_handlers import (
     ConfigurationError,
     DataValidationError,
     ErrorContext,
@@ -60,7 +60,7 @@ from error_handlers import (
 )
 
 # Import error handling and logging infrastructure
-from logger import get_logger
+from src.utils.logger import get_logger
 
 # Initialize logger
 logger = get_logger(__name__)

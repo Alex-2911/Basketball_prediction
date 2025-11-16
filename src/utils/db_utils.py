@@ -14,13 +14,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import psycopg2
-from error_handlers import (
+from .error_handlers import (
     ConfigurationError,
     DataValidationError,
     ErrorContext,
     validate_dataframe,
 )
-from logger import get_logger
+from .logger import get_logger
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 

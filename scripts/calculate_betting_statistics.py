@@ -24,7 +24,7 @@ from datetime import timedelta
 
 import numpy as np
 import pandas as pd
-from error_handlers import (
+from src.utils.error_handlers import (
     DataValidationError,
     ErrorContext,
     log_dataframe_info,
@@ -33,10 +33,10 @@ from error_handlers import (
 )
 
 # Import error handling and logging infrastructure
-from logger import get_logger
+from src.utils.logger import get_logger
 
 # Import shared utilities from the 2026 version
-from nba_utils_2026 import (
+from src.utils.nba_utils import (
     CURRENT_SEASON,
     find_file_in_date_range,
     get_current_date,
