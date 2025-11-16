@@ -10,60 +10,68 @@ Provides:
 - Data validation helpers
 """
 
-import time
 import functools
 import logging
-from typing import Callable, Any, Optional, Type, Tuple
+import time
 from pathlib import Path
+from typing import Any, Callable, Optional, Tuple, Type
 
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-
 # ─────────────────────────────────────────────────────────
 # CUSTOM EXCEPTIONS
 # ─────────────────────────────────────────────────────────
 
+
 class BasketballPredictionError(Exception):
     """Base exception for all basketball prediction errors."""
+
     pass
 
 
 class DataValidationError(BasketballPredictionError):
     """Raised when data validation fails."""
+
     pass
 
 
 class NetworkError(BasketballPredictionError):
     """Raised when network operations fail after retries."""
+
     pass
 
 
 class ScrapingError(BasketballPredictionError):
     """Raised when web scraping fails."""
+
     pass
 
 
 class ModelTrainingError(BasketballPredictionError):
     """Raised when ML model training fails."""
+
     pass
 
 
 class ConfigurationError(BasketballPredictionError):
     """Raised when configuration is invalid or missing."""
+
     pass
 
 
 class FileNotFoundError(BasketballPredictionError):
     """Raised when required files are not found."""
+
     pass
 
 
 # ─────────────────────────────────────────────────────────
 # RETRY DECORATORS
 # ─────────────────────────────────────────────────────────
+
 
 def retry_on_network_error(
     max_retries: int = 4,
@@ -72,7 +80,7 @@ def retry_on_network_error(
         requests.RequestException,
         ConnectionError,
         TimeoutError,
-    )
+    ),
 ):
     """
     Decorator to retry network operations with exponential backoff.
@@ -89,6 +97,7 @@ def retry_on_network_error(
         def fetch_data(url):
             return requests.get(url)
     """
+
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs) -> Any:
@@ -99,14 +108,12 @@ def retry_on_network_error(
                     return func(*args, **kwargs)
                 except exceptions as e:
                     if attempt == max_retries:
-                        logger.error(
-                            f"{func.__name__} failed after {max_retries} retries: {e}"
-                        )
+                        logger.error(f"{func.__name__} failed after {max_retries} retries: {e}")
                         raise NetworkError(
                             f"Network operation failed after {max_retries} retries"
                         ) from e
 
-                    wait_time = backoff_factor ** attempt
+                    wait_time = backoff_factor**attempt
                     logger.warning(
                         f"{func.__name__} failed (attempt {attempt + 1}/{max_retries}): {e}. "
                         f"Retrying in {wait_time:.1f}s..."
@@ -117,13 +124,14 @@ def retry_on_network_error(
             raise NetworkError(f"Retry logic error in {func.__name__}")
 
         return wrapper
+
     return decorator
 
 
 def get_requests_session_with_retries(
     max_retries: int = 4,
     backoff_factor: float = 2.0,
-    status_forcelist: Tuple[int, ...] = (429, 500, 502, 503, 504)
+    status_forcelist: Tuple[int, ...] = (429, 500, 502, 503, 504),
 ) -> requests.Session:
     """
     Create a requests Session with automatic retry logic.
@@ -147,7 +155,7 @@ def get_requests_session_with_retries(
         backoff_factor=backoff_factor,
         status_forcelist=status_forcelist,
         allowed_methods=["GET", "POST"],  # formerly method_whitelist
-        raise_on_status=False
+        raise_on_status=False,
     )
 
     adapter = HTTPAdapter(max_retries=retry_strategy)
@@ -161,11 +169,12 @@ def get_requests_session_with_retries(
 # DATA VALIDATION
 # ─────────────────────────────────────────────────────────
 
+
 def validate_dataframe(
     df: pd.DataFrame,
     required_columns: Optional[list] = None,
     min_rows: int = 1,
-    allow_empty: bool = False
+    allow_empty: bool = False,
 ) -> pd.DataFrame:
     """
     Validate DataFrame meets basic requirements.
@@ -199,24 +208,17 @@ def validate_dataframe(
         raise DataValidationError("DataFrame is empty")
 
     if len(df) < min_rows:
-        raise DataValidationError(
-            f"DataFrame has {len(df)} rows, expected at least {min_rows}"
-        )
+        raise DataValidationError(f"DataFrame has {len(df)} rows, expected at least {min_rows}")
 
     if required_columns:
         missing = set(required_columns) - set(df.columns)
         if missing:
-            raise DataValidationError(
-                f"Missing required columns: {sorted(missing)}"
-            )
+            raise DataValidationError(f"Missing required columns: {sorted(missing)}")
 
     return df
 
 
-def validate_file_exists(
-    file_path: str,
-    description: str = "File"
-) -> Path:
+def validate_file_exists(file_path: str, description: str = "File") -> Path:
     """
     Validate that a file exists.
 
@@ -239,22 +241,15 @@ def validate_file_exists(
     path = Path(file_path)
 
     if not path.exists():
-        raise FileNotFoundError(
-            f"{description} not found: {file_path}"
-        )
+        raise FileNotFoundError(f"{description} not found: {file_path}")
 
     if not path.is_file():
-        raise DataValidationError(
-            f"{description} is not a file: {file_path}"
-        )
+        raise DataValidationError(f"{description} is not a file: {file_path}")
 
     return path
 
 
-def validate_api_key(
-    api_key: Optional[str],
-    key_name: str = "API_KEY"
-) -> str:
+def validate_api_key(api_key: Optional[str], key_name: str = "API_KEY") -> str:
     """
     Validate that API key exists and is non-empty.
 
@@ -281,14 +276,10 @@ def validate_api_key(
         )
 
     if not isinstance(api_key, str):
-        raise ConfigurationError(
-            f"{key_name} must be a string, got {type(api_key)}"
-        )
+        raise ConfigurationError(f"{key_name} must be a string, got {type(api_key)}")
 
     if len(api_key.strip()) == 0:
-        raise ConfigurationError(
-            f"{key_name} is empty"
-        )
+        raise ConfigurationError(f"{key_name} is empty")
 
     return api_key.strip()
 
@@ -297,10 +288,9 @@ def validate_api_key(
 # GRACEFUL ERROR RECOVERY
 # ─────────────────────────────────────────────────────────
 
+
 def safe_file_operation(
-    operation: Callable,
-    fallback_value: Any = None,
-    log_error: bool = True
+    operation: Callable, fallback_value: Any = None, log_error: bool = True
 ) -> Any:
     """
     Execute a file operation with graceful error handling.
@@ -328,11 +318,7 @@ def safe_file_operation(
         return fallback_value
 
 
-def safe_division(
-    numerator: float,
-    denominator: float,
-    default: float = 0.0
-) -> float:
+def safe_division(numerator: float, denominator: float, default: float = 0.0) -> float:
     """
     Perform division with zero-division protection.
 
@@ -356,10 +342,7 @@ def safe_division(
 
 
 def handle_missing_data(
-    df: pd.DataFrame,
-    strategy: str = "drop",
-    columns: Optional[list] = None,
-    fill_value: Any = None
+    df: pd.DataFrame, strategy: str = "drop", columns: Optional[list] = None, fill_value: Any = None
 ) -> pd.DataFrame:
     """
     Handle missing data in DataFrame with specified strategy.
@@ -392,26 +375,22 @@ def handle_missing_data(
 
     elif strategy == "forward_fill":
         if columns:
-            df[columns] = df[columns].fillna(method='ffill')
+            df[columns] = df[columns].fillna(method="ffill")
         else:
-            df = df.fillna(method='ffill')
+            df = df.fillna(method="ffill")
         return df
 
     else:
-        raise ValueError(
-            f"Unknown strategy: {strategy}. "
-            f"Use 'drop', 'fill', or 'forward_fill'"
-        )
+        raise ValueError(f"Unknown strategy: {strategy}. " f"Use 'drop', 'fill', or 'forward_fill'")
 
 
 # ─────────────────────────────────────────────────────────
 # LOGGING UTILITIES
 # ─────────────────────────────────────────────────────────
 
+
 def log_dataframe_info(
-    df: pd.DataFrame,
-    name: str = "DataFrame",
-    logger: Optional[logging.Logger] = None
+    df: pd.DataFrame, name: str = "DataFrame", logger: Optional[logging.Logger] = None
 ) -> None:
     """
     Log useful information about a DataFrame.
@@ -443,11 +422,7 @@ def log_dataframe_info(
             logger.info(f"  - {col}: {count} ({pct:.1f}%)")
 
 
-def log_function_call(
-    func_name: str,
-    args: dict,
-    logger: Optional[logging.Logger] = None
-) -> None:
+def log_function_call(func_name: str, args: dict, logger: Optional[logging.Logger] = None) -> None:
     """
     Log a function call with its arguments.
 
@@ -470,6 +445,7 @@ def log_function_call(
 # CONTEXT MANAGERS
 # ─────────────────────────────────────────────────────────
 
+
 class ErrorContext:
     """
     Context manager for comprehensive error handling.
@@ -484,7 +460,7 @@ class ErrorContext:
         self,
         operation_name: str,
         logger: Optional[logging.Logger] = None,
-        raise_on_error: bool = True
+        raise_on_error: bool = True,
     ):
         self.operation_name = operation_name
         self.logger = logger or logging.getLogger(__name__)
@@ -500,8 +476,7 @@ class ErrorContext:
             return True
 
         self.logger.error(
-            f"Error during {self.operation_name}: {exc_val}",
-            exc_info=(exc_type, exc_val, exc_tb)
+            f"Error during {self.operation_name}: {exc_val}", exc_info=(exc_type, exc_val, exc_tb)
         )
 
         return not self.raise_on_error  # Suppress exception if raise_on_error=False

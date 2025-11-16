@@ -34,16 +34,31 @@ Ensure that ``1_get_data_previous_game_day.py`` has been executed before running
 this script so that necessary directories exist.
 """
 
-import os
 import argparse
 import calendar
+import os
 import shutil
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
+
+# Import database utilities
+from db_utils import DatabaseOperations, db_config
+from error_handlers import (
+    ErrorContext,
+    NetworkError,
+    ScrapingError,
+    get_requests_session_with_retries,
+    log_dataframe_info,
+    retry_on_network_error,
+    validate_dataframe,
+)
+
+# Import error handling and logging infrastructure
+from logger import get_logger
 
 # Import shared utilities
 from nba_utils_2026 import (
@@ -53,27 +68,13 @@ from nba_utils_2026 import (
     get_team_codes,
 )
 
-# Import error handling and logging infrastructure
-from logger import get_logger
-from error_handlers import (
-    retry_on_network_error,
-    get_requests_session_with_retries,
-    validate_dataframe,
-    ScrapingError,
-    NetworkError,
-    ErrorContext,
-    log_dataframe_info,
-)
-
-# Import database utilities
-from db_utils import DatabaseOperations, db_config
-
 # Initialize logger
 logger = get_logger(__name__)
 
 # -----------------------------------------------------------------------------
 # Helper functions
 # -----------------------------------------------------------------------------
+
 
 def parse_target_date(date_str: str) -> datetime:
     """Parse a date string in ``YYYY-MM-DD`` format into a ``datetime``.
@@ -112,9 +113,7 @@ def determine_season_year(target_date: datetime, fallback_season: int) -> int:
         try:
             return int(env_season)
         except ValueError:
-            logger.warning(
-                f"Invalid SEASON_YEAR '{env_season}', falling back to {fallback_season}"
-            )
+            logger.warning(f"Invalid SEASON_YEAR '{env_season}', falling back to {fallback_season}")
     return fallback_season
 
 
@@ -145,21 +144,19 @@ def scrape_season_for_month(season: int, month: int, month_name: str, standings_
         response = session.get(url, timeout=30)
         response.raise_for_status()
 
-        soup = BeautifulSoup(response.text, 'html.parser')
+        soup = BeautifulSoup(response.text, "html.parser")
         links = soup.find_all("a", href=True)
 
         month_link: Optional[str] = None
         for link in links:
             # Find the link to the monthly schedule page
-            if f"NBA_{season}_games-{month_name}" in link['href']:
-                month_link = "https://www.basketball-reference.com" + link['href']
+            if f"NBA_{season}_games-{month_name}" in link["href"]:
+                month_link = "https://www.basketball-reference.com" + link["href"]
                 break
 
         if not month_link:
             logger.warning(f"No link found for {month_name.title()} {season}")
-            raise ScrapingError(
-                f"Could not find monthly schedule link for {month_name} {season}"
-            )
+            raise ScrapingError(f"Could not find monthly schedule link for {month_name} {season}")
 
         logger.info(f"Fetching monthly page: {month_link}")
         month_response = session.get(month_link, timeout=30)
@@ -170,7 +167,7 @@ def scrape_season_for_month(season: int, month: int, month_name: str, standings_
 
         # Save the HTML to the standings directory
         output_path = os.path.join(standings_dir, f"NBA_{season}_games-{month_name}.html")
-        with open(output_path, "w", encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             f.write(month_response.text)
 
         logger.info(f"Saved schedule data → {output_path}")
@@ -200,9 +197,11 @@ def find_games_for_next_day(target_date: datetime, file_paths: List[str]) -> Lis
             continue
 
         try:
-            with ErrorContext(f"Parsing schedule file: {path}", logger=logger, raise_on_error=False):
-                with open(path, "r", encoding='utf-8') as f:
-                    soup = BeautifulSoup(f.read(), 'html.parser')
+            with ErrorContext(
+                f"Parsing schedule file: {path}", logger=logger, raise_on_error=False
+            ):
+                with open(path, "r", encoding="utf-8") as f:
+                    soup = BeautifulSoup(f.read(), "html.parser")
 
                 table = soup.find("table", {"id": "schedule"})
                 if not table:
@@ -234,15 +233,19 @@ def find_games_for_next_day(target_date: datetime, file_paths: List[str]) -> Lis
                     if next_game_date is not None and game_date == next_game_date:
                         cols = row.find_all("td")
                         if len(cols) >= 4:
-                            next_game_info.append({
-                                'date': game_date,
-                                'home_team': cols[3].text.strip(),
-                                'visitor_team': cols[1].text.strip(),
-                            })
+                            next_game_info.append(
+                                {
+                                    "date": game_date,
+                                    "home_team": cols[3].text.strip(),
+                                    "visitor_team": cols[1].text.strip(),
+                                }
+                            )
 
                     # Stop once we've moved beyond the targeted game day
                     if next_game_date is not None and game_date > next_game_date:
-                        logger.info(f"Found {len(next_game_info)} games on {next_game_date.strftime('%Y-%m-%d')}")
+                        logger.info(
+                            f"Found {len(next_game_info)} games on {next_game_date.strftime('%Y-%m-%d')}"
+                        )
                         return next_game_info
 
         except Exception as e:
@@ -262,7 +265,9 @@ def main() -> None:
     """Entry point for the script."""
     with ErrorContext("Script 2: Get next game day data", logger=logger):
         # Parse command‑line arguments
-        parser = argparse.ArgumentParser(description="Scrape upcoming NBA games for the next game day.")
+        parser = argparse.ArgumentParser(
+            description="Scrape upcoming NBA games for the next game day."
+        )
         parser.add_argument(
             "--date",
             type=str,
@@ -295,8 +300,8 @@ def main() -> None:
 
         # Resolve directory paths from nba_utils
         paths = get_directory_paths()
-        standings_dir = paths['STANDINGS_DIR']
-        next_game_dir = paths['NEXT_GAME_DIR']
+        standings_dir = paths["STANDINGS_DIR"]
+        next_game_dir = paths["NEXT_GAME_DIR"]
 
         # Ensure directories exist
         os.makedirs(standings_dir, exist_ok=True)
@@ -330,14 +335,14 @@ def main() -> None:
             logger.info("Using hardcoded opening night games (fallback for Oct 21, 2025)")
             games_info = [
                 {
-                    'date': today_date,
-                    'home_team': 'Oklahoma City Thunder',
-                    'visitor_team': 'Houston Rockets',
+                    "date": today_date,
+                    "home_team": "Oklahoma City Thunder",
+                    "visitor_team": "Houston Rockets",
                 },
                 {
-                    'date': today_date,
-                    'home_team': 'Los Angeles Lakers',
-                    'visitor_team': 'Golden State Warriors',
+                    "date": today_date,
+                    "home_team": "Los Angeles Lakers",
+                    "visitor_team": "Golden State Warriors",
                 },
             ]
 
@@ -348,12 +353,16 @@ def main() -> None:
             months_checked = 0
             while not games_info and months_checked < 12:
                 next_month_name = calendar.month_name[next_month].lower()
-                next_html = os.path.join(standings_dir, f"NBA_{season_year}_games-{next_month_name}.html")
+                next_html = os.path.join(
+                    standings_dir, f"NBA_{season_year}_games-{next_month_name}.html"
+                )
 
                 if not os.path.exists(next_html):
                     logger.info(f"Scraping {next_month_name} schedule...")
                     try:
-                        scrape_season_for_month(season_year, next_month, next_month_name, standings_dir)
+                        scrape_season_for_month(
+                            season_year, next_month, next_month_name, standings_dir
+                        )
                     except (NetworkError, ScrapingError) as e:
                         logger.warning(f"Could not scrape {next_month_name}: {e}")
                         next_month = (next_month % 12) + 1
@@ -370,9 +379,9 @@ def main() -> None:
 
         if games_info:
             for game in games_info:
-                home_code = team_codes.get(game['home_team'], game['home_team'])
-                away_code = team_codes.get(game['visitor_team'], game['visitor_team'])
-                games.append((home_code, away_code, game['date'].strftime("%Y-%m-%d")))
+                home_code = team_codes.get(game["home_team"], game["home_team"])
+                away_code = team_codes.get(game["visitor_team"], game["visitor_team"])
+                games.append((home_code, away_code, game["date"].strftime("%Y-%m-%d")))
                 logger.info(
                     f"Scheduled game: {game['visitor_team']} at {game['home_team']} on "
                     f"{game['date'].strftime('%a, %b %d, %Y')}"
@@ -381,11 +390,13 @@ def main() -> None:
             logger.warning("No games found for the specified date.")
 
         # Create DataFrame and save to CSV
-        df = pd.DataFrame(games, columns=['home_team', 'away_team', 'game_date'])
+        df = pd.DataFrame(games, columns=["home_team", "away_team", "game_date"])
 
         # Validate DataFrame before saving
         try:
-            validate_dataframe(df, required_columns=['home_team', 'away_team', 'game_date'], allow_empty=True)
+            validate_dataframe(
+                df, required_columns=["home_team", "away_team", "game_date"], allow_empty=True
+            )
             log_dataframe_info(df, name="Next games", logger=logger)
         except Exception as e:
             logger.error(f"DataFrame validation failed: {e}")

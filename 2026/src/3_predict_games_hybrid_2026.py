@@ -20,47 +20,47 @@ Main outputs:
      home_team, away_team, home_team_prob, result, odds 1, odds 2, date
 """
 
-import os
-import sys
 import glob
 import logging
-from pathlib import Path
+import os
+import sys
 from datetime import datetime, timedelta
-from typing import Tuple, List, Dict
+from pathlib import Path
+from typing import Dict, List, Tuple
 
+import lightgbm as lgb
 import numpy as np
 import pandas as pd
-import lightgbm as lgb
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
-
 import requests
-from urllib3.util.retry import Retry
-from requests.adapters import HTTPAdapter
 
 # Load environment variables
 from dotenv import load_dotenv
-load_dotenv()
+from requests.adapters import HTTPAdapter
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
+from urllib3.util.retry import Retry
 
-# Import error handling and logging infrastructure
-from logger import get_logger
-from error_handlers import (
-    ErrorContext,
-    validate_dataframe,
-    validate_api_key,
-    validate_file_exists,
-    log_dataframe_info,
-    retry_on_network_error,
-    get_requests_session_with_retries,
-    NetworkError,
-    ModelTrainingError,
-    DataValidationError,
-    ConfigurationError,
-)
+load_dotenv()
 
 # Import database utilities
 from db_utils import DatabaseOperations, db_config
+from error_handlers import (
+    ConfigurationError,
+    DataValidationError,
+    ErrorContext,
+    ModelTrainingError,
+    NetworkError,
+    get_requests_session_with_retries,
+    log_dataframe_info,
+    retry_on_network_error,
+    validate_api_key,
+    validate_dataframe,
+    validate_file_exists,
+)
+
+# Import error handling and logging infrastructure
+from logger import get_logger
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -70,15 +70,15 @@ TEAM_ALIAS_FOR_ODDS = {
     "PHX": "PHX",
     "BKN": "BRK",
     "BRK": "BRK",
-    "CHA": "CHO",   # sportsbook "CHA" -> our "CHO"
+    "CHA": "CHO",  # sportsbook "CHA" -> our "CHO"
     "CHO": "CHO",
-    "GS":  "GSW",
+    "GS": "GSW",
     "GSW": "GSW",
-    "NO":  "NOP",
+    "NO": "NOP",
     "NOP": "NOP",
-    "NY":  "NYK",
+    "NY": "NYK",
     "NYK": "NYK",
-    "SA":  "SAS",
+    "SA": "SAS",
     "SAS": "SAS",
     "UTAH": "UTA",
     "UTA": "UTA",
@@ -86,6 +86,7 @@ TEAM_ALIAS_FOR_ODDS = {
     "OKC": "OKC",
     # rest already match (BOS, LAL, etc.)
 }
+
 
 def normalize_code_for_odds(abbr: str) -> str:
     """Return our canonical team code (PHO->PHX, CHA->CHO, BKN->BRK, etc.)."""
@@ -99,7 +100,7 @@ def normalize_code_for_odds(abbr: str) -> str:
 # ─────────────────────────────────────────────────────────
 
 ROLLING_WINDOW_SIZE = 9
-CURRENT_SEASON = 2025   # mostly for reference/logging
+CURRENT_SEASON = 2025  # mostly for reference/logging
 
 # Load and validate API key from environment variable
 try:
@@ -108,6 +109,7 @@ try:
 except ConfigurationError as e:
     logger.error(f"API key validation failed: {e}")
     raise
+
 
 # Get base directory using relative paths (cross-platform compatible)
 def get_directory_paths() -> Dict[str, str]:
@@ -126,6 +128,7 @@ def get_directory_paths() -> Dict[str, str]:
         "PREDICTION_DIR": str(base_repo / "output" / "LightGBM"),
     }
 
+
 def get_current_date(offset_days: int = 0) -> Tuple[datetime, str, str]:
     """
     Returns today's date in different representations:
@@ -137,6 +140,7 @@ def get_current_date(offset_days: int = 0) -> Tuple[datetime, str, str]:
     ds = dt.strftime("%Y-%m-%d")
     return dt, ds, ds
 
+
 def get_latest_file(directory: str, prefix: str, ext: str) -> str:
     """
     Find latest file in directory that matches prefix + *.ext
@@ -147,23 +151,35 @@ def get_latest_file(directory: str, prefix: str, ext: str) -> str:
         return ""
     return max(files, key=os.path.getctime)
 
+
 # Mapping between sportsbook names and our abbreviations
 TEAM_ALIAS_FOR_ODDS = {
-    "PHO": "PHX", "PHX": "PHX",
-    "BKN": "BRK", "BRK": "BRK",
-    "CHA": "CHO", "CHO": "CHO",  # internal style often "CHO"
-    "GS":  "GSW", "GSW": "GSW",
-    "NO":  "NOP", "NOP": "NOP",
-    "NY":  "NYK", "NYK": "NYK",
-    "SA":  "SAS", "SAS": "SAS",
-    "UTAH":"UTA", "UTA": "UTA",
-    "OKL": "OKC", "OKC": "OKC",
+    "PHO": "PHX",
+    "PHX": "PHX",
+    "BKN": "BRK",
+    "BRK": "BRK",
+    "CHA": "CHO",
+    "CHO": "CHO",  # internal style often "CHO"
+    "GS": "GSW",
+    "GSW": "GSW",
+    "NO": "NOP",
+    "NOP": "NOP",
+    "NY": "NYK",
+    "NYK": "NYK",
+    "SA": "SAS",
+    "SAS": "SAS",
+    "UTAH": "UTA",
+    "UTA": "UTA",
+    "OKL": "OKC",
+    "OKC": "OKC",
 }
+
 
 def normalize_code_for_odds(abbr: str) -> str:
     if not isinstance(abbr, str):
         return abbr
     return TEAM_ALIAS_FOR_ODDS.get(abbr.upper(), abbr.upper())
+
 
 # full-name → our abbrev (used by odds fetch)
 FULL_TO_ABBREV = {
@@ -204,6 +220,7 @@ FULL_TO_ABBREV = {
 # STEP 1. LOAD TODAY'S DATA
 # ─────────────────────────────────────────────────────────
 
+
 def load_games_df(paths: Dict[str, str], today_str_format: str) -> pd.DataFrame:
     """
     Load today's games_df_<date>.csv.
@@ -220,12 +237,8 @@ def load_games_df(paths: Dict[str, str], today_str_format: str) -> pd.DataFrame:
             # fallback to most recent
             file_path = get_latest_file(next_game_dir, prefix="games_df_", ext=".csv")
             if not file_path:
-                raise FileNotFoundError(
-                    f"No games_df_*.csv found in {next_game_dir}"
-                )
-            logger.info(
-                f"games_df for {today_str_format} not found. Falling back to {file_path}"
-            )
+                raise FileNotFoundError(f"No games_df_*.csv found in {next_game_dir}")
+            logger.info(f"games_df for {today_str_format} not found. Falling back to {file_path}")
 
         games_df = pd.read_csv(file_path)
         # handle idx col if present
@@ -237,14 +250,10 @@ def load_games_df(paths: Dict[str, str], today_str_format: str) -> pd.DataFrame:
 
         # Validate DataFrame structure
         validate_dataframe(
-            games_df,
-            required_columns=['home_team', 'away_team', 'game_date'],
-            allow_empty=True
+            games_df, required_columns=["home_team", "away_team", "game_date"], allow_empty=True
         )
 
-        logger.info(
-            f"Loaded game schedule from {file_path} with {len(games_df)} games"
-        )
+        logger.info(f"Loaded game schedule from {file_path} with {len(games_df)} games")
         return games_df
 
 
@@ -265,9 +274,7 @@ def load_stats_df(paths: Dict[str, str], today_str_format: str) -> pd.DataFrame:
             )
             df_path = get_latest_file(stat_dir, prefix="nba_games_", ext=".csv")
             if not df_path:
-                raise FileNotFoundError(
-                    f"No nba_games_*.csv files found in {stat_dir}"
-                )
+                raise FileNotFoundError(f"No nba_games_*.csv files found in {stat_dir}")
             logger.info(f"Using latest stats file: {df_path}")
 
         df = pd.read_csv(df_path)
@@ -283,11 +290,13 @@ def load_stats_df(paths: Dict[str, str], today_str_format: str) -> pd.DataFrame:
 # STEP 2. PREPROCESS (TARGET, SCALING, ROLLING)
 # ─────────────────────────────────────────────────────────
 
+
 def add_target_per_team(df: pd.DataFrame) -> pd.DataFrame:
     """
     For each team, target = 'won' of NEXT row
     Then fill last row (future) as 2.
     """
+
     def add_target(group):
         group = group.sort_values("date")
         group["target"] = group["won"].shift(-1)
@@ -312,12 +321,12 @@ def scale_numeric(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     return df, list(to_scale)
 
 
-
 def rolling_averages(df: pd.DataFrame) -> pd.DataFrame:
     """
     Compute rolling averages for numeric columns grouped by team+season,
     BUT EXCLUDE 'target' from rolling features so we don't create target_7 leaks.
     """
+
     def team_roll(g: pd.DataFrame) -> pd.DataFrame:
         numeric_cols = g.select_dtypes(include=[np.number]).copy()
         # do not roll future label info
@@ -330,24 +339,21 @@ def rolling_averages(df: pd.DataFrame) -> pd.DataFrame:
     rename_map = {col: f"{col}_7" for col in df_numeric.columns}
     df_numeric = df_numeric.rename(columns=rename_map)
 
-    df = pd.concat(
-        [df.reset_index(drop=True), df_numeric.reset_index(drop=True)],
-        axis=1
-    )
+    df = pd.concat([df.reset_index(drop=True), df_numeric.reset_index(drop=True)], axis=1)
     return df
-
-
 
 
 # ─────────────────────────────────────────────────────────
 # STEP 3. ADD NEXT-GAME INFO
 # ─────────────────────────────────────────────────────────
 
+
 def add_next_game_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     For each row, attach info about that team's NEXT game using shift(-1):
         home_next, team_opp_next, date_next
     """
+
     def shift_col(team_df: pd.DataFrame, col_name: str) -> pd.Series:
         return team_df[col_name].shift(-1)
 
@@ -358,11 +364,7 @@ def add_next_game_columns(df: pd.DataFrame) -> pd.DataFrame:
         team_df["date_next"] = shift_col(team_df, "date")
         return team_df
 
-    df2 = (
-        df
-        .groupby("team", group_keys=False)
-        .apply(add_cols)
-    )
+    df2 = df.groupby("team", group_keys=False).apply(add_cols)
     return df2
 
 
@@ -392,7 +394,7 @@ def override_next_game_with_schedule(df: pd.DataFrame, games_df: pd.DataFrame) -
     for idx, game in games_df.iterrows():
         home_team = game.get("home_team")
         away_team = game.get("away_team")
-        game_day  = game.get("game_date")
+        game_day = game.get("game_date")
 
         if pd.isna(home_team) or pd.isna(away_team) or pd.isna(game_day):
             logger.warning(f"Skipping row {idx} in games_df due to missing values.")
@@ -426,6 +428,7 @@ def override_next_game_with_schedule(df: pd.DataFrame, games_df: pd.DataFrame) -
 # STEP 4. BUILD MATCHUPS ("full")
 # ─────────────────────────────────────────────────────────
 
+
 def build_matchup_full(df: pd.DataFrame) -> pd.DataFrame:
     """
     Re-create the notebook's self-merge, but safely.
@@ -456,8 +459,16 @@ def build_matchup_full(df: pd.DataFrame) -> pd.DataFrame:
 
     # build df_right with suffix _right for numeric/stat columns
     banned_right_cols = {
-        "team", "team_opp", "team_opp_next", "home", "home_next",
-        "date", "date_next", "target", "won", "season"
+        "team",
+        "team_opp",
+        "team_opp_next",
+        "home",
+        "home_next",
+        "date",
+        "date_next",
+        "target",
+        "won",
+        "season",
     }
 
     keep_for_right = [c for c in df.columns if c not in banned_right_cols]
@@ -475,13 +486,19 @@ def build_matchup_full(df: pd.DataFrame) -> pd.DataFrame:
         df_right,
         left_on=["team", "date_next"],
         right_on=["team_opp_next", "date_next"],
-        how="inner"
+        how="inner",
     )
 
     # rename columns to stable names
-    full = full.rename(columns={
-        "team_x": "team",  # pandas may have created team_x / team_y; handle carefully below
-    }) if "team_x" in full.columns else full
+    full = (
+        full.rename(
+            columns={
+                "team_x": "team",  # pandas may have created team_x / team_y; handle carefully below
+            }
+        )
+        if "team_x" in full.columns
+        else full
+    )
 
     # We want focal team as team_x and opp as team_y
     # after merge, df_left columns kept their original names
@@ -507,10 +524,12 @@ def build_matchup_full(df: pd.DataFrame) -> pd.DataFrame:
     if team_y_col not in full.columns:
         raise RuntimeError("Could not identify 'team_y' (opponent) in merged data.")
 
-    full = full.rename(columns={
-        team_x_col: "team_x",
-        team_y_col: "team_y",
-    })
+    full = full.rename(
+        columns={
+            team_x_col: "team_x",
+            team_y_col: "team_y",
+        }
+    )
 
     return full
 
@@ -522,13 +541,14 @@ def split_train_pred(full: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     if "target" not in full.columns:
         raise RuntimeError("Expected 'target' column in full after merge.")
     full_train = full[full["target"] != 2].copy()
-    full_pred  = full[full["target"] == 2].copy()
+    full_pred = full[full["target"] == 2].copy()
     return full_train, full_pred
 
 
 # ─────────────────────────────────────────────────────────
 # STEP 5. TRAIN MODEL
 # ─────────────────────────────────────────────────────────
+
 
 def build_feature_list(full: pd.DataFrame) -> Tuple[List[str], List[str]]:
     """
@@ -574,7 +594,6 @@ def build_feature_list(full: pd.DataFrame) -> Tuple[List[str], List[str]]:
 
     return feature_cols, sorted(list(banned_explicit))
 
-
     feature_cols: List[str] = []
     for col in full.columns:
         if col in banned_cols:
@@ -590,8 +609,9 @@ def build_feature_list(full: pd.DataFrame) -> Tuple[List[str], List[str]]:
     return feature_cols, banned_cols
 
 
-def train_lightgbm(full_train: pd.DataFrame,
-                   feature_cols: List[str]) -> Tuple[lgb.LGBMClassifier, float]:
+def train_lightgbm(
+    full_train: pd.DataFrame, feature_cols: List[str]
+) -> Tuple[lgb.LGBMClassifier, float]:
     """
     Train LightGBM with fixed params from notebook.
     Return model and accuracy on holdout.
@@ -602,11 +622,7 @@ def train_lightgbm(full_train: pd.DataFrame,
     X = full_train[feature_cols].values
     y = full_train["target"].values
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y,
-        test_size=0.2,
-        random_state=42
-    )
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
     params = {
         "objective": "binary",
@@ -635,11 +651,7 @@ def train_lightgbm(full_train: pd.DataFrame,
 
     # feature importances log
     importances = model.feature_importances_
-    pairs = sorted(
-        zip(feature_cols, importances),
-        key=lambda x: x[1],
-        reverse=True
-    )[:10]
+    pairs = sorted(zip(feature_cols, importances), key=lambda x: x[1], reverse=True)[:10]
     logger.info("Top feature importances (first 10):")
     for i, (name, score) in enumerate(pairs, start=1):
         logger.info(f"  {i}. {name}: {score}")
@@ -651,10 +663,13 @@ def train_lightgbm(full_train: pd.DataFrame,
 # STEP 6. PREDICT NEXT GAMES
 # ─────────────────────────────────────────────────────────
 
-def predict_upcoming(full_pred: pd.DataFrame,
-                     model: lgb.LGBMClassifier,
-                     feature_cols: List[str],
-                     games_df: pd.DataFrame) -> pd.DataFrame:
+
+def predict_upcoming(
+    full_pred: pd.DataFrame,
+    model: lgb.LGBMClassifier,
+    feature_cols: List[str],
+    games_df: pd.DataFrame,
+) -> pd.DataFrame:
     """
     From full_pred (target==2 rows), get model P(home team wins).
 
@@ -681,13 +696,15 @@ def predict_upcoming(full_pred: pd.DataFrame,
     # build nice output
     out_rows = []
     for _, row in pred_df.iterrows():
-        out_rows.append({
-            "home_team": row["team_x"],
-            "away_team": row["team_y"],
-            "home_team_prob": float(row["proba"]),
-            "result": 0,
-            "date": row["date_next"],
-        })
+        out_rows.append(
+            {
+                "home_team": row["team_x"],
+                "away_team": row["team_y"],
+                "home_team_prob": float(row["proba"]),
+                "result": 0,
+                "date": row["date_next"],
+            }
+        )
 
     preds = pd.DataFrame(out_rows)
 
@@ -697,10 +714,9 @@ def predict_upcoming(full_pred: pd.DataFrame,
     # optional: restrict to only teams present in games_df (safety)
     if not games_df.empty and "home_team" in games_df.columns and "away_team" in games_df.columns:
         pairs = set(zip(games_df["home_team"], games_df["away_team"]))
-        preds = preds[preds.apply(
-            lambda r: (r["home_team"], r["away_team"]) in pairs,
-            axis=1
-        )].copy()
+        preds = preds[
+            preds.apply(lambda r: (r["home_team"], r["away_team"]) in pairs, axis=1)
+        ].copy()
 
     if preds.empty:
         logger.warning("After schedule alignment, no predictions remain for today's games.")
@@ -711,6 +727,7 @@ def predict_upcoming(full_pred: pd.DataFrame,
 # ─────────────────────────────────────────────────────────
 # STEP 7. ODDS FETCH + MERGE
 # ─────────────────────────────────────────────────────────
+
 
 def get_session() -> requests.Session:
     s = requests.Session()
@@ -735,8 +752,8 @@ def fetch_odds(games_df: pd.DataFrame, api_key: str, preferred: List[str] = None
     full_to_abbrev = {
         "Atlanta Hawks": "ATL",
         "Boston Celtics": "BOS",
-        "Brooklyn Nets": "BRK",          # force BRK not BKN
-        "Charlotte Hornets": "CHO",      # force CHO not CHA
+        "Brooklyn Nets": "BRK",  # force BRK not BKN
+        "Charlotte Hornets": "CHO",  # force CHO not CHA
         "Chicago Bulls": "CHI",
         "Cleveland Cavaliers": "CLE",
         "Dallas Mavericks": "DAL",
@@ -757,7 +774,7 @@ def fetch_odds(games_df: pd.DataFrame, api_key: str, preferred: List[str] = None
         "Oklahoma City Thunder": "OKC",
         "Orlando Magic": "ORL",
         "Philadelphia 76ers": "PHI",
-        "Phoenix Suns": "PHX",            # force PHX not PHO
+        "Phoenix Suns": "PHX",  # force PHX not PHO
         "Portland Trail Blazers": "POR",
         "Sacramento Kings": "SAC",
         "San Antonio Spurs": "SAS",
@@ -807,17 +824,14 @@ def fetch_odds(games_df: pd.DataFrame, api_key: str, preferred: List[str] = None
         if not chosen:
             continue
 
-        market = next(
-            (m for m in chosen.get("markets", []) if m.get("key") == "h2h"),
-            None
-        )
+        market = next((m for m in chosen.get("markets", []) if m.get("key") == "h2h"), None)
         if not market:
             continue
 
         prices_by_code = {}
         for outcome in market.get("outcomes", []):
-            full_name = outcome.get("name")               # e.g. "Phoenix Suns"
-            raw_abbr  = full_to_abbrev.get(full_name)     # -> "PHX"
+            full_name = outcome.get("name")  # e.g. "Phoenix Suns"
+            raw_abbr = full_to_abbrev.get(full_name)  # -> "PHX"
             if raw_abbr:
                 canon_abbr = normalize_code_for_odds(raw_abbr)
                 prices_by_code[canon_abbr] = outcome.get("price")
@@ -837,9 +851,7 @@ def fetch_odds(games_df: pd.DataFrame, api_key: str, preferred: List[str] = None
         o1, o2 = lookup.get((h, a), (None, None))
         if o1 is None or o2 is None:
             logger.warning(f"No odds found for {h} vs {a}")
-        odds_rows.append(
-            {"home_team": h, "away_team": a, "odds 1": o1, "odds 2": o2}
-        )
+        odds_rows.append({"home_team": h, "away_team": a, "odds 1": o1, "odds 2": o2})
 
     return pd.DataFrame(odds_rows)
 
@@ -870,7 +882,8 @@ def implied_prob(ml: float) -> float:
     else:
         # underdog
         return 100.0 / (ml + 100.0)
-        
+
+
 def impute_prob(moneyline):
     """
     Convert American moneyline (e.g. -150, +200) to implied win probability in [0,1].
@@ -898,8 +911,8 @@ def merge_predictions_with_odds(preds: pd.DataFrame, odds: pd.DataFrame) -> pd.D
     # normalize again just to be paranoid
     preds["home_team"] = preds["home_team"].apply(normalize_code_for_odds)
     preds["away_team"] = preds["away_team"].apply(normalize_code_for_odds)
-    odds["home_team"]  = odds["home_team"].apply(normalize_code_for_odds)
-    odds["away_team"]  = odds["away_team"].apply(normalize_code_for_odds)
+    odds["home_team"] = odds["home_team"].apply(normalize_code_for_odds)
+    odds["away_team"] = odds["away_team"].apply(normalize_code_for_odds)
 
     df = preds.merge(odds, on=["home_team", "away_team"], how="left")
 
@@ -911,21 +924,16 @@ def merge_predictions_with_odds(preds: pd.DataFrame, odds: pd.DataFrame) -> pd.D
     df["imp_prob_away"] = df["odds 2"].apply(impute_prob)
 
     df["value_home"] = np.where(
-        df["imp_prob_home"].notna(),
-        df["home_team_prob"] - df["imp_prob_home"],
-        np.nan
+        df["imp_prob_home"].notna(), df["home_team_prob"] - df["imp_prob_home"], np.nan
     )
     df["value_away"] = np.where(
-        df["imp_prob_away"].notna(),
-        (1.0 - df["home_team_prob"]) - df["imp_prob_away"],
-        np.nan
+        df["imp_prob_away"].notna(), (1.0 - df["home_team_prob"]) - df["imp_prob_away"], np.nan
     )
 
     return df
 
 
-def build_home_team_preds_csv(preds: pd.DataFrame,
-                              odds_df: pd.DataFrame) -> pd.DataFrame:
+def build_home_team_preds_csv(preds: pd.DataFrame, odds_df: pd.DataFrame) -> pd.DataFrame:
     """
     Build final table to save:
       home_team, away_team, home_team_prob, result, odds 1, odds 2, date
@@ -933,17 +941,22 @@ def build_home_team_preds_csv(preds: pd.DataFrame,
     """
     if preds.empty:
         logger.warning("build_home_team_preds_csv: preds empty.")
-        return pd.DataFrame(columns=[
-            "home_team", "away_team",
-            "home_team_prob", "result",
-            "odds 1", "odds 2",
-            "date"
-        ])
+        return pd.DataFrame(
+            columns=[
+                "home_team",
+                "away_team",
+                "home_team_prob",
+                "result",
+                "odds 1",
+                "odds 2",
+                "date",
+            ]
+        )
 
     out = preds.merge(
         odds_df[["home_team", "away_team", "odds 1", "odds 2"]],
         on=["home_team", "away_team"],
-        how="left"
+        how="left",
     ).copy()
 
     out["odds 1"] = out["odds 1"].apply(american_to_decimal)
@@ -953,17 +966,20 @@ def build_home_team_preds_csv(preds: pd.DataFrame,
     # 'date' is already present in preds
 
     # ensure column order
-    out = out[[
-        "home_team",
-        "away_team",
-        "home_team_prob",
-        "result",
-        "odds 1",
-        "odds 2",
-        "date",
-    ]]
+    out = out[
+        [
+            "home_team",
+            "away_team",
+            "home_team_prob",
+            "result",
+            "odds 1",
+            "odds 2",
+            "date",
+        ]
+    ]
 
     return out
+
 
 FINAL_EXPORT_CODES = {
     # what model/odds use  -> what you want to SEE in the CSV
@@ -972,6 +988,7 @@ FINAL_EXPORT_CODES = {
     "BRK": "BRK",  # stays same (но можешь тут поменять на BKN если захочешь bkn)
     # если надо, можешь добавить другие маппинги
 }
+
 
 def prettify_team_codes_for_output(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -983,19 +1000,19 @@ def prettify_team_codes_for_output(df: pd.DataFrame) -> pd.DataFrame:
 
     for col in ["home_team", "away_team"]:
         if col in out.columns:
-            out[col] = out[col].apply(
-                lambda x: FINAL_EXPORT_CODES.get(str(x), str(x))
-            )
+            out[col] = out[col].apply(lambda x: FINAL_EXPORT_CODES.get(str(x), str(x)))
 
     return out
+
 
 # ─────────────────────────────────────────────────────────
 # STEP 8. SAVE
 # ─────────────────────────────────────────────────────────
 
-def save_predictions_csv(df_to_save: pd.DataFrame,
-                          paths: Dict[str, str],
-                          today_str_format: str) -> str:
+
+def save_predictions_csv(
+    df_to_save: pd.DataFrame, paths: Dict[str, str], today_str_format: str
+) -> str:
     """
     Save the final predictions in the fixed betting format.
     """
@@ -1019,10 +1036,10 @@ def save_predictions_csv(df_to_save: pd.DataFrame,
             db_ops = DatabaseOperations()
             # Prepare DataFrame for database (ensure required columns exist)
             df_db = df_to_save.copy()
-            if 'home_team_prob' not in df_db.columns and 'prob' in df_db.columns:
-                df_db['home_team_prob'] = df_db['prob']
-            if 'result' not in df_db.columns:
-                df_db['result'] = None
+            if "home_team_prob" not in df_db.columns and "prob" in df_db.columns:
+                df_db["home_team_prob"] = df_db["prob"]
+            if "result" not in df_db.columns:
+                df_db["result"] = None
 
             rows_saved = db_ops.save_predictions(df_db)
             logger.info(f"Saved {rows_saved} predictions to database")
@@ -1036,6 +1053,7 @@ def save_predictions_csv(df_to_save: pd.DataFrame,
 # ─────────────────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────────────────
+
 
 def main() -> str:
     # 1. Paths + date
@@ -1065,7 +1083,7 @@ def main() -> str:
     df, scaled_cols = scale_numeric(df)
     df = rolling_averages(df)
     df = add_next_game_columns(df)
-    
+
     df["team"] = df["team"].apply(normalize_code_for_odds)
     df["team_opp"] = df["team_opp"].apply(normalize_code_for_odds)
     games_df["home_team"] = games_df["home_team"].apply(normalize_code_for_odds)
@@ -1080,8 +1098,8 @@ def main() -> str:
 
     # 5. Build matchup table
     full = build_matchup_full(df)
-    
-        # 6. Split train vs predict
+
+    # 6. Split train vs predict
     full_train, full_pred = split_train_pred(full)
 
     logger.info(
@@ -1120,8 +1138,6 @@ def main() -> str:
     output_path = save_predictions_csv(csv_frame, paths, today_str_format)
 
     return output_path
-
-
 
     return output_path
 

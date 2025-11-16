@@ -12,13 +12,14 @@ These functions handle real money, so comprehensive testing is essential.
 
 import sys
 from pathlib import Path
-import pytest
+
 import numpy as np
+import pytest
 
 # Add source directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "2026" / "src"))
 
-from nba_utils_2026 import kelly_frac, am_to_dec, impute_prob
+from nba_utils_2026 import am_to_dec, impute_prob, kelly_frac
 
 
 class TestKellyCriterion:
@@ -371,33 +372,39 @@ class TestBettingUtilsIntegration:
 class TestOddsConversionParameterized:
     """Parameterized tests for comprehensive odds conversion coverage."""
 
-    @pytest.mark.parametrize("american,expected_decimal", [
-        (100, 2.0),
-        (-100, 2.0),
-        (150, 2.5),
-        (200, 3.0),
-        (-150, 1.6667),
-        (-200, 1.5),
-        (300, 4.0),
-        (-300, 1.3333),
-        (500, 6.0),
-        (-500, 1.2),
-    ])
+    @pytest.mark.parametrize(
+        "american,expected_decimal",
+        [
+            (100, 2.0),
+            (-100, 2.0),
+            (150, 2.5),
+            (200, 3.0),
+            (-150, 1.6667),
+            (-200, 1.5),
+            (300, 4.0),
+            (-300, 1.3333),
+            (500, 6.0),
+            (-500, 1.2),
+        ],
+    )
     def test_american_to_decimal_various(self, american, expected_decimal):
         """Test various American to Decimal conversions."""
         result = am_to_dec(american)
         assert result == pytest.approx(expected_decimal, rel=1e-3)
 
-    @pytest.mark.parametrize("american,expected_prob", [
-        (100, 0.5),
-        (-100, 0.5),
-        (200, 0.3333),
-        (-200, 0.6667),
-        (300, 0.25),
-        (-300, 0.75),
-        (400, 0.2),
-        (-400, 0.8),
-    ])
+    @pytest.mark.parametrize(
+        "american,expected_prob",
+        [
+            (100, 0.5),
+            (-100, 0.5),
+            (200, 0.3333),
+            (-200, 0.6667),
+            (300, 0.25),
+            (-300, 0.75),
+            (400, 0.2),
+            (-400, 0.8),
+        ],
+    )
     def test_american_to_probability_various(self, american, expected_prob):
         """Test various American to Probability conversions."""
         result = impute_prob(american)

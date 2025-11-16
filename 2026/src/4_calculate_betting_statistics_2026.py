@@ -18,28 +18,29 @@ Prior steps:
 Then execute this script to compute betting statistics.
 """
 
-import pandas as pd
-import os
-import numpy as np
 import logging
+import os
 from datetime import timedelta
 
-# Import shared utilities from the 2026 version
-from nba_utils_2026 import (
-    CURRENT_SEASON,
-    get_current_date,
-    get_directory_paths,
-    find_file_in_date_range,
+import numpy as np
+import pandas as pd
+from error_handlers import (
+    DataValidationError,
+    ErrorContext,
+    log_dataframe_info,
+    validate_dataframe,
+    validate_file_exists,
 )
 
 # Import error handling and logging infrastructure
 from logger import get_logger
-from error_handlers import (
-    ErrorContext,
-    validate_dataframe,
-    validate_file_exists,
-    log_dataframe_info,
-    DataValidationError,
+
+# Import shared utilities from the 2026 version
+from nba_utils_2026 import (
+    CURRENT_SEASON,
+    find_file_in_date_range,
+    get_current_date,
+    get_directory_paths,
 )
 
 # Initialize logger
@@ -57,11 +58,11 @@ logger.info(f"Looking for data from: {yesterday_str_format}")
 
 # Get directory paths
 paths = get_directory_paths()
-BASE_DIR = paths['BASE_DIR']
-DATA_DIR = paths['DATA_DIR']
-STAT_DIR = paths['STAT_DIR']
-target_folder = paths['NEXT_GAME_DIR']
-directory_path = paths['PREDICTION_DIR']
+BASE_DIR = paths["BASE_DIR"]
+DATA_DIR = paths["DATA_DIR"]
+STAT_DIR = paths["STAT_DIR"]
+target_folder = paths["NEXT_GAME_DIR"]
+directory_path = paths["PREDICTION_DIR"]
 
 
 def find_most_recent_prediction_file():
@@ -122,12 +123,14 @@ def process_prediction_file(predict_file, last_prediction):
     # Read prediction file; use default encoding and convert decimal comma to period
     predict_df = pd.read_csv(predict_file[0])
     # Normalize decimal columns in odds
-    for col in ['odds 1', 'odds 2']:
+    for col in ["odds 1", "odds 2"]:
         if col in predict_df.columns:
-            predict_df[col] = predict_df[col].astype(str).str.replace(',', '.').astype(float)
+            predict_df[col] = predict_df[col].astype(str).str.replace(",", ".").astype(float)
 
     # Path for combined data (one file per prediction date)
-    combined_file_path = os.path.join(directory_path, f'combined_nba_predictions_acc_{last_prediction}.csv')
+    combined_file_path = os.path.join(
+        directory_path, f"combined_nba_predictions_acc_{last_prediction}.csv"
+    )
     # Load existing combined file or create new
     try:
         combined_df = pd.read_csv(combined_file_path)
@@ -135,11 +138,13 @@ def process_prediction_file(predict_file, last_prediction):
         combined_df = pd.DataFrame()
 
     # Append and sort by date descending
-    predict_df['accuracy'] = np.nan  # add placeholder column
+    predict_df["accuracy"] = np.nan  # add placeholder column
     combined_df = pd.concat([combined_df, predict_df], ignore_index=True)
-    combined_df = combined_df.sort_values(by='date', ascending=False)
+    combined_df = combined_df.sort_values(by="date", ascending=False)
     # Display top rows for user
-    logger.info("Combined predictions (latest 10 rows):\n%s", combined_df.head(10).to_string(index=False))
+    logger.info(
+        "Combined predictions (latest 10 rows):\n%s", combined_df.head(10).to_string(index=False)
+    )
     logger.info("Combined predictions updated")
     return combined_df
 
@@ -162,45 +167,47 @@ def update_betting_statistics(combined_df, most_recent_date):
     # Read the most recent games data
     daily_games_df = pd.read_csv(os.path.join(STAT_DIR, f"nba_games_{most_recent_date}.csv"))
     # Filter to current season only
-    daily_games_df = daily_games_df[daily_games_df['season'] == CURRENT_SEASON].copy()
+    daily_games_df = daily_games_df[daily_games_df["season"] == CURRENT_SEASON].copy()
 
     # Convert date columns to datetime
-    season_df['date'] = pd.to_datetime(season_df['date'], errors='coerce')
-    daily_games_df['date'] = pd.to_datetime(daily_games_df['date'], errors='coerce')
+    season_df["date"] = pd.to_datetime(season_df["date"], errors="coerce")
+    daily_games_df["date"] = pd.to_datetime(daily_games_df["date"], errors="coerce")
 
     # Update result column based on actual winners
     for _, row in daily_games_df.iterrows():
-        date = row['date']
-        winning_team = row['team'] if row['won'] == 1 else None
+        date = row["date"]
+        winning_team = row["team"] if row["won"] == 1 else None
         if not winning_team:
             continue
-        mask = (season_df['date'] == date) & (
-            (season_df['home_team'] == winning_team) | (season_df['away_team'] == winning_team)
+        mask = (season_df["date"] == date) & (
+            (season_df["home_team"] == winning_team) | (season_df["away_team"] == winning_team)
         )
-        season_df.loc[mask, 'result'] = winning_team
+        season_df.loc[mask, "result"] = winning_team
 
     # Ensure probabilities are numeric
-    season_df['home_team_prob'] = pd.to_numeric(season_df['home_team_prob'], errors='coerce')
+    season_df["home_team_prob"] = pd.to_numeric(season_df["home_team_prob"], errors="coerce")
 
     # Compute accuracy
-    home_win = (season_df['home_team_prob'] >= 0.5) & (season_df['result'] == season_df['home_team'])
-    away_win = (season_df['home_team_prob'] < 0.5) & (season_df['result'] == season_df['away_team'])
-    season_df['accuracy'] = (home_win | away_win).astype(int)
+    home_win = (season_df["home_team_prob"] >= 0.5) & (
+        season_df["result"] == season_df["home_team"]
+    )
+    away_win = (season_df["home_team_prob"] < 0.5) & (season_df["result"] == season_df["away_team"])
+    season_df["accuracy"] = (home_win | away_win).astype(int)
 
     # Overall accuracy
-    overall = season_df['accuracy'].mean()
+    overall = season_df["accuracy"].mean()
     logger.info(f"Overall accuracy: {overall:.2%}")
 
     # Subset accuracy (home_team_prob > 0.60 and < 0.40)
-    high_conf_home = season_df[season_df['home_team_prob'] > 0.60]['accuracy'].mean()
-    low_conf_home = season_df[season_df['home_team_prob'] <= 0.40]['accuracy'].mean()
+    high_conf_home = season_df[season_df["home_team_prob"] > 0.60]["accuracy"].mean()
+    low_conf_home = season_df[season_df["home_team_prob"] <= 0.40]["accuracy"].mean()
     logger.info(f"Accuracy for home_team_prob > 0.60: {high_conf_home:.2%}")
     logger.info(f"Accuracy for home_team_prob <= 0.40: {low_conf_home:.2%}")
 
     # Save updated DataFrame with today's date
-    save_path = os.path.join(directory_path, f'combined_nba_predictions_acc_{today_str_format}.csv')
+    save_path = os.path.join(directory_path, f"combined_nba_predictions_acc_{today_str_format}.csv")
     # Drop unnamed columns and NaNs
-    season_df.drop(columns=['Unnamed: 8'], errors='ignore', inplace=True)
+    season_df.drop(columns=["Unnamed: 8"], errors="ignore", inplace=True)
     season_df.dropna(inplace=True)
     season_df.to_csv(save_path, index=False)
     logger.info(f"Updated betting statistics saved to {save_path}")

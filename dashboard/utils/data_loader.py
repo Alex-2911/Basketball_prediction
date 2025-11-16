@@ -5,12 +5,13 @@ Loads prediction data, statistics, and historical results from CSV files
 or database (if configured).
 """
 
-import pandas as pd
-from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Optional, List, Tuple
 import glob
 import os
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import List, Optional, Tuple
+
+import pandas as pd
 
 # Project paths
 ROOT_DIR = Path(__file__).parent.parent.parent
@@ -100,7 +101,7 @@ def load_historical_games(days_back: int = 30) -> Optional[pd.DataFrame]:
         game_file = DATA_DIR / f"nba_games_{date_str}.csv"
         if game_file.exists():
             df = pd.read_csv(game_file)
-            df['file_date'] = date_str
+            df["file_date"] = date_str
             all_games.append(df)
 
     if not all_games:
@@ -120,9 +121,7 @@ def load_all_predictions(limit: int = 100) -> Optional[pd.DataFrame]:
         DataFrame with all predictions or None if not found
     """
     pred_files = sorted(
-        OUTPUT_DIR.glob("nba_games_predict_*.csv"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True
+        OUTPUT_DIR.glob("nba_games_predict_*.csv"), key=lambda p: p.stat().st_mtime, reverse=True
     )[:limit]
 
     if not pred_files:
@@ -133,7 +132,7 @@ def load_all_predictions(limit: int = 100) -> Optional[pd.DataFrame]:
         df = pd.read_csv(file)
         # Extract date from filename: nba_games_predict_2025-10-23.csv
         date_str = file.stem.replace("nba_games_predict_", "")
-        df['prediction_date'] = date_str
+        df["prediction_date"] = date_str
         all_preds.append(df)
 
     return pd.concat(all_preds, ignore_index=True)
@@ -150,23 +149,23 @@ def get_team_stats(team: str, df: pd.DataFrame) -> dict:
     Returns:
         Dictionary with team statistics
     """
-    team_games = df[df['team'] == team]
+    team_games = df[df["team"] == team]
 
     if len(team_games) == 0:
         return {}
 
     stats = {
-        'games_played': len(team_games),
-        'wins': team_games['won'].sum() if 'won' in team_games.columns else 0,
-        'losses': len(team_games) - (team_games['won'].sum() if 'won' in team_games.columns else 0),
-        'avg_points': team_games['pts'].mean() if 'pts' in team_games.columns else 0,
-        'avg_opp_points': team_games['opp_pts'].mean() if 'opp_pts' in team_games.columns else 0,
+        "games_played": len(team_games),
+        "wins": team_games["won"].sum() if "won" in team_games.columns else 0,
+        "losses": len(team_games) - (team_games["won"].sum() if "won" in team_games.columns else 0),
+        "avg_points": team_games["pts"].mean() if "pts" in team_games.columns else 0,
+        "avg_opp_points": team_games["opp_pts"].mean() if "opp_pts" in team_games.columns else 0,
     }
 
-    if 'won' in team_games.columns and stats['games_played'] > 0:
-        stats['win_pct'] = stats['wins'] / stats['games_played']
+    if "won" in team_games.columns and stats["games_played"] > 0:
+        stats["win_pct"] = stats["wins"] / stats["games_played"]
     else:
-        stats['win_pct'] = 0.0
+        stats["win_pct"] = 0.0
 
     return stats
 
@@ -183,27 +182,30 @@ def calculate_model_metrics(df: pd.DataFrame) -> dict:
     """
     metrics = {}
 
-    if 'won' in df.columns and 'predicted_prob' in df.columns:
+    if "won" in df.columns and "predicted_prob" in df.columns:
         # Accuracy
-        df['predicted'] = (df['predicted_prob'] > 0.5).astype(int)
-        metrics['accuracy'] = (df['predicted'] == df['won']).mean()
+        df["predicted"] = (df["predicted_prob"] > 0.5).astype(int)
+        metrics["accuracy"] = (df["predicted"] == df["won"]).mean()
 
         # Brier score (lower is better)
-        metrics['brier_score'] = ((df['predicted_prob'] - df['won']) ** 2).mean()
+        metrics["brier_score"] = ((df["predicted_prob"] - df["won"]) ** 2).mean()
 
         # Log loss
         import numpy as np
-        epsilon = 1e-15
-        probs = df['predicted_prob'].clip(epsilon, 1 - epsilon)
-        metrics['log_loss'] = -(df['won'] * np.log(probs) + (1 - df['won']) * np.log(1 - probs)).mean()
 
-    if 'recommended_stake' in df.columns:
+        epsilon = 1e-15
+        probs = df["predicted_prob"].clip(epsilon, 1 - epsilon)
+        metrics["log_loss"] = -(
+            df["won"] * np.log(probs) + (1 - df["won"]) * np.log(1 - probs)
+        ).mean()
+
+    if "recommended_stake" in df.columns:
         # Calculate ROI
-        df_with_stakes = df[df['recommended_stake'] > 0].copy()
+        df_with_stakes = df[df["recommended_stake"] > 0].copy()
         if len(df_with_stakes) > 0:
             # Simplified ROI calculation (would need actual bet outcomes)
-            metrics['total_bets'] = len(df_with_stakes)
-            metrics['avg_stake'] = df_with_stakes['recommended_stake'].mean()
+            metrics["total_bets"] = len(df_with_stakes)
+            metrics["avg_stake"] = df_with_stakes["recommended_stake"].mean()
 
     return metrics
 
@@ -216,10 +218,10 @@ def get_available_data_summary() -> dict:
         Dictionary with file counts and date ranges
     """
     summary = {
-        'prediction_files': len(list(OUTPUT_DIR.glob("nba_games_predict_*.csv"))),
-        'enriched_files': len(list(OUTPUT_DIR.glob("combined_nba_predictions_enrich_*.csv"))),
-        'stats_files': len(list(OUTPUT_DIR.glob("combined_nba_predictions_acc_*.csv"))),
-        'game_files': len(list(DATA_DIR.glob("nba_games_*.csv"))),
+        "prediction_files": len(list(OUTPUT_DIR.glob("nba_games_predict_*.csv"))),
+        "enriched_files": len(list(OUTPUT_DIR.glob("combined_nba_predictions_enrich_*.csv"))),
+        "stats_files": len(list(OUTPUT_DIR.glob("combined_nba_predictions_acc_*.csv"))),
+        "game_files": len(list(DATA_DIR.glob("nba_games_*.csv"))),
     }
 
     # Get date range of predictions
@@ -234,7 +236,7 @@ def get_available_data_summary() -> dict:
                 continue
 
         if dates:
-            summary['earliest_prediction'] = min(dates).strftime("%Y-%m-%d")
-            summary['latest_prediction'] = max(dates).strftime("%Y-%m-%d")
+            summary["earliest_prediction"] = min(dates).strftime("%Y-%m-%d")
+            summary["latest_prediction"] = max(dates).strftime("%Y-%m-%d")
 
     return summary

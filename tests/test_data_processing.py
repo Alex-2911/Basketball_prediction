@@ -12,14 +12,19 @@ Critical for ML model quality - errors here = bad features = poor predictions.
 
 import sys
 from pathlib import Path
-import pytest
+
 import numpy as np
 import pandas as pd
+import pytest
 
 # Add source directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "2026" / "src"))
 
-from nba_utils_2026 import calculate_rolling_averages, preprocess_nba_data, add_next_game_columns
+from nba_utils_2026 import (
+    add_next_game_columns,
+    calculate_rolling_averages,
+    preprocess_nba_data,
+)
 
 
 class TestCalculateRollingAverages:
@@ -28,12 +33,14 @@ class TestCalculateRollingAverages:
     def test_rolling_averages_basic(self):
         """Test basic rolling average calculation."""
         # Create sample data: one team, one season, 10 games
-        df = pd.DataFrame({
-            "team": ["LAL"] * 10,
-            "season": ["2026"] * 10,
-            "points": [100, 102, 98, 105, 110, 95, 108, 103, 99, 107],
-            "rebounds": [45, 48, 42, 50, 52, 40, 49, 46, 44, 51],
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL"] * 10,
+                "season": ["2026"] * 10,
+                "points": [100, 102, 98, 105, 110, 95, 108, 103, 99, 107],
+                "rebounds": [45, 48, 42, 50, 52, 40, 49, 46, 44, 51],
+            }
+        )
 
         result = calculate_rolling_averages(df, window_size=3)
 
@@ -53,11 +60,13 @@ class TestCalculateRollingAverages:
 
     def test_rolling_averages_default_window(self):
         """Test with default 9-game window."""
-        df = pd.DataFrame({
-            "team": ["BOS"] * 15,
-            "season": ["2026"] * 15,
-            "points": list(range(100, 115)),  # 100, 101, 102, ..., 114
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["BOS"] * 15,
+                "season": ["2026"] * 15,
+                "points": list(range(100, 115)),  # 100, 101, 102, ..., 114
+            }
+        )
 
         result = calculate_rolling_averages(df, window_size=9)
 
@@ -71,11 +80,13 @@ class TestCalculateRollingAverages:
 
     def test_rolling_averages_multiple_teams(self):
         """Test rolling averages calculated separately per team."""
-        df = pd.DataFrame({
-            "team": ["LAL", "LAL", "LAL", "BOS", "BOS", "BOS"],
-            "season": ["2026"] * 6,
-            "points": [100, 110, 120, 90, 95, 100],
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL", "LAL", "LAL", "BOS", "BOS", "BOS"],
+                "season": ["2026"] * 6,
+                "points": [100, 110, 120, 90, 95, 100],
+            }
+        )
 
         result = calculate_rolling_averages(df, window_size=2)
 
@@ -89,11 +100,13 @@ class TestCalculateRollingAverages:
 
     def test_rolling_averages_multiple_seasons(self):
         """Test rolling averages calculated separately per season."""
-        df = pd.DataFrame({
-            "team": ["LAL"] * 6,
-            "season": ["2025", "2025", "2025", "2026", "2026", "2026"],
-            "points": [100, 110, 120, 90, 95, 100],
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL"] * 6,
+                "season": ["2025", "2025", "2025", "2026", "2026", "2026"],
+                "points": [100, 110, 120, 90, 95, 100],
+            }
+        )
 
         result = calculate_rolling_averages(df, window_size=2)
 
@@ -109,13 +122,15 @@ class TestCalculateRollingAverages:
 
     def test_rolling_averages_preserves_non_numeric(self):
         """Test that non-numeric columns are preserved."""
-        df = pd.DataFrame({
-            "team": ["LAL", "LAL", "LAL"],
-            "season": ["2026", "2026", "2026"],
-            "opponent": ["BOS", "MIA", "CHI"],
-            "points": [100, 110, 105],
-            "date": pd.to_datetime(["2025-10-23", "2025-10-24", "2025-10-25"]),
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL", "LAL", "LAL"],
+                "season": ["2026", "2026", "2026"],
+                "opponent": ["BOS", "MIA", "CHI"],
+                "points": [100, 110, 105],
+                "date": pd.to_datetime(["2025-10-23", "2025-10-24", "2025-10-25"]),
+            }
+        )
 
         result = calculate_rolling_averages(df, window_size=2)
 
@@ -131,12 +146,14 @@ class TestCalculateRollingAverages:
 
     def test_rolling_averages_only_numeric_cols_rolled(self):
         """Test that only numeric columns get rolling averages."""
-        df = pd.DataFrame({
-            "team": ["LAL", "LAL", "LAL"],
-            "season": ["2026", "2026", "2026"],
-            "points": [100, 110, 105],
-            "rebounds": [45, 50, 48],
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL", "LAL", "LAL"],
+                "season": ["2026", "2026", "2026"],
+                "points": [100, 110, 105],
+                "rebounds": [45, 50, 48],
+            }
+        )
 
         result = calculate_rolling_averages(df, window_size=2)
 
@@ -149,11 +166,13 @@ class TestCalculateRollingAverages:
 
     def test_rolling_averages_with_nans(self):
         """Test behavior with NaN values in data."""
-        df = pd.DataFrame({
-            "team": ["LAL"] * 5,
-            "season": ["2026"] * 5,
-            "points": [100, np.nan, 110, 105, np.nan],
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL"] * 5,
+                "season": ["2026"] * 5,
+                "points": [100, np.nan, 110, 105, np.nan],
+            }
+        )
 
         result = calculate_rolling_averages(df, window_size=2)
 
@@ -164,11 +183,13 @@ class TestCalculateRollingAverages:
 
     def test_rolling_averages_single_game(self):
         """Test with only one game (min_periods=1 should work)."""
-        df = pd.DataFrame({
-            "team": ["LAL"],
-            "season": ["2026"],
-            "points": [100],
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL"],
+                "season": ["2026"],
+                "points": [100],
+            }
+        )
 
         result = calculate_rolling_averages(df, window_size=9)
 
@@ -177,11 +198,13 @@ class TestCalculateRollingAverages:
 
     def test_rolling_averages_empty_dataframe(self):
         """Test with empty DataFrame."""
-        df = pd.DataFrame({
-            "team": [],
-            "season": [],
-            "points": [],
-        })
+        df = pd.DataFrame(
+            {
+                "team": [],
+                "season": [],
+                "points": [],
+            }
+        )
 
         result = calculate_rolling_averages(df, window_size=9)
 
@@ -196,12 +219,14 @@ class TestPreprocessNBAData:
 
     def test_preprocess_adds_target_variable(self):
         """Test that preprocessing adds 'won' target variable."""
-        df = pd.DataFrame({
-            "team": ["LAL", "BOS", "LAL", "BOS"],
-            "opponent": ["BOS", "LAL", "MIA", "CHI"],
-            "pts": [110, 105, 98, 102],
-            "opp_pts": [105, 110, 100, 95],
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL", "BOS", "LAL", "BOS"],
+                "opponent": ["BOS", "LAL", "MIA", "CHI"],
+                "pts": [110, 105, 98, 102],
+                "opp_pts": [105, 110, 100, 95],
+            }
+        )
 
         result = preprocess_nba_data(df)
 
@@ -209,11 +234,13 @@ class TestPreprocessNBAData:
 
     def test_preprocess_won_calculation(self):
         """Test 'won' is correctly calculated (1 if won, 0 if lost)."""
-        df = pd.DataFrame({
-            "team": ["LAL", "BOS", "MIA"],
-            "pts": [110, 98, 105],
-            "opp_pts": [105, 102, 105],  # LAL won, BOS lost, MIA tied
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL", "BOS", "MIA"],
+                "pts": [110, 98, 105],
+                "opp_pts": [105, 102, 105],  # LAL won, BOS lost, MIA tied
+            }
+        )
 
         result = preprocess_nba_data(df)
 
@@ -228,13 +255,15 @@ class TestPreprocessNBAData:
 
     def test_preprocess_preserves_original_columns(self):
         """Test that original columns are preserved."""
-        df = pd.DataFrame({
-            "team": ["LAL"],
-            "opponent": ["BOS"],
-            "pts": [110],
-            "opp_pts": [105],
-            "date": ["2025-10-23"],
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL"],
+                "opponent": ["BOS"],
+                "pts": [110],
+                "opp_pts": [105],
+                "date": ["2025-10-23"],
+            }
+        )
 
         result = preprocess_nba_data(df)
 
@@ -250,12 +279,14 @@ class TestAddNextGameColumns:
 
     def test_add_next_game_basic(self):
         """Test basic next game column addition."""
-        df = pd.DataFrame({
-            "team": ["LAL", "LAL", "LAL"],
-            "opponent": ["BOS", "MIA", "CHI"],
-            "date": ["2025-10-23", "2025-10-24", "2025-10-25"],
-            "pts": [110, 105, 108],
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL", "LAL", "LAL"],
+                "opponent": ["BOS", "MIA", "CHI"],
+                "date": ["2025-10-23", "2025-10-24", "2025-10-25"],
+                "pts": [110, 105, 108],
+            }
+        )
 
         result = add_next_game_columns(df)
 
@@ -264,10 +295,12 @@ class TestAddNextGameColumns:
 
     def test_add_next_game_last_row_is_nan(self):
         """Test that last row has NaN for next game (no next game)."""
-        df = pd.DataFrame({
-            "team": ["LAL", "LAL"],
-            "opponent": ["BOS", "MIA"],
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL", "LAL"],
+                "opponent": ["BOS", "MIA"],
+            }
+        )
 
         result = add_next_game_columns(df)
 
@@ -276,10 +309,12 @@ class TestAddNextGameColumns:
 
     def test_add_next_game_multiple_teams(self):
         """Test next game columns are added correctly per team."""
-        df = pd.DataFrame({
-            "team": ["LAL", "LAL", "BOS", "BOS"],
-            "opponent": ["BOS", "MIA", "CHI", "LAL"],
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL", "LAL", "BOS", "BOS"],
+                "opponent": ["BOS", "MIA", "CHI", "LAL"],
+            }
+        )
 
         result = add_next_game_columns(df)
 
@@ -294,15 +329,17 @@ class TestDataProcessingIntegration:
     def test_full_pipeline_basic(self):
         """Test complete data processing pipeline."""
         # Create realistic game data
-        df = pd.DataFrame({
-            "team": ["LAL"] * 10,
-            "season": ["2026"] * 10,
-            "opponent": ["BOS", "MIA", "CHI", "PHX", "GSW", "DEN", "DAL", "MIN", "NOP", "MEM"],
-            "pts": [110, 105, 98, 112, 108, 103, 115, 99, 107, 111],
-            "opp_pts": [105, 108, 102, 107, 110, 98, 112, 95, 105, 108],
-            "rebounds": [45, 48, 42, 50, 47, 44, 52, 43, 49, 46],
-            "assists": [25, 27, 22, 28, 24, 26, 29, 21, 27, 25],
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL"] * 10,
+                "season": ["2026"] * 10,
+                "opponent": ["BOS", "MIA", "CHI", "PHX", "GSW", "DEN", "DAL", "MIN", "NOP", "MEM"],
+                "pts": [110, 105, 98, 112, 108, 103, 115, 99, 107, 111],
+                "opp_pts": [105, 108, 102, 107, 110, 98, 112, 95, 105, 108],
+                "rebounds": [45, 48, 42, 50, 47, 44, 52, 43, 49, 46],
+                "assists": [25, 27, 22, 28, 24, 26, 29, 21, 27, 25],
+            }
+        )
 
         # Step 1: Add target variable
         df_processed = preprocess_nba_data(df)
@@ -321,13 +358,15 @@ class TestDataProcessingIntegration:
 
     def test_pipeline_with_multiple_teams(self):
         """Test pipeline with multiple teams."""
-        df = pd.DataFrame({
-            "team": ["LAL", "LAL", "LAL", "BOS", "BOS", "BOS"],
-            "season": ["2026"] * 6,
-            "pts": [110, 105, 108, 98, 102, 95],
-            "opp_pts": [105, 108, 103, 102, 95, 98],
-            "rebounds": [45, 48, 46, 42, 44, 40],
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL", "LAL", "LAL", "BOS", "BOS", "BOS"],
+                "season": ["2026"] * 6,
+                "pts": [110, 105, 108, 98, 102, 95],
+                "opp_pts": [105, 108, 103, 102, 95, 98],
+                "rebounds": [45, 48, 46, 42, 44, 40],
+            }
+        )
 
         df_processed = preprocess_nba_data(df)
         df_rolled = calculate_rolling_averages(df_processed, window_size=2)
@@ -348,11 +387,13 @@ class TestEdgeCasesAndErrorHandling:
 
     def test_rolling_averages_with_negative_window(self):
         """Test behavior with invalid window size."""
-        df = pd.DataFrame({
-            "team": ["LAL"],
-            "season": ["2026"],
-            "points": [100],
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL"],
+                "season": ["2026"],
+                "points": [100],
+            }
+        )
 
         # Negative window should either raise error or be handled gracefully
         with pytest.raises((ValueError, Exception)):
@@ -360,11 +401,13 @@ class TestEdgeCasesAndErrorHandling:
 
     def test_rolling_averages_with_zero_window(self):
         """Test behavior with zero window size."""
-        df = pd.DataFrame({
-            "team": ["LAL"],
-            "season": ["2026"],
-            "points": [100],
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL"],
+                "season": ["2026"],
+                "points": [100],
+            }
+        )
 
         # Zero window should raise error or be handled
         with pytest.raises((ValueError, Exception)):
@@ -372,11 +415,13 @@ class TestEdgeCasesAndErrorHandling:
 
     def test_rolling_averages_with_very_large_window(self):
         """Test with window larger than dataset."""
-        df = pd.DataFrame({
-            "team": ["LAL"] * 5,
-            "season": ["2026"] * 5,
-            "points": [100, 110, 105, 112, 108],
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL"] * 5,
+                "season": ["2026"] * 5,
+                "points": [100, 110, 105, 112, 108],
+            }
+        )
 
         # Window of 100 with only 5 games
         result = calculate_rolling_averages(df, window_size=100)
@@ -387,21 +432,25 @@ class TestEdgeCasesAndErrorHandling:
 
     def test_preprocess_with_missing_columns(self):
         """Test preprocessing when expected columns are missing."""
-        df = pd.DataFrame({
-            "team": ["LAL"],
-            # Missing 'pts' and 'opp_pts' columns
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL"],
+                # Missing 'pts' and 'opp_pts' columns
+            }
+        )
 
         # Should either raise informative error or handle gracefully
         # (Check actual implementation behavior)
 
     def test_rolling_averages_preserves_row_count(self):
         """Test that rolling averages doesn't drop rows."""
-        df = pd.DataFrame({
-            "team": ["LAL"] * 20,
-            "season": ["2026"] * 20,
-            "points": list(range(100, 120)),
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL"] * 20,
+                "season": ["2026"] * 20,
+                "points": list(range(100, 120)),
+            }
+        )
 
         result = calculate_rolling_averages(df, window_size=9)
 
@@ -414,12 +463,14 @@ class TestDataProcessingPerformance:
 
     def test_rolling_averages_full_season(self):
         """Test with full NBA season data (82 games per team)."""
-        df = pd.DataFrame({
-            "team": ["LAL"] * 82,
-            "season": ["2026"] * 82,
-            "points": [np.random.randint(90, 130) for _ in range(82)],
-            "rebounds": [np.random.randint(35, 55) for _ in range(82)],
-        })
+        df = pd.DataFrame(
+            {
+                "team": ["LAL"] * 82,
+                "season": ["2026"] * 82,
+                "points": [np.random.randint(90, 130) for _ in range(82)],
+                "rebounds": [np.random.randint(35, 55) for _ in range(82)],
+            }
+        )
 
         result = calculate_rolling_averages(df, window_size=9)
 
@@ -433,11 +484,13 @@ class TestDataProcessingPerformance:
         all_data = []
 
         for team in teams:
-            team_df = pd.DataFrame({
-                "team": [team] * 82,
-                "season": ["2026"] * 82,
-                "points": [np.random.randint(90, 130) for _ in range(82)],
-            })
+            team_df = pd.DataFrame(
+                {
+                    "team": [team] * 82,
+                    "season": ["2026"] * 82,
+                    "points": [np.random.randint(90, 130) for _ in range(82)],
+                }
+            )
             all_data.append(team_df)
 
         df = pd.concat(all_data, ignore_index=True)

@@ -14,13 +14,15 @@ Usage:
 """
 
 import os
-import yaml
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+import yaml
 
 
 class ConfigError(Exception):
     """Raised when configuration is invalid or missing."""
+
     pass
 
 
@@ -60,9 +62,9 @@ class Config:
         # Try multiple locations
         search_paths = [
             Path(__file__).parent.parent / "config.yaml",  # 2026/config.yaml
-            Path(__file__).parent / "config.yaml",          # 2026/src/config.yaml
-            Path.cwd() / "config.yaml",                     # ./config.yaml
-            Path.cwd() / "2026" / "config.yaml",            # ./2026/config.yaml
+            Path(__file__).parent / "config.yaml",  # 2026/src/config.yaml
+            Path.cwd() / "config.yaml",  # ./config.yaml
+            Path.cwd() / "2026" / "config.yaml",  # ./2026/config.yaml
         ]
 
         for path in search_paths:
@@ -70,8 +72,8 @@ class Config:
                 return path
 
         raise ConfigError(
-            f"Config file not found. Searched locations:\n" +
-            "\n".join(f"  - {p}" for p in search_paths)
+            f"Config file not found. Searched locations:\n"
+            + "\n".join(f"  - {p}" for p in search_paths)
         )
 
     def _load_config(self) -> Dict[str, Any]:
@@ -85,7 +87,7 @@ class Config:
             ConfigError: If file cannot be loaded
         """
         try:
-            with open(self.config_path, 'r') as f:
+            with open(self.config_path, "r") as f:
                 config = yaml.safe_load(f)
 
             if config is None:
@@ -108,11 +110,11 @@ class Config:
             ConfigError: If required sections are missing
         """
         required_sections = [
-            'season',
-            'data_collection',
-            'machine_learning',
-            'betting',
-            'paths',
+            "season",
+            "data_collection",
+            "machine_learning",
+            "betting",
+            "paths",
         ]
 
         for section in required_sections:
@@ -139,7 +141,7 @@ class Config:
             >>> config.get('nonexistent.key', 'default_value')
             'default_value'
         """
-        keys = key_path.split('.')
+        keys = key_path.split(".")
         value = self.config
 
         for key in keys:

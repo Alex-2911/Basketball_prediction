@@ -16,41 +16,41 @@ In GitHub Actions:
   - No interactive input() blocking at the end
 """
 
+import argparse
+import calendar
+import logging
 import os
 import re
 import sys
-import argparse
-import logging
-import calendar
-import pandas as pd
+from datetime import date, datetime, timedelta
 from io import StringIO
-from datetime import datetime, timedelta, date
+
+import pandas as pd
 from bs4 import BeautifulSoup
 
+# Import database utilities
+from db_utils import DatabaseOperations, db_config
+from error_handlers import (
+    DataValidationError,
+    ErrorContext,
+    ScrapingError,
+    handle_missing_data,
+    log_dataframe_info,
+    validate_dataframe,
+    validate_file_exists,
+)
+
+# Import error handling and logging infrastructure
+from logger import get_logger
 from nba_utils_2026 import (
     CURRENT_SEASON,
+    copy_missing_files,
     get_current_date,
     get_directory_paths,
     get_html,
     parse_html,
     rename_duplicated_columns,
-    copy_missing_files,
 )
-
-# Import error handling and logging infrastructure
-from logger import get_logger
-from error_handlers import (
-    ErrorContext,
-    validate_dataframe,
-    validate_file_exists,
-    log_dataframe_info,
-    handle_missing_data,
-    ScrapingError,
-    DataValidationError,
-)
-
-# Import database utilities
-from db_utils import DatabaseOperations, db_config
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -59,14 +59,17 @@ logger = get_logger(__name__)
 # local helpers
 # ──────────────────────────────────
 
+
 def parse_ymd(s: str) -> date:
     return datetime.strptime(s, "%Y-%m-%d").date()
+
 
 def month_name_lower(d: date) -> str:
     return calendar.month_name[d.month].lower()
 
+
 def read_line_score(soup):
-    line_score = pd.read_html(StringIO(str(soup)), attrs={'id': 'line_score'})[0]
+    line_score = pd.read_html(StringIO(str(soup)), attrs={"id": "line_score"})[0]
     cols = list(line_score.columns)
     cols[0] = "team"
     cols[-1] = "total"
@@ -74,14 +77,17 @@ def read_line_score(soup):
     line_score = line_score[["team", "total"]]
     return line_score
 
+
 def read_stats(soup, team, stat):
-    df = pd.read_html(StringIO(str(soup)), attrs={'id': f'box-{team}-game-{stat}'}, index_col=0)[0]
+    df = pd.read_html(StringIO(str(soup)), attrs={"id": f"box-{team}-game-{stat}"}, index_col=0)[0]
     return df.apply(pd.to_numeric, errors="coerce")
+
 
 def read_season_info(soup):
     nav = soup.select("#bottom_nav_container")[0]
-    hrefs = [a["href"] for a in nav.find_all('a')]
+    hrefs = [a["href"] for a in nav.find_all("a")]
     return os.path.basename(hrefs[1]).split("_")[0]
+
 
 def scrape_season_for_month(season, month_name, standings_dir):
     """
@@ -110,11 +116,8 @@ def scrape_season_for_month(season, month_name, standings_dir):
             logger.error(f"Failed to retrieve {url}")
             raise ScrapingError(f"Could not fetch season page: {url}")
 
-        soup = BeautifulSoup(html_content, 'html.parser')
-        links = soup.find_all(
-            "a",
-            href=re.compile(r"/leagues/NBA_[0-9]{4}_games-[a-z]+\.html")
-        )
+        soup = BeautifulSoup(html_content, "html.parser")
+        links = soup.find_all("a", href=re.compile(r"/leagues/NBA_[0-9]{4}_games-[a-z]+\.html"))
 
         wanted_url = None
         for l in links:
@@ -124,9 +127,7 @@ def scrape_season_for_month(season, month_name, standings_dir):
                 break
 
         if not wanted_url:
-            logger.warning(
-                f"No monthly url found for month '{month_name}' in season {season}"
-            )
+            logger.warning(f"No monthly url found for month '{month_name}' in season {season}")
             return None
 
         logger.info(f"Fetching fresh month page: {wanted_url}")
@@ -145,6 +146,7 @@ def scrape_season_for_month(season, month_name, standings_dir):
 
         return monthly_path
 
+
 def scrape_game_day_boxscores(standings_file, scores_dir, target_games_date: date):
     """
     From that month page:
@@ -153,10 +155,10 @@ def scrape_game_day_boxscores(standings_file, scores_dir, target_games_date: dat
     """
     os.makedirs(scores_dir, exist_ok=True)
 
-    with open(standings_file, 'r', encoding='utf-8') as f:
+    with open(standings_file, "r", encoding="utf-8") as f:
         html = f.read()
-    soup = BeautifulSoup(html, 'html.parser')
-    hrefs = [a.get('href') for a in soup.find_all("a")]
+    soup = BeautifulSoup(html, "html.parser")
+    hrefs = [a.get("href") for a in soup.find_all("a")]
 
     wanted_tag = target_games_date.strftime("%Y%m%d")
     box_scores = [
@@ -181,16 +183,13 @@ def scrape_game_day_boxscores(standings_file, scores_dir, target_games_date: dat
 
     return saved
 
+
 def process_saved_boxscores(scores_dir, existing_statistics, target_games_date: date):
     """
     Read all downloaded boxscore htmls for *exactly* target_games_date
     and build per-game rows aligned with existing_statistics columns.
     """
-    box_files = [
-        os.path.join(scores_dir, f)
-        for f in os.listdir(scores_dir)
-        if f.endswith(".html")
-    ]
+    box_files = [os.path.join(scores_dir, f) for f in os.listdir(scores_dir) if f.endswith(".html")]
     if not box_files:
         logger.warning("No box score files found.")
         return pd.DataFrame()
@@ -226,8 +225,7 @@ def process_saved_boxscores(scores_dir, existing_statistics, target_games_date: 
 
                 if base_cols is None:
                     base_cols = [
-                        b for b in summary.index.drop_duplicates(keep="first")
-                        if "bpm" not in b
+                        b for b in summary.index.drop_duplicates(keep="first") if "bpm" not in b
                     ]
                 summary = summary[base_cols]
                 summaries.append(summary)
@@ -261,6 +259,7 @@ def process_saved_boxscores(scores_dir, existing_statistics, target_games_date: 
 
     return games_df
 
+
 def _pause_and_exit_ok():
     """
     Local run: keep console window open.
@@ -274,9 +273,11 @@ def _pause_and_exit_ok():
     except EOFError:
         pass
 
+
 # ──────────────────────────────────
 # main()
 # ──────────────────────────────────
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -285,12 +286,12 @@ def main():
     parser.add_argument(
         "--date",
         type=str,
-        help="Anchor date in YYYY-MM-DD; script collects games from the day before."
+        help="Anchor date in YYYY-MM-DD; script collects games from the day before.",
     )
     parser.add_argument(
         "--collect-date",
         type=str,
-        help="Exact game date to collect in YYYY-MM-DD (overrides --date)."
+        help="Exact game date to collect in YYYY-MM-DD (overrides --date).",
     )
     args = parser.parse_args()
 
@@ -300,16 +301,12 @@ def main():
     if args.collect_date:
         target_games_date = parse_ymd(args.collect_date)
         save_as_date = today_date
-        logger.info(
-            f"Collecting games for exact date: {target_games_date}"
-        )
+        logger.info(f"Collecting games for exact date: {target_games_date}")
     elif args.date:
         anchor = parse_ymd(args.date)
         target_games_date = anchor - timedelta(days=1)
         save_as_date = anchor
-        logger.info(
-            f"Anchor date {anchor} → collecting prior day {target_games_date}"
-        )
+        logger.info(f"Anchor date {anchor} → collecting prior day {target_games_date}")
     else:
         target_games_date = today_date - timedelta(days=1)
         save_as_date = today_date
@@ -325,21 +322,14 @@ def main():
     DST_DIR = STAT_DIR
 
     month_name = month_name_lower(target_games_date)
-    fresh_monthly_file = scrape_season_for_month(
-        CURRENT_SEASON,
-        month_name,
-        STANDINGS_DIR
-    )
+    fresh_monthly_file = scrape_season_for_month(CURRENT_SEASON, month_name, STANDINGS_DIR)
 
     if fresh_monthly_file is None:
         fresh_monthly_file = os.path.join(
-            STANDINGS_DIR,
-            f"NBA_{CURRENT_SEASON}_games-{month_name}.html"
+            STANDINGS_DIR, f"NBA_{CURRENT_SEASON}_games-{month_name}.html"
         )
         if not os.path.exists(fresh_monthly_file):
-            logger.warning(
-                f"No monthly file available for {month_name}, cannot continue."
-            )
+            logger.warning(f"No monthly file available for {month_name}, cannot continue.")
             _pause_and_exit_ok()
             return
 
@@ -350,53 +340,31 @@ def main():
             f = os.path.join(STAT_DIR, f"nba_games_{cand}.csv")
             if os.path.exists(f):
                 existing_statistics = pd.read_csv(f)
-                logger.info(
-                    f"Using existing statistics layout from: {f}"
-                )
+                logger.info(f"Using existing statistics layout from: {f}")
                 break
     except Exception as e:
-        logger.warning(
-            f"Could not load existing stats layout: {e}"
-        )
+        logger.warning(f"Could not load existing stats layout: {e}")
 
-    saved = scrape_game_day_boxscores(
-        fresh_monthly_file,
-        SCORES_DIR,
-        target_games_date
-    )
-    logger.info(
-        f"Saved {saved} new box score file(s) for {target_games_date}"
-    )
+    saved = scrape_game_day_boxscores(fresh_monthly_file, SCORES_DIR, target_games_date)
+    logger.info(f"Saved {saved} new box score file(s) for {target_games_date}")
 
-    games_df = process_saved_boxscores(
-        SCORES_DIR,
-        existing_statistics,
-        target_games_date
-    )
+    games_df = process_saved_boxscores(SCORES_DIR, existing_statistics, target_games_date)
 
     if games_df is None or games_df.empty:
-        logger.warning(
-            f"No games parsed for {target_games_date}. Nothing to append."
-        )
+        logger.warning(f"No games parsed for {target_games_date}. Nothing to append.")
         _pause_and_exit_ok()
         return
 
     if existing_statistics is not None and not existing_statistics.empty:
         games_df = games_df.reindex(columns=existing_statistics.columns)
 
-    out_daily = os.path.join(
-        STAT_DIR,
-        f"nba_games_{save_as_date}.csv"
-    )
+    out_daily = os.path.join(STAT_DIR, f"nba_games_{save_as_date}.csv")
 
     if os.path.exists(out_daily):
         prev = pd.read_csv(out_daily)
         combined = pd.concat([prev, games_df], ignore_index=True)
     elif existing_statistics is not None:
-        combined = pd.concat(
-            [existing_statistics, games_df],
-            ignore_index=True
-        ).drop_duplicates()
+        combined = pd.concat([existing_statistics, games_df], ignore_index=True).drop_duplicates()
     else:
         combined = games_df
 
@@ -407,9 +375,7 @@ def main():
         logger.warning(f"DataFrame validation warning: {e}")
 
     combined.to_csv(out_daily, index=False)
-    logger.info(
-        f"Combined statistics saved → {out_daily}"
-    )
+    logger.info(f"Combined statistics saved → {out_daily}")
 
     # Save to database if enabled
     if db_config.enabled:

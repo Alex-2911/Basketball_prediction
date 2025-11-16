@@ -19,38 +19,38 @@
 #
 # The console stays open at the end (or on errors) so you can read the output.
 
+import logging
 import os
 import sys
 import traceback
-import logging
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 
-from sklearn.linear_model import LogisticRegression
-from sklearn.isotonic import IsotonicRegression
-from sklearn.model_selection import train_test_split
+# Import database utilities
+from db_utils import DatabaseOperations, db_config
+from error_handlers import (
+    DataValidationError,
+    ErrorContext,
+    log_dataframe_info,
+    validate_dataframe,
+)
+
+# Import error handling and logging infrastructure
+from logger import get_logger
 
 # ---- 2026 utilities ----
 from nba_utils_2026 import (
     get_current_date,
     get_directory_paths,
+    get_home_win_rates,
     get_latest_file,
     kelly_frac,
-    get_home_win_rates,
 )
-
-# Import error handling and logging infrastructure
-from logger import get_logger
-from error_handlers import (
-    ErrorContext,
-    validate_dataframe,
-    log_dataframe_info,
-    DataValidationError,
-)
-
-# Import database utilities
-from db_utils import DatabaseOperations, db_config
+from sklearn.isotonic import IsotonicRegression
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -61,7 +61,7 @@ logger = get_logger(__name__)
 # e.g. "2025-10-23", "2025-10-24", "2025-10-25", "2025-10-26"
 # BACKFILL_DATE = "2025-10-25"   # <-- change this per run
 
-#if BACKFILL_DATE:
+# if BACKFILL_DATE:
 #    import datetime as _dt
 
 #    def get_current_date(days_offset: int = 0):
@@ -108,14 +108,15 @@ def load_predictions(directory_path: str, force_date: str = None):
 
     # normalize exactly like before
     df.columns = df.columns.str.strip().str.lower().str.replace(r"\s+", "_", regex=True)
-    df["date"]    = pd.to_datetime(df["date"], errors="coerce").dt.date
-    df["odds_1"]  = pd.to_numeric(df["odds_1"].astype(str).str.replace(",", "."), errors="coerce")
-    df["odds_2"]  = pd.to_numeric(df["odds_2"].astype(str).str.replace(",", "."), errors="coerce")
-    df["raw_prob"] = pd.to_numeric(df["home_team_prob"].astype(str).str.replace(",", "."), errors="coerce")
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    df["odds_1"] = pd.to_numeric(df["odds_1"].astype(str).str.replace(",", "."), errors="coerce")
+    df["odds_2"] = pd.to_numeric(df["odds_2"].astype(str).str.replace(",", "."), errors="coerce")
+    df["raw_prob"] = pd.to_numeric(
+        df["home_team_prob"].astype(str).str.replace(",", "."), errors="coerce"
+    )
 
     logger.info(f"Loaded predictions file: {pred_file} with {len(df)} rows")
     return pred_file, df
-
 
 
 def try_load_combined(directory_path: str):
@@ -138,13 +139,16 @@ def compute_home_win_rates_save(hist_df: pd.DataFrame, output_file_home: str):
     return hwr_sorted
 
 
-def kelly_suggestion_text(team_home, team_away, prob, odds, bank, bet_frac=0.5, cap_frac=0.30, abs_cap=300.0, side="home"):
+def kelly_suggestion_text(
+    team_home, team_away, prob, odds, bank, bet_frac=0.5, cap_frac=0.30, abs_cap=300.0, side="home"
+):
     """Return a printable suggestion line for Kelly staking if positive; else None."""
+
     def _kelly_frac(p, o, f):
         b = o - 1.0
         if b <= 0:
             return 0.0
-        return max(((b*p - (1-p)) / b) * f, 0.0)
+        return max(((b * p - (1 - p)) / b) * f, 0.0)
 
     kf = _kelly_frac(prob, odds, bet_frac)
     if kf <= 0:
@@ -160,8 +164,12 @@ def main():
     paths = get_directory_paths()
     directory_path = paths["PREDICTION_DIR"]
     output_file_home = os.path.join(directory_path, f"home_win_rates_sorted_{today_str_format}.csv")
-    OUTPUT_FILE = os.path.join(directory_path, f"combined_nba_predictions_enriched_{today_str_format}.csv")
-    OUTPUT_FILE_filtered = os.path.join(directory_path, f"combined_nba_predictions_enriched_filtered_{today_str_format}.csv")
+    OUTPUT_FILE = os.path.join(
+        directory_path, f"combined_nba_predictions_enriched_{today_str_format}.csv"
+    )
+    OUTPUT_FILE_filtered = os.path.join(
+        directory_path, f"combined_nba_predictions_enriched_filtered_{today_str_format}.csv"
+    )
     out_path_kelly = os.path.join(directory_path, f"kelly_stakes_{today_str_format}.csv")
 
     print(f"Today's date (utils): {today_str_format}")
@@ -224,9 +232,9 @@ def main():
 
         # Selection filters (home‑side strategy as in your workflow)
         sel = df_pred[
-            (df_pred.home_team.isin(good_homes)) &
-            (df_pred.odds_1.between(odds_min, odds_max)) &
-            (df_pred.raw_prob >= raw_prob_cut)
+            (df_pred.home_team.isin(good_homes))
+            & (df_pred.odds_1.between(odds_min, odds_max))
+            & (df_pred.raw_prob >= raw_prob_cut)
         ].copy()
 
         # Kelly suggestions (home)
@@ -235,20 +243,29 @@ def main():
         for _, r in sel.iterrows():
             for label, p in [("raw", r.raw_prob), ("platt", r.prob_platt), ("iso", r.prob_iso)]:
                 line, stake = kelly_suggestion_text(
-                    r.home_team, r.away_team, p, r.odds_1,
-                    starting_bank_today, bet_frac, cap_frac, abs_cap, side=f"home-{label}"
+                    r.home_team,
+                    r.away_team,
+                    p,
+                    r.odds_1,
+                    starting_bank_today,
+                    bet_frac,
+                    cap_frac,
+                    abs_cap,
+                    side=f"home-{label}",
                 )
                 if line:
                     print(line)
-                    rows.append({
-                        "home_team": r.home_team,
-                        "away_team": r.away_team,
-                        "date": r.date,
-                        "side": f"home-{label}",
-                        "prob": p,
-                        "odds": r.odds_1,
-                        "stake": stake,
-                    })
+                    rows.append(
+                        {
+                            "home_team": r.home_team,
+                            "away_team": r.away_team,
+                            "date": r.date,
+                            "side": f"home-{label}",
+                            "prob": p,
+                            "odds": r.odds_1,
+                            "stake": stake,
+                        }
+                    )
         if not rows:
             print("No positive‑edge home bets under current filters.")
         print()
@@ -256,15 +273,14 @@ def main():
         # Season‑long simulation (uses hist_df)
         # Prepare df_sim
         df_sim = hist_df.copy()
-        df_sim.columns = (
-            df_sim.columns
-            .str.strip()
-            .str.lower()
-            .str.replace(r"\s+", "_", regex=True)
-        )
+        df_sim.columns = df_sim.columns.str.strip().str.lower().str.replace(r"\s+", "_", regex=True)
         df_sim["date"] = pd.to_datetime(df_sim["date"], errors="coerce")
-        df_sim["odds_1"] = pd.to_numeric(df_sim["odds_1"].astype(str).str.replace(",", "."), errors="coerce")
-        df_sim["home_team_prob"] = pd.to_numeric(df_sim["home_team_prob"].astype(str).str.replace(",", "."), errors="coerce")
+        df_sim["odds_1"] = pd.to_numeric(
+            df_sim["odds_1"].astype(str).str.replace(",", "."), errors="coerce"
+        )
+        df_sim["home_team_prob"] = pd.to_numeric(
+            df_sim["home_team_prob"].astype(str).str.replace(",", "."), errors="coerce"
+        )
         df_sim["win"] = (df_sim["result"] == df_sim["home_team"]).astype(int)
 
         # Fit calibrations on full hist (already defined 'platt' and 'iso' above for df_pred; re‑fit for df_sim)
@@ -294,7 +310,11 @@ def main():
         for i, row in df_sim.sort_values("date").iterrows():
             o = row["odds_1"]
             is_home = row["home_team"] in good_home
-            for lbl, p_col in [("raw", "home_team_prob"), ("platt", "prob_platt"), ("iso", "prob_iso")]:
+            for lbl, p_col in [
+                ("raw", "home_team_prob"),
+                ("platt", "prob_platt"),
+                ("iso", "prob_iso"),
+            ]:
                 p = row[p_col]
                 if is_home and (o >= odds_min) and (o <= odds_max) and (p >= raw_prob_cut):
                     # Use provided Kelly function for sim
@@ -326,9 +346,9 @@ def main():
                 logger.info("Data still saved to CSV successfully")
 
         mask = (
-            (df_sim["stake_raw"] > 0) |
-            (df_sim["stake_platt"] > 0) |
-            (df_sim.get("stake_iso", 0) > 0)
+            (df_sim["stake_raw"] > 0)
+            | (df_sim["stake_platt"] > 0)
+            | (df_sim.get("stake_iso", 0) > 0)
         )
         df_filtered = df_sim.loc[mask].reset_index(drop=True)
         df_filtered.to_csv(OUTPUT_FILE_filtered, index=False, float_format="%.4f")
@@ -337,7 +357,12 @@ def main():
         # Plot bankroll paths
         plt.figure(figsize=(10, 6))
         for lbl, color in [("raw", "C0"), ("platt", "C1"), ("iso", "C2")]:
-            plt.plot(df_filtered["date"], df_filtered[f"bank_{lbl}"], label=f"{lbl.capitalize()}‑Kelly bank", color=color)
+            plt.plot(
+                df_filtered["date"],
+                df_filtered[f"bank_{lbl}"],
+                label=f"{lbl.capitalize()}‑Kelly bank",
+                color=color,
+            )
         plt.xlabel("Date")
         plt.ylabel("Bankroll (€)")
         plt.title("Raw vs Platt vs Iso‑Kelly Bankroll Paths")
@@ -353,11 +378,12 @@ def main():
         else:
             logging.warning(f"⚠️ No Kelly suggestions — empty file saved at {out_path_kelly}")
 
-
     else:
         # FALLBACK MODE
         print("\n⚠️  Fallback mode: combined accuracy file missing.")
-        print("    → Skipping calibration & home‑win filters; proposing Kelly bets from raw probabilities only.\n")
+        print(
+            "    → Skipping calibration & home‑win filters; proposing Kelly bets from raw probabilities only.\n"
+        )
 
         # Display schedule
         print("Today's schedule:")
@@ -377,28 +403,56 @@ def main():
         for _, r in df_pred.iterrows():
             # Home side
             line_h, stake_h = kelly_suggestion_text(
-                r.home_team, r.away_team, r.raw_prob, r.odds_1,
-                starting_bank_today, bet_frac, cap_frac, abs_cap, side="home-raw"
+                r.home_team,
+                r.away_team,
+                r.raw_prob,
+                r.odds_1,
+                starting_bank_today,
+                bet_frac,
+                cap_frac,
+                abs_cap,
+                side="home-raw",
             )
             if line_h:
                 print(line_h)
-                rows.append({
-                    "home_team": r.home_team, "away_team": r.away_team, "date": r.date,
-                    "side": "home-raw", "prob": r.raw_prob, "odds": r.odds_1, "stake": stake_h
-                })
+                rows.append(
+                    {
+                        "home_team": r.home_team,
+                        "away_team": r.away_team,
+                        "date": r.date,
+                        "side": "home-raw",
+                        "prob": r.raw_prob,
+                        "odds": r.odds_1,
+                        "stake": stake_h,
+                    }
+                )
 
             # Away side uses (1 - p) and odds_2
             away_prob = 1.0 - (r.raw_prob if pd.notnull(r.raw_prob) else 0.0)
             line_a, stake_a = kelly_suggestion_text(
-                r.home_team, r.away_team, away_prob, r.odds_2,
-                starting_bank_today, bet_frac, cap_frac, abs_cap, side="away-raw"
+                r.home_team,
+                r.away_team,
+                away_prob,
+                r.odds_2,
+                starting_bank_today,
+                bet_frac,
+                cap_frac,
+                abs_cap,
+                side="away-raw",
             )
             if line_a:
                 print(line_a)
-                rows.append({
-                    "home_team": r.home_team, "away_team": r.away_team, "date": r.date,
-                    "side": "away-raw", "prob": away_prob, "odds": r.odds_2, "stake": stake_a
-                })
+                rows.append(
+                    {
+                        "home_team": r.home_team,
+                        "away_team": r.away_team,
+                        "date": r.date,
+                        "side": "away-raw",
+                        "prob": away_prob,
+                        "odds": r.odds_2,
+                        "stake": stake_a,
+                    }
+                )
 
         if not rows:
             print("No positive‑edge Kelly bets found from raw probabilities.")
@@ -410,7 +464,6 @@ def main():
             logger.info(f"✅ Wrote Kelly stakes (today) → {out_path_kelly}")
         else:
             logging.warning(f"⚠️ No Kelly suggestions — empty file saved at {out_path_kelly}")
-
 
         # Keep a tiny plot open (optional) to ensure the window remains until user closes
         plt.figure(figsize=(4, 2))

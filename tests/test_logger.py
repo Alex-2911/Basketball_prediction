@@ -10,13 +10,14 @@ Tests logger configuration and functionality:
 - Multiple logger instances
 """
 
-import sys
-from pathlib import Path
-import pytest
 import logging
 import os
-from unittest.mock import patch, MagicMock
+import sys
 import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 # Add source directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "2026" / "src"))
@@ -144,7 +145,7 @@ class TestLoggerFileOutput:
         logger.setLevel(logging.INFO)
 
         handler = logging.FileHandler(log_file)
-        handler.setFormatter(logging.Formatter('%(levelname)s - %(message)s'))
+        handler.setFormatter(logging.Formatter("%(levelname)s - %(message)s"))
         logger.addHandler(handler)
 
         logger.info("Test message to file")
@@ -180,12 +181,12 @@ class TestLoggerMultipleHandlers:
 
         # Add file handler
         file_handler = logging.FileHandler(log_file)
-        file_handler.setFormatter(logging.Formatter('%(message)s'))
+        file_handler.setFormatter(logging.Formatter("%(message)s"))
         logger.addHandler(file_handler)
 
         # Add stream handler (console)
         stream_handler = logging.StreamHandler()
-        stream_handler.setFormatter(logging.Formatter('%(message)s'))
+        stream_handler.setFormatter(logging.Formatter("%(message)s"))
         logger.addHandler(stream_handler)
 
         with caplog.at_level(logging.INFO):
@@ -278,7 +279,7 @@ class TestLoggerContextualLogging:
         logger = get_logger("context_extra")
 
         with caplog.at_level(logging.INFO):
-            logger.info("Message with context", extra={'user': 'test_user'})
+            logger.info("Message with context", extra={"user": "test_user"})
 
         # Message should be logged
         assert "Message with context" in caplog.text

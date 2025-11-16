@@ -6,18 +6,19 @@ Tests database connectivity, CRUD operations, and graceful fallback.
 Database tests are skipped if USE_DATABASE=false to avoid CI failures.
 """
 
-import sys
-from pathlib import Path
-import pytest
-import pandas as pd
 import os
-from datetime import datetime, date
-from unittest.mock import Mock, patch, MagicMock
+import sys
+from datetime import date, datetime
+from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
+
+import pandas as pd
+import pytest
 
 # Add source directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "2026" / "src"))
 
-from db_utils import DatabaseConfig, DatabasePool, DatabaseOperations, db_config
+from db_utils import DatabaseConfig, DatabaseOperations, DatabasePool, db_config
 
 
 class TestDatabaseConfig:
@@ -38,23 +39,23 @@ class TestDatabaseConfig:
     def test_config_connection_string(self):
         """Test loading DATABASE_URL connection string."""
         test_url = "postgresql://user:pass@localhost:5432/db"
-        with patch.dict(os.environ, {
-            "USE_DATABASE": "true",
-            "DATABASE_URL": test_url
-        }):
+        with patch.dict(os.environ, {"USE_DATABASE": "true", "DATABASE_URL": test_url}):
             config = DatabaseConfig()
             assert config.connection_string == test_url
 
     def test_config_individual_components(self):
         """Test loading individual DB_* components."""
-        with patch.dict(os.environ, {
-            "USE_DATABASE": "true",
-            "DB_HOST": "testhost",
-            "DB_PORT": "5433",
-            "DB_NAME": "testdb",
-            "DB_USER": "testuser",
-            "DB_PASSWORD": "testpass"
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "USE_DATABASE": "true",
+                "DB_HOST": "testhost",
+                "DB_PORT": "5433",
+                "DB_NAME": "testdb",
+                "DB_USER": "testuser",
+                "DB_PASSWORD": "testpass",
+            },
+        ):
             config = DatabaseConfig()
             assert config.host == "testhost"
             assert config.port == 5433
@@ -65,10 +66,7 @@ class TestDatabaseConfig:
     def test_get_connection_params_with_url(self):
         """Test connection params when using DATABASE_URL."""
         test_url = "postgresql://user:pass@localhost:5432/db"
-        with patch.dict(os.environ, {
-            "USE_DATABASE": "true",
-            "DATABASE_URL": test_url
-        }):
+        with patch.dict(os.environ, {"USE_DATABASE": "true", "DATABASE_URL": test_url}):
             config = DatabaseConfig()
             params = config.get_connection_params()
             assert "dsn" in params
@@ -76,14 +74,17 @@ class TestDatabaseConfig:
 
     def test_get_connection_params_with_components(self):
         """Test connection params when using individual components."""
-        with patch.dict(os.environ, {
-            "USE_DATABASE": "true",
-            "DB_HOST": "testhost",
-            "DB_PORT": "5432",
-            "DB_NAME": "testdb",
-            "DB_USER": "testuser",
-            "DB_PASSWORD": "testpass"
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "USE_DATABASE": "true",
+                "DB_HOST": "testhost",
+                "DB_PORT": "5432",
+                "DB_NAME": "testdb",
+                "DB_USER": "testuser",
+                "DB_PASSWORD": "testpass",
+            },
+        ):
             config = DatabaseConfig()
             params = config.get_connection_params()
             assert params["host"] == "testhost"
@@ -101,7 +102,7 @@ class TestDatabaseOperations:
         db_ops = DatabaseOperations()
         assert db_ops.is_enabled() == db_config.enabled
 
-    @patch('db_utils.db_pool')
+    @patch("db_utils.db_pool")
     def test_save_game_statistics_validates_dataframe(self, mock_pool):
         """Test that save_game_statistics validates input DataFrame."""
         db_ops = DatabaseOperations()
@@ -110,17 +111,19 @@ class TestDatabaseOperations:
         with pytest.raises(Exception):  # DataValidationError
             db_ops.save_game_statistics(pd.DataFrame())
 
-    @patch('db_utils.db_pool')
+    @patch("db_utils.db_pool")
     def test_save_predictions_validates_required_columns(self, mock_pool):
         """Test that save_predictions validates required columns."""
         db_ops = DatabaseOperations()
 
         # Missing required columns should raise error
-        df_invalid = pd.DataFrame({
-            'home_team': ['LAL'],
-            'away_team': ['BOS']
-            # Missing: 'date', 'home_team_prob'
-        })
+        df_invalid = pd.DataFrame(
+            {
+                "home_team": ["LAL"],
+                "away_team": ["BOS"],
+                # Missing: 'date', 'home_team_prob'
+            }
+        )
 
         with pytest.raises(Exception):  # DataValidationError
             db_ops.save_predictions(df_invalid)
@@ -128,18 +131,20 @@ class TestDatabaseOperations:
     def test_save_game_statistics_with_valid_data(self):
         """Test saving game statistics with valid data (mocked pool)."""
         # Create valid sample data
-        df = pd.DataFrame({
-            'season': ['2026'],
-            'date': [date(2025, 10, 22)],
-            'team': ['LAL'],
-            'team_opp': ['BOS'],
-            'home': [1],
-            'won': [True],
-            'total': [110],
-            'total_opp': [105]
-        })
+        df = pd.DataFrame(
+            {
+                "season": ["2026"],
+                "date": [date(2025, 10, 22)],
+                "team": ["LAL"],
+                "team_opp": ["BOS"],
+                "home": [1],
+                "won": [True],
+                "total": [110],
+                "total_opp": [105],
+            }
+        )
 
-        with patch('db_utils.db_pool') as mock_pool:
+        with patch("db_utils.db_pool") as mock_pool:
             mock_conn = MagicMock()
             mock_cursor = MagicMock()
             mock_conn.cursor.return_value.__enter__ = Mock(return_value=mock_cursor)
@@ -168,7 +173,7 @@ class TestDatabaseGracefulFallback:
             db_ops = DatabaseOperations()
             assert db_ops.is_enabled() is False
 
-    @patch('db_utils.db_pool')
+    @patch("db_utils.db_pool")
     def test_save_operations_catch_exceptions(self, mock_pool):
         """Test that database save operations catch and log exceptions."""
         # Simulate database connection failure
@@ -177,16 +182,18 @@ class TestDatabaseGracefulFallback:
         db_ops = DatabaseOperations()
 
         # Save should raise exception (which scripts catch and log)
-        df = pd.DataFrame({
-            'season': ['2026'],
-            'date': [date(2025, 10, 22)],
-            'team': ['LAL'],
-            'team_opp': ['BOS'],
-            'home': [1],
-            'won': [True],
-            'total': [110],
-            'total_opp': [105]
-        })
+        df = pd.DataFrame(
+            {
+                "season": ["2026"],
+                "date": [date(2025, 10, 22)],
+                "team": ["LAL"],
+                "team_opp": ["BOS"],
+                "home": [1],
+                "won": [True],
+                "total": [110],
+                "total_opp": [105],
+            }
+        )
 
         with pytest.raises(Exception):
             db_ops.save_game_statistics(df)
@@ -200,15 +207,13 @@ class TestDatabaseDataValidation:
         db_ops = DatabaseOperations()
 
         # Missing 'season' column
-        df_invalid = pd.DataFrame({
-            'date': [date(2025, 10, 22)],
-            'team': ['LAL'],
-            'team_opp': ['BOS']
-        })
+        df_invalid = pd.DataFrame(
+            {"date": [date(2025, 10, 22)], "team": ["LAL"], "team_opp": ["BOS"]}
+        )
 
         # Should work with minimal columns (no strict validation by default)
         # The actual database will enforce constraints
-        with patch('db_utils.db_pool'):
+        with patch("db_utils.db_pool"):
             with pytest.raises(Exception):
                 db_ops.save_game_statistics(pd.DataFrame())
 
@@ -216,12 +221,14 @@ class TestDatabaseDataValidation:
         """Test that predictions require home_team_prob column."""
         db_ops = DatabaseOperations()
 
-        df_no_prob = pd.DataFrame({
-            'home_team': ['LAL'],
-            'away_team': ['BOS'],
-            'date': [date(2025, 10, 22)]
-            # Missing: home_team_prob
-        })
+        df_no_prob = pd.DataFrame(
+            {
+                "home_team": ["LAL"],
+                "away_team": ["BOS"],
+                "date": [date(2025, 10, 22)],
+                # Missing: home_team_prob
+            }
+        )
 
         with pytest.raises(Exception):
             db_ops.save_predictions(df_no_prob)
@@ -229,8 +236,7 @@ class TestDatabaseDataValidation:
 
 # Skip integration tests if database is not enabled
 pytestmark = pytest.mark.skipif(
-    not db_config.enabled,
-    reason="Database integration tests require USE_DATABASE=true"
+    not db_config.enabled, reason="Database integration tests require USE_DATABASE=true"
 )
 
 
@@ -247,6 +253,7 @@ class TestDatabaseIntegration:
         """Initialize database pool for integration tests."""
         if db_config.enabled:
             from db_utils import db_pool
+
             db_pool.initialize()
             yield db_pool
             db_pool.close_all()
@@ -262,7 +269,7 @@ class TestDatabaseIntegration:
         # Simple query to verify connection
         result = db_ops.execute_query("SELECT 1 as test")
         assert len(result) == 1
-        assert result[0]['test'] == 1
+        assert result[0]["test"] == 1
 
     def test_save_and_retrieve_game_statistics(self, db_pool_initialized):
         """Test saving and retrieving game statistics."""
@@ -271,25 +278,25 @@ class TestDatabaseIntegration:
         db_ops = DatabaseOperations()
 
         # Create test data
-        test_data = pd.DataFrame({
-            'season': ['9999'],  # Use unique season to avoid conflicts
-            'date': [date(2099, 12, 31)],
-            'team': ['TST'],
-            'team_opp': ['TST2'],
-            'home': [1],
-            'won': [True],
-            'total': [100],
-            'total_opp': [95]
-        })
+        test_data = pd.DataFrame(
+            {
+                "season": ["9999"],  # Use unique season to avoid conflicts
+                "date": [date(2099, 12, 31)],
+                "team": ["TST"],
+                "team_opp": ["TST2"],
+                "home": [1],
+                "won": [True],
+                "total": [100],
+                "total_opp": [95],
+            }
+        )
 
         # Save to database
         rows_saved = db_ops.save_game_statistics(test_data)
         assert rows_saved > 0
 
         # Cleanup test data
-        db_ops.execute_query(
-            "DELETE FROM game_statistics WHERE season = '9999'"
-        )
+        db_ops.execute_query("DELETE FROM game_statistics WHERE season = '9999'")
 
 
 # Run tests with: pytest tests/test_database_integration.py -v

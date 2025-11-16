@@ -13,18 +13,17 @@ Common utility functions and configuration shared across all scripts:
 - Team code normalization (PHO→PHX, BKN↔BRK, etc.)
 """
 
-import os
+import calendar
 import glob
 import logging
-import calendar
+import os
 from datetime import datetime, timedelta
 from io import StringIO
-from typing import Optional, List, Dict, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
-
 
 # ============================================================================
 # GLOBAL CONFIGURATIONS
@@ -126,6 +125,7 @@ def get_team_codes() -> Dict[str, str]:
 # FILE OPERATIONS
 # ============================================================================
 
+
 def get_latest_file(folder: str, prefix: str, ext: str) -> Optional[str]:
     """
     Return the most recently modified file in `folder`
@@ -136,9 +136,7 @@ def get_latest_file(folder: str, prefix: str, ext: str) -> Optional[str]:
 
 
 def find_file_in_date_range(
-    directory: str,
-    filename_pattern: str,
-    max_days_back: int = 120
+    directory: str, filename_pattern: str, max_days_back: int = 120
 ) -> Tuple[Optional[str], Optional[str]]:
     """
     filename_pattern must contain {} where the date (YYYY-MM-DD) goes.
@@ -148,13 +146,8 @@ def find_file_in_date_range(
     If nothing found: (None, None)
     """
     for days_back in range(max_days_back + 1):
-        date_to_check = (
-            datetime.now() - timedelta(days=days_back)
-        ).strftime("%Y-%m-%d")
-        file_path = os.path.join(
-            directory,
-            filename_pattern.format(date_to_check)
-        )
+        date_to_check = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+        file_path = os.path.join(directory, filename_pattern.format(date_to_check))
         if os.path.exists(file_path):
             return file_path, date_to_check
     return None, None
@@ -166,9 +159,10 @@ def copy_missing_files(src_dir: str, dst_dir: str) -> None:
     Skips hidden files and notebooks.
     """
     import shutil
+
     src_files = set(os.listdir(src_dir))
     dst_files = set(os.listdir(dst_dir))
-    for name in (src_files - dst_files):
+    for name in src_files - dst_files:
         if not name.startswith(".") and not name.endswith(".ipynb"):
             shutil.copy2(os.path.join(src_dir, name), dst_dir)
             logging.info(f"File {name} copied successfully")
@@ -177,6 +171,7 @@ def copy_missing_files(src_dir: str, dst_dir: str) -> None:
 # ============================================================================
 # WEB SCRAPING
 # ============================================================================
+
 
 def get_html(
     url: str,
@@ -191,13 +186,14 @@ def get_html(
 
     Returns the innerHTML of `selector`, or None if failed.
     """
-    from selenium import webdriver
-    from selenium.webdriver.chrome.service import Service
-    from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.common.by import By
-    from selenium.common.exceptions import TimeoutException, WebDriverException
-    from webdriver_manager.chrome import ChromeDriverManager
     import time
+
+    from selenium import webdriver
+    from selenium.common.exceptions import TimeoutException, WebDriverException
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.common.by import By
+    from webdriver_manager.chrome import ChromeDriverManager
 
     driver = None
     html = None
@@ -222,15 +218,13 @@ def get_html(
             try:
                 driver.set_page_load_timeout(20)
                 driver.get(url)
-                time.sleep(sleep * (2 ** attempt))
+                time.sleep(sleep * (2**attempt))
 
                 el = driver.find_element(By.CSS_SELECTOR, selector)
                 html = el.get_attribute("innerHTML")
                 break
             except TimeoutException:
-                logging.warning(
-                    f"Timeout while loading {url} (attempt {attempt+1}/{retries})"
-                )
+                logging.warning(f"Timeout while loading {url} (attempt {attempt+1}/{retries})")
             except WebDriverException as e:
                 logging.error(f"WebDriver error for {url}: {e}")
                 break
@@ -268,6 +262,7 @@ def parse_html(html_or_path: str) -> Optional[BeautifulSoup]:
 # ============================================================================
 # DATA PROCESSING
 # ============================================================================
+
 
 def rename_duplicated_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -307,16 +302,16 @@ def preprocess_nba_data(stats_path: Union[str, pd.DataFrame]) -> pd.DataFrame:
         df = pd.read_csv(stats_path, index_col=0)
 
     # Add 'won' column if it doesn't exist (for test data)
-    if 'won' not in df.columns:
-        if 'pts' in df.columns and 'opp_pts' in df.columns:
-            df['won'] = (df['pts'] > df['opp_pts']).astype(int)
+    if "won" not in df.columns:
+        if "pts" in df.columns and "opp_pts" in df.columns:
+            df["won"] = (df["pts"] > df["opp_pts"]).astype(int)
 
     # Store original index to preserve order
     df = df.reset_index(drop=True)
-    df['_original_order'] = df.index
+    df["_original_order"] = df.index
 
     # Sort by date if date column exists
-    if 'date' in df.columns:
+    if "date" in df.columns:
         df = df.sort_values("date")
 
     def _add_target(g: pd.DataFrame) -> pd.DataFrame:
@@ -331,7 +326,7 @@ def preprocess_nba_data(stats_path: Union[str, pd.DataFrame]) -> pd.DataFrame:
     df["target"] = df["target"].fillna(2).astype(int)
 
     # Restore original order and remove helper column
-    df = df.sort_values('_original_order').drop(columns=['_original_order']).reset_index(drop=True)
+    df = df.sort_values("_original_order").drop(columns=["_original_order"]).reset_index(drop=True)
 
     # drop columns that are entirely NaN
     nulls = pd.isnull(df).sum()
@@ -348,8 +343,7 @@ def preprocess_nba_data(stats_path: Union[str, pd.DataFrame]) -> pd.DataFrame:
 
 
 def calculate_rolling_averages(
-    df: pd.DataFrame,
-    window_size: int = ROLLING_WINDOW_SIZE
+    df: pd.DataFrame, window_size: int = ROLLING_WINDOW_SIZE
 ) -> pd.DataFrame:
     """
     Rolling means per team-season for numeric columns.
@@ -364,10 +358,7 @@ def calculate_rolling_averages(
 
     def _roll(team_df: pd.DataFrame) -> pd.DataFrame:
         numeric_cols = team_df.select_dtypes(include=[np.number]).columns
-        rolled = team_df[numeric_cols].rolling(
-            window_size,
-            min_periods=1
-        ).mean()
+        rolled = team_df[numeric_cols].rolling(window_size, min_periods=1).mean()
 
         # copy non-numeric columns straight through (like team, season...)
         for c in team_df.columns:
@@ -431,13 +422,13 @@ TEAM_ALIASES: Dict[str, str] = {
     "CHA": "CHO",
     "WSH": "WAS",
     "WAS": "WAS",
-    "GS":  "GSW",
+    "GS": "GSW",
     "GSW": "GSW",
-    "NO":  "NOP",
+    "NO": "NOP",
     "NOP": "NOP",
-    "NY":  "NYK",
+    "NY": "NYK",
     "NYK": "NYK",
-    "SA":  "SAS",
+    "SA": "SAS",
     "SAS": "SAS",
     "UTAH": "UTA",
     "UTA": "UTA",
@@ -471,6 +462,7 @@ def normalize_team_codes_inplace(df: pd.DataFrame, cols: List[str]) -> pd.DataFr
 # ============================================================================
 # BETTING UTILITIES
 # ============================================================================
+
 
 def kelly_frac(p: float, o: float, f: float = 1.0) -> float:
     """
@@ -553,6 +545,7 @@ def am_to_dec(ml) -> Optional[float]:
 # BETTING STATISTICS
 # ============================================================================
 
+
 def get_home_win_rates(pred_df: pd.DataFrame) -> pd.DataFrame:
     """
     Compute home win rates using last 20 games per team (home/away),
@@ -563,19 +556,14 @@ def get_home_win_rates(pred_df: pd.DataFrame) -> pd.DataFrame:
     where 'result' is actual winner code when known, otherwise 0.
     """
     # Ensure date is datetime
-    if "date" in pred_df.columns and not np.issubdtype(
-        pred_df["date"].dtype,
-        np.datetime64
-    ):
+    if "date" in pred_df.columns and not np.issubdtype(pred_df["date"].dtype, np.datetime64):
         pred_df = pred_df.copy()
         pred_df["date"] = pd.to_datetime(pred_df["date"], errors="coerce")
 
     teams = pred_df["home_team"].dropna().unique().tolist()
     out = {}
     for t in teams:
-        tg = pred_df[
-            (pred_df["home_team"] == t) | (pred_df["away_team"] == t)
-        ].copy()
+        tg = pred_df[(pred_df["home_team"] == t) | (pred_df["away_team"] == t)].copy()
         tg = tg.sort_values("date", ascending=False).head(20)
 
         home = tg[tg["home_team"] == t]
@@ -597,6 +585,7 @@ def get_home_win_rates(pred_df: pd.DataFrame) -> pd.DataFrame:
 # ============================================================================
 # SMALL HELPERS
 # ============================================================================
+
 
 def safe_to_numeric_comma(x) -> Optional[float]:
     """

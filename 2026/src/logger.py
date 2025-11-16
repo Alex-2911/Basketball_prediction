@@ -18,10 +18,10 @@ Usage:
 
 import logging
 import sys
-from pathlib import Path
-from logging.handlers import RotatingFileHandler
-from typing import Optional
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from typing import Optional
 
 
 class LoggerSetup:
@@ -43,7 +43,7 @@ class LoggerSetup:
         console_enabled: bool = True,
         file_enabled: bool = True,
         max_bytes: int = 10 * 1024 * 1024,  # 10MB
-        backup_count: int = 5
+        backup_count: int = 5,
     ):
         """
         Initialize logging system (call once at startup).
@@ -74,8 +74,7 @@ class LoggerSetup:
             console_handler = logging.StreamHandler(sys.stdout)
             console_handler.setLevel(logging.INFO)
             console_formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                datefmt='%Y-%m-%d %H:%M:%S'
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
             )
             console_handler.setFormatter(console_formatter)
             root_logger.addHandler(console_handler)
@@ -84,16 +83,13 @@ class LoggerSetup:
         if file_enabled:
             main_log_file = cls._log_dir / "basketball_prediction.log"
             file_handler = RotatingFileHandler(
-                main_log_file,
-                maxBytes=max_bytes,
-                backupCount=backup_count,
-                encoding='utf-8'
+                main_log_file, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
             )
             file_handler.setLevel(logging.DEBUG)
             file_formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - '
-                '%(filename)s:%(lineno)d - %(funcName)s - %(message)s',
-                datefmt='%Y-%m-%d %H:%M:%S'
+                "%(asctime)s - %(name)s - %(levelname)s - "
+                "%(filename)s:%(lineno)d - %(funcName)s - %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
             )
             file_handler.setFormatter(file_formatter)
             root_logger.addHandler(file_handler)
@@ -105,11 +101,7 @@ class LoggerSetup:
         logger.info(f"Logging initialized. Log directory: {cls._log_dir}")
 
     @classmethod
-    def get_script_logger(
-        cls,
-        script_name: str,
-        separate_file: bool = True
-    ) -> logging.Logger:
+    def get_script_logger(cls, script_name: str, separate_file: bool = True) -> logging.Logger:
         """
         Get logger for a specific script.
 
@@ -141,13 +133,13 @@ class LoggerSetup:
                     script_log_file,
                     maxBytes=10 * 1024 * 1024,  # 10MB
                     backupCount=5,
-                    encoding='utf-8'
+                    encoding="utf-8",
                 )
                 file_handler.setLevel(logging.DEBUG)
                 file_formatter = logging.Formatter(
-                    '%(asctime)s - %(levelname)s - '
-                    '%(filename)s:%(lineno)d - %(funcName)s - %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S'
+                    "%(asctime)s - %(levelname)s - "
+                    "%(filename)s:%(lineno)d - %(funcName)s - %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S",
                 )
                 file_handler.setFormatter(file_formatter)
                 logger.addHandler(file_handler)
@@ -176,7 +168,7 @@ def get_logger(name: str, separate_file: bool = False) -> logging.Logger:
 
     if separate_file:
         # Extract script name from module name
-        script_name = name.split('.')[-1]
+        script_name = name.split(".")[-1]
         return LoggerSetup.get_script_logger(script_name, separate_file=True)
 
     return logging.getLogger(name)
@@ -186,7 +178,7 @@ def initialize_logging(
     log_dir: str = "logs",
     log_level: str = "INFO",
     console_enabled: bool = True,
-    file_enabled: bool = True
+    file_enabled: bool = True,
 ):
     """
     Initialize logging system (convenience function).
@@ -208,7 +200,7 @@ def initialize_logging(
         log_dir=log_dir,
         log_level=log_level,
         console_enabled=console_enabled,
-        file_enabled=file_enabled
+        file_enabled=file_enabled,
     )
 
 
@@ -227,6 +219,7 @@ def log_function_call(logger: logging.Logger):
         >>> def my_function(arg1, arg2):
         >>>     return arg1 + arg2
     """
+
     def decorator(func):
         def wrapper(*args, **kwargs):
             logger.debug(f"Calling {func.__name__}(args={args}, kwargs={kwargs})")
@@ -237,7 +230,9 @@ def log_function_call(logger: logging.Logger):
             except Exception as e:
                 logger.error(f"{func.__name__} failed: {e}", exc_info=True)
                 raise
+
         return wrapper
+
     return decorator
 
 
@@ -270,12 +265,11 @@ def log_execution_time(logger: logging.Logger):
                 return result
             except Exception as e:
                 elapsed = time.time() - start_time
-                logger.error(
-                    f"{func.__name__} failed after {elapsed:.2f}s: {e}",
-                    exc_info=True
-                )
+                logger.error(f"{func.__name__} failed after {elapsed:.2f}s: {e}", exc_info=True)
                 raise
+
         return wrapper
+
     return decorator
 
 

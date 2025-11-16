@@ -9,9 +9,10 @@ Usage:
     streamlit run dashboard/app.py
 """
 
-import streamlit as st
-from pathlib import Path
 import sys
+from pathlib import Path
+
+import streamlit as st
 
 # Add project root to path
 ROOT_DIR = Path(__file__).parent.parent
@@ -26,7 +27,8 @@ st.set_page_config(
 )
 
 # Custom CSS for better styling
-st.markdown("""
+st.markdown(
+    """
     <style>
     .main {
         padding: 0rem 1rem;
@@ -40,13 +42,16 @@ st.markdown("""
         color: #1f77b4;
     }
     </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # Main page
 st.title("🏀 NBA Prediction Dashboard")
 st.markdown("### End-to-End Basketball Prediction & Betting Analytics")
 
-st.markdown("""
+st.markdown(
+    """
 Welcome to the NBA Prediction Dashboard! This interactive tool provides:
 
 - **📊 Today's Games**: View upcoming games with win probabilities and betting recommendations
@@ -55,41 +60,26 @@ Welcome to the NBA Prediction Dashboard! This interactive tool provides:
 - **💰 Betting History**: Review historical picks and profitability
 
 Use the sidebar to navigate between different views.
-""")
+"""
+)
 
 # Quick stats overview
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    st.metric(
-        label="📊 Total Tests",
-        value="262",
-        delta="100% Pass Rate",
-        delta_color="normal"
-    )
+    st.metric(label="📊 Total Tests", value="262", delta="100% Pass Rate", delta_color="normal")
 
 with col2:
-    st.metric(
-        label="🤖 Model",
-        value="LightGBM",
-        delta="Hybrid Calibration",
-        delta_color="off"
-    )
+    st.metric(label="🤖 Model", value="LightGBM", delta="Hybrid Calibration", delta_color="off")
 
 with col3:
     st.metric(
-        label="📈 Features",
-        value="Rolling Averages",
-        delta="9-game window",
-        delta_color="off"
+        label="📈 Features", value="Rolling Averages", delta="9-game window", delta_color="off"
     )
 
 with col4:
     st.metric(
-        label="🎯 Strategy",
-        value="Kelly Criterion",
-        delta="Optimal Stakes",
-        delta_color="off"
+        label="🎯 Strategy", value="Kelly Criterion", delta="Optimal Stakes", delta_color="off"
     )
 
 st.markdown("---")

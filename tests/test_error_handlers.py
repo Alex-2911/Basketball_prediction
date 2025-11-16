@@ -10,38 +10,35 @@ Tests critical error handling components:
 - Logging utilities
 """
 
-import sys
-from pathlib import Path
-import pytest
-import pandas as pd
-import time
 import logging
-from unittest.mock import Mock, patch, MagicMock
+import sys
+import time
+from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
+
+import pandas as pd
+import pytest
 import requests
 
 # Add source directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "2026" / "src"))
 
-from error_handlers import (
-    # Exceptions
+from error_handlers import (  # Exceptions; Decorators; Validators; Utilities
     BasketballPredictionError,
+    ConfigurationError,
     DataValidationError,
+    ErrorContext,
+    FileNotFoundError,
+    ModelTrainingError,
     NetworkError,
     ScrapingError,
-    ModelTrainingError,
-    ConfigurationError,
-    FileNotFoundError,
-    # Decorators
+    get_requests_session_with_retries,
+    handle_missing_data,
+    log_dataframe_info,
     retry_on_network_error,
-    # Validators
+    validate_api_key,
     validate_dataframe,
     validate_file_exists,
-    validate_api_key,
-    # Utilities
-    ErrorContext,
-    get_requests_session_with_retries,
-    log_dataframe_info,
-    handle_missing_data,
 )
 
 
@@ -103,6 +100,7 @@ class TestRetryDecorator:
 
     def test_retry_raises_network_error_after_max_retries(self):
         """Test that NetworkError is raised after max retries exhausted."""
+
         @retry_on_network_error(max_retries=2, backoff_factor=0.01)
         def always_fails():
             raise requests.RequestException("Permanent failure")
@@ -115,9 +113,7 @@ class TestRetryDecorator:
         call_count = []
 
         @retry_on_network_error(
-            max_retries=2,
-            backoff_factor=0.01,
-            exceptions=(ConnectionError, TimeoutError)
+            max_retries=2, backoff_factor=0.01, exceptions=(ConnectionError, TimeoutError)
         )
         def connection_fails():
             call_count.append(1)
@@ -159,10 +155,7 @@ class TestValidateDataFrame:
 
     def test_validate_dataframe_accepts_valid_df(self):
         """Test that valid DataFrame passes validation."""
-        df = pd.DataFrame({
-            'a': [1, 2, 3],
-            'b': [4, 5, 6]
-        })
+        df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
 
         result = validate_dataframe(df)
         assert result is df  # Returns same DataFrame
@@ -191,21 +184,18 @@ class TestValidateDataFrame:
 
     def test_validate_dataframe_checks_required_columns(self):
         """Test required columns validation."""
-        df = pd.DataFrame({
-            'a': [1, 2],
-            'b': [3, 4]
-        })
+        df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
 
         # Should pass with existing columns
-        validate_dataframe(df, required_columns=['a', 'b'])
+        validate_dataframe(df, required_columns=["a", "b"])
 
         # Should fail with missing column
         with pytest.raises(DataValidationError, match="Missing required columns"):
-            validate_dataframe(df, required_columns=['a', 'b', 'c'])
+            validate_dataframe(df, required_columns=["a", "b", "c"])
 
     def test_validate_dataframe_checks_min_rows(self):
         """Test minimum rows validation."""
-        df = pd.DataFrame({'a': [1, 2]})
+        df = pd.DataFrame({"a": [1, 2]})
 
         # Should pass with enough rows
         validate_dataframe(df, min_rows=2)
@@ -322,8 +312,8 @@ class TestGetRequestsSession:
         session = get_requests_session_with_retries()
 
         # Check that adapters are mounted
-        assert 'http://' in session.adapters
-        assert 'https://' in session.adapters
+        assert "http://" in session.adapters
+        assert "https://" in session.adapters
 
     def test_get_requests_session_with_custom_retries(self):
         """Test session creation with custom retry count."""
@@ -336,10 +326,7 @@ class TestLogDataFrameInfo:
 
     def test_log_dataframe_info_logs_shape(self, caplog):
         """Test that DataFrame shape is logged."""
-        df = pd.DataFrame({
-            'a': [1, 2, 3],
-            'b': [4, 5, 6]
-        })
+        df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
 
         with caplog.at_level(logging.INFO):
             log_dataframe_info(df, name="Test DF")
@@ -350,11 +337,7 @@ class TestLogDataFrameInfo:
 
     def test_log_dataframe_info_logs_columns(self, caplog):
         """Test that column names are logged."""
-        df = pd.DataFrame({
-            'col1': [1],
-            'col2': [2],
-            'col3': [3]
-        })
+        df = pd.DataFrame({"col1": [1], "col2": [2], "col3": [3]})
 
         with caplog.at_level(logging.INFO):
             log_dataframe_info(df, name="Test")
@@ -378,35 +361,26 @@ class TestHandleMissingData:
 
     def test_handle_missing_data_with_no_missing_values(self):
         """Test DataFrame with no missing values."""
-        df = pd.DataFrame({
-            'a': [1, 2, 3],
-            'b': [4, 5, 6]
-        })
+        df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
 
-        result = handle_missing_data(df, strategy='drop')
+        result = handle_missing_data(df, strategy="drop")
         # Should return DataFrame (same or copy)
         assert isinstance(result, pd.DataFrame)
         assert len(result) == 3
 
     def test_handle_missing_data_drops_rows(self):
         """Test that missing values can be dropped."""
-        df = pd.DataFrame({
-            'a': [1, None, 3],
-            'b': [4, 5, None]
-        })
+        df = pd.DataFrame({"a": [1, None, 3], "b": [4, 5, None]})
 
-        result = handle_missing_data(df, strategy='drop')
+        result = handle_missing_data(df, strategy="drop")
         # Should drop rows with any NaN
         assert len(result) < len(df)
 
     def test_handle_missing_data_fills_values(self):
         """Test that missing values can be filled."""
-        df = pd.DataFrame({
-            'a': [1, None, 3],
-            'b': [4, 5, None]
-        })
+        df = pd.DataFrame({"a": [1, None, 3], "b": [4, 5, None]})
 
-        result = handle_missing_data(df, strategy='fill', fill_value=0)
+        result = handle_missing_data(df, strategy="fill", fill_value=0)
         # Should have no NaN values
         assert not result.isna().any().any()
 
@@ -435,17 +409,10 @@ class TestErrorHandlerIntegration:
 
     def test_validation_chain(self):
         """Test chaining multiple validations."""
-        df = pd.DataFrame({
-            'team': ['LAL', 'BOS'],
-            'points': [110, 105]
-        })
+        df = pd.DataFrame({"team": ["LAL", "BOS"], "points": [110, 105]})
 
         # Chain validations
-        result = validate_dataframe(
-            df,
-            required_columns=['team', 'points'],
-            min_rows=2
-        )
+        result = validate_dataframe(df, required_columns=["team", "points"], min_rows=2)
 
         assert result is df
         assert len(result) == 2
@@ -454,7 +421,7 @@ class TestErrorHandlerIntegration:
         """Test complete error handling workflow."""
         # Create test file
         test_file = tmp_path / "data.csv"
-        pd.DataFrame({'a': [1, 2, 3]}).to_csv(test_file, index=False)
+        pd.DataFrame({"a": [1, 2, 3]}).to_csv(test_file, index=False)
 
         with caplog.at_level(logging.INFO):
             with ErrorContext("Loading and validating data"):
@@ -465,7 +432,7 @@ class TestErrorHandlerIntegration:
                 df = pd.read_csv(file_path)
 
                 # Validate DataFrame
-                validate_dataframe(df, required_columns=['a'], min_rows=1)
+                validate_dataframe(df, required_columns=["a"], min_rows=1)
 
                 # Log info
                 log_dataframe_info(df, name="Test data")

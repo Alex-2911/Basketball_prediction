@@ -8,27 +8,28 @@ Falls back to CSV operations if database is not configured.
 """
 
 import os
-from typing import Optional, Dict, List, Any, Tuple
-from datetime import datetime, date
+from contextlib import contextmanager
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional, Tuple
+
 import pandas as pd
 import psycopg2
-from psycopg2 import pool
-from psycopg2.extras import RealDictCursor
-from contextlib import contextmanager
-
-from logger import get_logger
 from error_handlers import (
-    ErrorContext,
-    validate_dataframe,
     ConfigurationError,
     DataValidationError,
+    ErrorContext,
+    validate_dataframe,
 )
+from logger import get_logger
+from psycopg2 import pool
+from psycopg2.extras import RealDictCursor
 
 logger = get_logger(__name__)
 
 # ─────────────────────────────────────────────────────────
 # DATABASE CONFIGURATION
 # ─────────────────────────────────────────────────────────
+
 
 class DatabaseConfig:
     """Database configuration from environment variables."""
@@ -85,6 +86,7 @@ db_config = DatabaseConfig()
 # CONNECTION POOL
 # ─────────────────────────────────────────────────────────
 
+
 class DatabasePool:
     """Manages PostgreSQL connection pool."""
 
@@ -112,9 +114,7 @@ class DatabasePool:
                 conn_params = db_config.get_connection_params()
 
                 self._pool = psycopg2.pool.ThreadedConnectionPool(
-                    db_config.min_connections,
-                    db_config.max_connections,
-                    **conn_params
+                    db_config.min_connections, db_config.max_connections, **conn_params
                 )
 
                 logger.info(
@@ -169,6 +169,7 @@ db_pool = DatabasePool()
 # DATABASE OPERATIONS
 # ─────────────────────────────────────────────────────────
 
+
 class DatabaseOperations:
     """High-level database operations."""
 
@@ -199,8 +200,8 @@ class DatabaseOperations:
 
             # Prepare data
             df = df.copy()
-            df['created_at'] = datetime.now()
-            df['updated_at'] = datetime.now()
+            df["created_at"] = datetime.now()
+            df["updated_at"] = datetime.now()
 
             inserted = 0
 
@@ -208,7 +209,8 @@ class DatabaseOperations:
                 with conn.cursor() as cur:
                     for _, row in df.iterrows():
                         try:
-                            cur.execute("""
+                            cur.execute(
+                                """
                                 INSERT INTO game_statistics (
                                     season, date, team, team_opp, home, won,
                                     total, total_opp, created_at, updated_at
@@ -225,7 +227,9 @@ class DatabaseOperations:
                                     total = EXCLUDED.total,
                                     total_opp = EXCLUDED.total_opp,
                                     updated_at = EXCLUDED.updated_at
-                            """, row.to_dict())
+                            """,
+                                row.to_dict(),
+                            )
                             inserted += 1
                         except Exception as e:
                             logger.warning(f"Failed to insert row: {e}")
@@ -235,9 +239,7 @@ class DatabaseOperations:
             return inserted
 
     def get_latest_game_statistics(
-        self,
-        team: Optional[str] = None,
-        limit: int = 100
+        self, team: Optional[str] = None, limit: int = 100
     ) -> pd.DataFrame:
         """
         Retrieve latest game statistics.
@@ -284,9 +286,7 @@ class DatabaseOperations:
         """
         with ErrorContext("Saving game schedule to database", logger=logger):
             validate_dataframe(
-                df,
-                required_columns=['home_team', 'away_team', 'game_date'],
-                min_rows=1
+                df, required_columns=["home_team", "away_team", "game_date"], min_rows=1
             )
 
             inserted = 0
@@ -295,12 +295,15 @@ class DatabaseOperations:
                 with conn.cursor() as cur:
                     for _, row in df.iterrows():
                         try:
-                            cur.execute("""
+                            cur.execute(
+                                """
                                 INSERT INTO game_schedule (home_team, away_team, game_date)
                                 VALUES (%(home_team)s, %(away_team)s, %(game_date)s)
                                 ON CONFLICT (home_team, away_team, game_date)
                                 DO NOTHING
-                            """, row.to_dict())
+                            """,
+                                row.to_dict(),
+                            )
                             inserted += cur.rowcount
                         except Exception as e:
                             logger.warning(f"Failed to insert schedule row: {e}")
@@ -351,8 +354,8 @@ class DatabaseOperations:
         with ErrorContext("Saving predictions to database", logger=logger):
             validate_dataframe(
                 df,
-                required_columns=['home_team', 'away_team', 'date', 'home_team_prob'],
-                min_rows=1
+                required_columns=["home_team", "away_team", "date", "home_team_prob"],
+                min_rows=1,
             )
 
             inserted = 0
@@ -362,7 +365,8 @@ class DatabaseOperations:
                 with conn.cursor() as cur:
                     for _, row in df.iterrows():
                         try:
-                            cur.execute("""
+                            cur.execute(
+                                """
                                 INSERT INTO predictions (
                                     home_team, away_team, date, home_team_prob,
                                     odds_1, odds_2, result, model_version,
@@ -381,7 +385,13 @@ class DatabaseOperations:
                                     result = EXCLUDED.result,
                                     model_version = EXCLUDED.model_version,
                                     updated_at = NOW()
-                            """, {**row.to_dict(), 'model_version': model_version, 'prediction_date': prediction_date})
+                            """,
+                                {
+                                    **row.to_dict(),
+                                    "model_version": model_version,
+                                    "prediction_date": prediction_date,
+                                },
+                            )
                             inserted += 1
                         except Exception as e:
                             logger.warning(f"Failed to insert prediction row: {e}")
@@ -457,14 +467,17 @@ class DatabaseOperations:
                     for _, row in df.iterrows():
                         try:
                             # First, find the prediction_id
-                            cur.execute("""
+                            cur.execute(
+                                """
                                 SELECT id FROM predictions
                                 WHERE home_team = %s
                                   AND away_team = %s
                                   AND date = %s
                                 ORDER BY prediction_date DESC
                                 LIMIT 1
-                            """, (row['home_team'], row['away_team'], row['date']))
+                            """,
+                                (row["home_team"], row["away_team"], row["date"]),
+                            )
 
                             result = cur.fetchone()
                             if not result:
@@ -477,7 +490,8 @@ class DatabaseOperations:
                             prediction_id = result[0]
 
                             # Insert enriched prediction
-                            cur.execute("""
+                            cur.execute(
+                                """
                                 INSERT INTO enriched_predictions (
                                     prediction_id, home_team, away_team, date,
                                     home_team_prob, raw_prob, odds_1, odds_2,
@@ -506,7 +520,13 @@ class DatabaseOperations:
                                     pnl_platt = EXCLUDED.pnl_platt,
                                     pnl_iso = EXCLUDED.pnl_iso,
                                     updated_at = NOW()
-                            """, {**row.to_dict(), 'prediction_id': prediction_id, 'enrichment_date': enrichment_date})
+                            """,
+                                {
+                                    **row.to_dict(),
+                                    "prediction_id": prediction_id,
+                                    "enrichment_date": enrichment_date,
+                                },
+                            )
                             inserted += 1
                         except Exception as e:
                             logger.warning(f"Failed to insert enriched prediction row: {e}")
@@ -566,6 +586,7 @@ db = DatabaseOperations()
 # ─────────────────────────────────────────────────────────
 # INITIALIZATION
 # ─────────────────────────────────────────────────────────
+
 
 def initialize_database():
     """Initialize database connection pool."""

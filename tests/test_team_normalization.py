@@ -13,8 +13,9 @@ Critical for data integrity - mismatched team codes = wrong predictions.
 
 import sys
 from pathlib import Path
-import pytest
+
 import pandas as pd
+import pytest
 
 # Add source directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "2026" / "src"))
@@ -171,10 +172,7 @@ class TestNormalizeTeamCodesInplace:
 
     def test_normalize_single_column(self):
         """Test normalizing a single column in DataFrame."""
-        df = pd.DataFrame({
-            "team": ["PHO", "BKN", "CHA", "LAL"],
-            "points": [110, 105, 98, 112]
-        })
+        df = pd.DataFrame({"team": ["PHO", "BKN", "CHA", "LAL"], "points": [110, 105, 98, 112]})
 
         result = normalize_team_codes_inplace(df, cols=["team"])
 
@@ -183,11 +181,9 @@ class TestNormalizeTeamCodesInplace:
 
     def test_normalize_multiple_columns(self):
         """Test normalizing multiple columns in DataFrame."""
-        df = pd.DataFrame({
-            "home_team": ["PHO", "BKN"],
-            "away_team": ["CHA", "GS"],
-            "score": [110, 105]
-        })
+        df = pd.DataFrame(
+            {"home_team": ["PHO", "BKN"], "away_team": ["CHA", "GS"], "score": [110, 105]}
+        )
 
         result = normalize_team_codes_inplace(df, cols=["home_team", "away_team"])
 
@@ -196,9 +192,7 @@ class TestNormalizeTeamCodesInplace:
 
     def test_normalize_mixed_codes(self):
         """Test DataFrame with mix of codes needing and not needing normalization."""
-        df = pd.DataFrame({
-            "team": ["PHO", "LAL", "BKN", "BOS", "CHA", "MIA"]
-        })
+        df = pd.DataFrame({"team": ["PHO", "LAL", "BKN", "BOS", "CHA", "MIA"]})
 
         result = normalize_team_codes_inplace(df, cols=["team"])
 
@@ -206,9 +200,7 @@ class TestNormalizeTeamCodesInplace:
 
     def test_normalize_with_none_values(self):
         """Test DataFrame with None values."""
-        df = pd.DataFrame({
-            "team": ["PHO", None, "BKN", "LAL"]
-        })
+        df = pd.DataFrame({"team": ["PHO", None, "BKN", "LAL"]})
 
         result = normalize_team_codes_inplace(df, cols=["team"])
 
@@ -228,10 +220,7 @@ class TestNormalizeTeamCodesInplace:
 
     def test_normalize_nonexistent_column(self):
         """Test behavior with column that doesn't exist."""
-        df = pd.DataFrame({
-            "team": ["PHO", "BKN"],
-            "points": [110, 105]
-        })
+        df = pd.DataFrame({"team": ["PHO", "BKN"], "points": [110, 105]})
 
         # Should not raise error, just skip the missing column
         result = normalize_team_codes_inplace(df, cols=["team", "nonexistent_col"])
@@ -310,13 +299,15 @@ class TestRealWorldScenarios:
 
     def test_matchup_dataframe(self):
         """Test realistic matchup DataFrame (home vs away)."""
-        df = pd.DataFrame({
-            "date": ["2025-10-23", "2025-10-23", "2025-10-23"],
-            "home_team": ["PHO", "BKN", "GS"],
-            "away_team": ["LAL", "CHA", "NO"],
-            "home_odds": [-110, 150, -200],
-            "away_odds": [-110, -170, 180]
-        })
+        df = pd.DataFrame(
+            {
+                "date": ["2025-10-23", "2025-10-23", "2025-10-23"],
+                "home_team": ["PHO", "BKN", "GS"],
+                "away_team": ["LAL", "CHA", "NO"],
+                "home_odds": [-110, 150, -200],
+                "away_odds": [-110, -170, 180],
+            }
+        )
 
         result = normalize_team_codes_inplace(df, cols=["home_team", "away_team"])
 
@@ -330,37 +321,60 @@ class TestRealWorldScenarios:
 class TestAllTeamMappings:
     """Comprehensive parameterized tests for all team code mappings."""
 
-    @pytest.mark.parametrize("input_code,expected_output", [
-        ("PHO", "PHX"),
-        ("PHX", "PHX"),
-        ("BKN", "BRK"),
-        ("BRK", "BRK"),
-        ("CHA", "CHO"),
-        ("CHO", "CHO"),
-        ("WSH", "WAS"),
-        ("WAS", "WAS"),
-        ("GS", "GSW"),
-        ("GSW", "GSW"),
-        ("NO", "NOP"),
-        ("NOP", "NOP"),
-        ("NY", "NYK"),
-        ("NYK", "NYK"),
-        ("SA", "SAS"),
-        ("SAS", "SAS"),
-        ("UTAH", "UTA"),
-        ("UTA", "UTA"),
-        ("OKL", "OKC"),
-        ("OKC", "OKC"),
-    ])
+    @pytest.mark.parametrize(
+        "input_code,expected_output",
+        [
+            ("PHO", "PHX"),
+            ("PHX", "PHX"),
+            ("BKN", "BRK"),
+            ("BRK", "BRK"),
+            ("CHA", "CHO"),
+            ("CHO", "CHO"),
+            ("WSH", "WAS"),
+            ("WAS", "WAS"),
+            ("GS", "GSW"),
+            ("GSW", "GSW"),
+            ("NO", "NOP"),
+            ("NOP", "NOP"),
+            ("NY", "NYK"),
+            ("NYK", "NYK"),
+            ("SA", "SAS"),
+            ("SAS", "SAS"),
+            ("UTAH", "UTA"),
+            ("UTA", "UTA"),
+            ("OKL", "OKC"),
+            ("OKC", "OKC"),
+        ],
+    )
     def test_all_mappings(self, input_code, expected_output):
         """Test all team code mappings comprehensively."""
         assert normalize_team_code(input_code) == expected_output
 
-    @pytest.mark.parametrize("standard_code", [
-        "ATL", "BOS", "CHI", "CLE", "DAL", "DEN", "DET",
-        "HOU", "IND", "LAC", "LAL", "MEM", "MIA", "MIL",
-        "MIN", "ORL", "PHI", "POR", "SAC", "TOR",
-    ])
+    @pytest.mark.parametrize(
+        "standard_code",
+        [
+            "ATL",
+            "BOS",
+            "CHI",
+            "CLE",
+            "DAL",
+            "DEN",
+            "DET",
+            "HOU",
+            "IND",
+            "LAC",
+            "LAL",
+            "MEM",
+            "MIA",
+            "MIL",
+            "MIN",
+            "ORL",
+            "PHI",
+            "POR",
+            "SAC",
+            "TOR",
+        ],
+    )
     def test_standard_codes_unchanged(self, standard_code):
         """Test that standard NBA team codes remain unchanged."""
         assert normalize_team_code(standard_code) == standard_code

@@ -1,19 +1,20 @@
-import pandas as pd
+import glob
 import os
 from pathlib import Path
-import glob
 
-# Import error handling and logging infrastructure
-from logger import get_logger
-from error_handlers import (
-    ErrorContext,
-    validate_dataframe,
-    log_dataframe_info,
-    DataValidationError,
-)
+import pandas as pd
 
 # Import database utilities
 from db_utils import DatabaseOperations, db_config
+from error_handlers import (
+    DataValidationError,
+    ErrorContext,
+    log_dataframe_info,
+    validate_dataframe,
+)
+
+# Import error handling and logging infrastructure
+from logger import get_logger
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -37,6 +38,7 @@ with ErrorContext("Finding enriched predictions file", logger=logger):
     enriched_path = max(enriched_files, key=lambda p: p.stat().st_mtime)
     logger.info(f"Using enriched predictions file: {enriched_path}")
 
+
 def main():
     """Main execution function for displaying proposed bets."""
     # --- Load and filter ---
@@ -59,21 +61,28 @@ def main():
             logger.info(f"Loading enriched predictions from CSV: {enriched_path}")
             df = pd.read_csv(enriched_path)
 
-        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
         log_dataframe_info(df, name="Enriched predictions", logger=logger)
 
-        bets = df[
-            (df['stake_raw']   > 0) |
-            (df['stake_platt'] > 0) |
-            (df['stake_iso']   > 0)
-        ].copy()
+        bets = df[(df["stake_raw"] > 0) | (df["stake_platt"] > 0) | (df["stake_iso"] > 0)].copy()
 
         # --- Display summary ---
         cols = [
-            'date', 'home_team', 'away_team', 'odds_1',
-            'home_team_prob', 'prob_platt', 'prob_iso',
-            'win', 'stake_raw', 'pnl_raw', 'stake_platt', 'pnl_platt', 'stake_iso', 'pnl_iso'
+            "date",
+            "home_team",
+            "away_team",
+            "odds_1",
+            "home_team_prob",
+            "prob_platt",
+            "prob_iso",
+            "win",
+            "stake_raw",
+            "pnl_raw",
+            "stake_platt",
+            "pnl_platt",
+            "stake_iso",
+            "pnl_iso",
         ]
 
         logger.info("\n=== Bets Placed (Raw / Platt / Iso Kelly) ===")
