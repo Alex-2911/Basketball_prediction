@@ -1,5 +1,12 @@
 # Basketball Prediction System
 
+[![Tests](https://github.com/razi90/Basketball_prediction/actions/workflows/tests.yml/badge.svg)](https://github.com/razi90/Basketball_prediction/actions/workflows/tests.yml)
+[![codecov](https://codecov.io/gh/razi90/Basketball_prediction/branch/main/graph/badge.svg)](https://codecov.io/gh/razi90/Basketball_prediction)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Tests: 262 passing](https://img.shields.io/badge/tests-262%20passing-brightgreen.svg)](https://github.com/razi90/Basketball_prediction)
+
 **End-to-End NBA Betting Prediction & Analytics Platform (2025-26 Season)**
 
 Automates **NBA data scraping, machine learning predictions, and betting analytics** with production-grade infrastructure:
@@ -8,8 +15,8 @@ Automates **NBA data scraping, machine learning predictions, and betting analyti
 - **Betting Strategy**: Kelly Criterion optimal stake sizing
 - **Error Handling**: Comprehensive logging, retries, and graceful fallbacks
 - **Storage**: Dual-mode (CSV + optional PostgreSQL/Supabase)
-- **Testing**: 150+ unit tests with pytest
-- **CI/CD**: Automated daily runs via GitHub Actions
+- **Testing**: 262 unit tests with 100% pass rate (pytest)
+- **CI/CD**: Automated testing & quality checks via GitHub Actions
 
 ---
 
@@ -152,6 +159,9 @@ See **[DATABASE_SETUP.md](docs/DATABASE_SETUP.md)** for complete setup guide.
 
 ### 🧪 Testing
 
+![Tests Passing](https://img.shields.io/badge/tests-262%20passing-brightgreen.svg)
+![Coverage](https://img.shields.io/badge/coverage-check%20badge%20above-blue.svg)
+
 Run the test suite:
 ```bash
 # All tests
@@ -162,14 +172,22 @@ pytest tests/ --cov=2026/src --cov-report=html
 
 # Database tests (requires USE_DATABASE=true)
 pytest tests/test_database_integration.py -v
+
+# Run specific test modules
+pytest tests/test_error_handlers.py -v
+pytest tests/test_migration_scripts.py -v
 ```
 
-**Test Coverage**:
-- Betting utilities (Kelly Criterion, odds conversion)
-- Data processing and team normalization
-- Database integration and graceful fallback
-- Error handling and validation
-- 150+ tests ensuring production quality
+**Test Coverage** (262 tests, 100% pass rate):
+- ✅ **Betting utilities** (38 tests) - Kelly Criterion, odds conversion, stake sizing
+- ✅ **Data processing** (24 tests) - Rolling averages, preprocessing, target creation
+- ✅ **Team normalization** (60+ tests) - All team code mappings
+- ✅ **Database integration** (25 tests) - CRUD operations, graceful fallback
+- ✅ **Error handling** (38 tests) - Retry logic, validation, context managers
+- ✅ **Migration scripts** (25 tests) - CSV to PostgreSQL migration
+- ✅ **Logger infrastructure** (25 tests) - Logging configuration and output
+
+**CI/CD**: Automated testing on every push via GitHub Actions
 
 ### 📚 Documentation
 
