@@ -43,6 +43,25 @@ from requests.adapters import HTTPAdapter
 from dotenv import load_dotenv
 load_dotenv()
 
+# Import error handling and logging infrastructure
+from logger import get_logger
+from error_handlers import (
+    ErrorContext,
+    validate_dataframe,
+    validate_api_key,
+    validate_file_exists,
+    log_dataframe_info,
+    retry_on_network_error,
+    get_requests_session_with_retries,
+    NetworkError,
+    ModelTrainingError,
+    DataValidationError,
+    ConfigurationError,
+)
+
+# Initialize logger
+logger = get_logger(__name__)
+
 TEAM_ALIAS_FOR_ODDS = {
     "PHO": "PHX",
     "PHX": "PHX",
@@ -79,13 +98,13 @@ def normalize_code_for_odds(abbr: str) -> str:
 ROLLING_WINDOW_SIZE = 9
 CURRENT_SEASON = 2025   # mostly for reference/logging
 
-# Load API key from environment variable
-API_KEY = os.getenv("ODDS_API_KEY")
-if not API_KEY:
-    raise ValueError(
-        "ODDS_API_KEY not found in environment variables. "
-        "Please create a .env file based on .env.example and add your API key."
-    )
+# Load and validate API key from environment variable
+try:
+    API_KEY = validate_api_key(os.getenv("ODDS_API_KEY"), key_name="ODDS_API_KEY")
+    logger.info("ODDS_API_KEY loaded successfully")
+except ConfigurationError as e:
+    logger.error(f"API key validation failed: {e}")
+    raise
 
 # Get base directory using relative paths (cross-platform compatible)
 def get_directory_paths() -> Dict[str, str]:
@@ -179,15 +198,6 @@ FULL_TO_ABBREV = {
 }
 
 # ─────────────────────────────────────────────────────────
-# LOGGING
-# ─────────────────────────────────────────────────────────
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
-
-# ─────────────────────────────────────────────────────────
 # STEP 1. LOAD TODAY'S DATA
 # ─────────────────────────────────────────────────────────
 
@@ -197,34 +207,42 @@ def load_games_df(paths: Dict[str, str], today_str_format: str) -> pd.DataFrame:
     If not found, fall back to the most recent games_df_*.csv.
     Must contain columns: home_team, away_team, game_date
     """
-    next_game_dir = paths["NEXT_GAME_DIR"]
-    direct_path = os.path.join(next_game_dir, f"games_df_{today_str_format}.csv")
+    with ErrorContext("Loading game schedule", logger=logger):
+        next_game_dir = paths["NEXT_GAME_DIR"]
+        direct_path = os.path.join(next_game_dir, f"games_df_{today_str_format}.csv")
 
-    if os.path.exists(direct_path):
-        file_path = direct_path
-    else:
-        # fallback to most recent
-        file_path = get_latest_file(next_game_dir, prefix="games_df_", ext=".csv")
-        if not file_path:
-            raise FileNotFoundError(
-                f"No games_df_*.csv found in {next_game_dir}"
+        if os.path.exists(direct_path):
+            file_path = direct_path
+        else:
+            # fallback to most recent
+            file_path = get_latest_file(next_game_dir, prefix="games_df_", ext=".csv")
+            if not file_path:
+                raise FileNotFoundError(
+                    f"No games_df_*.csv found in {next_game_dir}"
+                )
+            logger.info(
+                f"games_df for {today_str_format} not found. Falling back to {file_path}"
             )
-        logging.info(
-            f"games_df for {today_str_format} not found. Falling back to {file_path}"
+
+        games_df = pd.read_csv(file_path)
+        # handle idx col if present
+        if "Unnamed: 0" in games_df.columns:
+            games_df = games_df.drop(columns=["Unnamed: 0"])
+
+        if games_df.empty:
+            logger.warning("games_df is empty (season might be over).")
+
+        # Validate DataFrame structure
+        validate_dataframe(
+            games_df,
+            required_columns=['home_team', 'away_team', 'game_date'],
+            allow_empty=True
         )
 
-    games_df = pd.read_csv(file_path)
-    # handle idx col if present
-    if "Unnamed: 0" in games_df.columns:
-        games_df = games_df.drop(columns=["Unnamed: 0"])
-
-    if games_df.empty:
-        logging.warning("games_df is empty (season might be over).")
-
-    logging.info(
-        f"Loaded game schedule from {file_path} with {len(games_df)} games"
-    )
-    return games_df
+        logger.info(
+            f"Loaded game schedule from {file_path} with {len(games_df)} games"
+        )
+        return games_df
 
 
 def load_stats_df(paths: Dict[str, str], today_str_format: str) -> pd.DataFrame:
@@ -232,29 +250,30 @@ def load_stats_df(paths: Dict[str, str], today_str_format: str) -> pd.DataFrame:
     Load nba_games_<date>.csv from STAT_DIR.
     If today's file is missing, use the most recent nba_games_*.csv.
     """
-    stat_dir = paths["STAT_DIR"]
-    direct_path = os.path.join(stat_dir, f"nba_games_{today_str_format}.csv")
+    with ErrorContext("Loading game statistics", logger=logger):
+        stat_dir = paths["STAT_DIR"]
+        direct_path = os.path.join(stat_dir, f"nba_games_{today_str_format}.csv")
 
-    if os.path.exists(direct_path):
-        df_path = direct_path
-    else:
-        logging.info(
-            f"Stats file for {today_str_format} not found. Searching latest in {stat_dir}..."
-        )
-        df_path = get_latest_file(stat_dir, prefix="nba_games_", ext=".csv")
-        if not df_path:
-            raise FileNotFoundError(
-                f"No nba_games_*.csv files found in {stat_dir}"
+        if os.path.exists(direct_path):
+            df_path = direct_path
+        else:
+            logger.info(
+                f"Stats file for {today_str_format} not found. Searching latest in {stat_dir}..."
             )
-        logging.info(f"Using latest stats file: {df_path}")
+            df_path = get_latest_file(stat_dir, prefix="nba_games_", ext=".csv")
+            if not df_path:
+                raise FileNotFoundError(
+                    f"No nba_games_*.csv files found in {stat_dir}"
+                )
+            logger.info(f"Using latest stats file: {df_path}")
 
-    df = pd.read_csv(df_path)
-    # Sometimes index col sneaks in
-    if "Unnamed: 0" in df.columns:
-        df = df.drop(columns=["Unnamed: 0"])
+        df = pd.read_csv(df_path)
+        # Sometimes index col sneaks in
+        if "Unnamed: 0" in df.columns:
+            df = df.drop(columns=["Unnamed: 0"])
 
-    logging.info(f"Loaded stats with {len(df)} rows and {len(df.columns)} columns")
-    return df
+        log_dataframe_info(df, name="Game statistics", logger=logger)
+        return df
 
 
 # ─────────────────────────────────────────────────────────
@@ -356,7 +375,7 @@ def override_next_game_with_schedule(df: pd.DataFrame, games_df: pd.DataFrame) -
     so our merge will later align all upcoming games.
     """
     if games_df.empty:
-        logging.warning("No upcoming games in schedule; skip override_next_game_with_schedule.")
+        logger.warning("No upcoming games in schedule; skip override_next_game_with_schedule.")
         return df
 
     df = df.copy()
@@ -373,7 +392,7 @@ def override_next_game_with_schedule(df: pd.DataFrame, games_df: pd.DataFrame) -
         game_day  = game.get("game_date")
 
         if pd.isna(home_team) or pd.isna(away_team) or pd.isna(game_day):
-            logging.warning(f"Skipping row {idx} in games_df due to missing values.")
+            logger.warning(f"Skipping row {idx} in games_df due to missing values.")
             continue
 
         # last row for home team
@@ -385,7 +404,7 @@ def override_next_game_with_schedule(df: pd.DataFrame, games_df: pd.DataFrame) -
             df.loc[last_home_idx, "date_next"] = game_day
 
         else:
-            logging.warning(f"Could not find recent row for home team {home_team}")
+            logger.warning(f"Could not find recent row for home team {home_team}")
 
         # last row for away team
         away_mask = df["team"] == away_team
@@ -395,7 +414,7 @@ def override_next_game_with_schedule(df: pd.DataFrame, games_df: pd.DataFrame) -
             df.loc[last_away_idx, "home_next"] = 0
             df.loc[last_away_idx, "date_next"] = game_day
         else:
-            logging.warning(f"Could not find recent row for away team {away_team}")
+            logger.warning(f"Could not find recent row for away team {away_team}")
 
     return df
 
@@ -609,7 +628,7 @@ def train_lightgbm(full_train: pd.DataFrame,
     y_pred = model.predict(X_test)
     acc = accuracy_score(y_test, y_pred)
 
-    logging.info(f"LightGBM model trained. Accuracy: {acc:.2%}")
+    logger.info(f"LightGBM model trained. Accuracy: {acc:.2%}")
 
     # feature importances log
     importances = model.feature_importances_
@@ -618,9 +637,9 @@ def train_lightgbm(full_train: pd.DataFrame,
         key=lambda x: x[1],
         reverse=True
     )[:10]
-    logging.info("Top feature importances (first 10):")
+    logger.info("Top feature importances (first 10):")
     for i, (name, score) in enumerate(pairs, start=1):
-        logging.info(f"  {i}. {name}: {score}")
+        logger.info(f"  {i}. {name}: {score}")
 
     return model, acc
 
@@ -644,7 +663,7 @@ def predict_upcoming(full_pred: pd.DataFrame,
         home_team, away_team, home_team_prob, result, date
     """
     if full_pred.empty:
-        logging.warning("No rows for prediction (full_pred is empty).")
+        logger.warning("No rows for prediction (full_pred is empty).")
         return pd.DataFrame()
 
     X_pred = full_pred[feature_cols].values
@@ -670,7 +689,7 @@ def predict_upcoming(full_pred: pd.DataFrame,
     preds = pd.DataFrame(out_rows)
 
     if preds.empty:
-        logging.warning("No aligned rows where team_x is home in its next game.")
+        logger.warning("No aligned rows where team_x is home in its next game.")
 
     # optional: restrict to only teams present in games_df (safety)
     if not games_df.empty and "home_team" in games_df.columns and "away_team" in games_df.columns:
@@ -681,7 +700,7 @@ def predict_upcoming(full_pred: pd.DataFrame,
         )].copy()
 
     if preds.empty:
-        logging.warning("After schedule alignment, no predictions remain for today's games.")
+        logger.warning("After schedule alignment, no predictions remain for today's games.")
 
     return preds
 
@@ -814,7 +833,7 @@ def fetch_odds(games_df: pd.DataFrame, api_key: str, preferred: List[str] = None
 
         o1, o2 = lookup.get((h, a), (None, None))
         if o1 is None or o2 is None:
-            logging.warning(f"No odds found for {h} vs {a}")
+            logger.warning(f"No odds found for {h} vs {a}")
         odds_rows.append(
             {"home_team": h, "away_team": a, "odds 1": o1, "odds 2": o2}
         )
@@ -910,7 +929,7 @@ def build_home_team_preds_csv(preds: pd.DataFrame,
     Odds converted to DECIMAL for bankroll workflow.
     """
     if preds.empty:
-        logging.warning("build_home_team_preds_csv: preds empty.")
+        logger.warning("build_home_team_preds_csv: preds empty.")
         return pd.DataFrame(columns=[
             "home_team", "away_team",
             "home_team_prob", "result",
@@ -984,12 +1003,12 @@ def save_predictions_csv(df_to_save: pd.DataFrame,
     filepath = os.path.join(pred_dir, filename)
 
     if os.path.exists(filepath):
-        logging.info(f"Prediction file already exists: {filepath}")
+        logger.info(f"Prediction file already exists: {filepath}")
     else:
         df_to_save.to_csv(filepath, index=False)
-        logging.info(f"Saved predictions to {filepath}")
+        logger.info(f"Saved predictions to {filepath}")
 
-    logging.info(f"Prediction CSV saved to {filepath}")
+    logger.info(f"Prediction CSV saved to {filepath}")
     return filepath
 
 
@@ -1036,7 +1055,7 @@ def main() -> str:
     if not games_df.empty:
         df = override_next_game_with_schedule(df, games_df)
     else:
-        logging.warning("No games_df rows; season may be over.")
+        logger.warning("No games_df rows; season may be over.")
 
     # 5. Build matchup table
     full = build_matchup_full(df)
@@ -1044,11 +1063,11 @@ def main() -> str:
         # 6. Split train vs predict
     full_train, full_pred = split_train_pred(full)
 
-    logging.info(
+    logger.info(
         f"Training data contains {len(full_train)} rows and {len(full_train.columns)} columns"
     )
     if full_pred.empty:
-        logging.warning("No prediction rows with target==2 found in 'full'.")
+        logger.warning("No prediction rows with target==2 found in 'full'.")
 
     # 7. Build feature list + train LightGBM
     feature_cols, banned_cols = build_feature_list(full_train)
@@ -1058,7 +1077,7 @@ def main() -> str:
     preds_raw = predict_upcoming(full_pred, model, feature_cols, games_df)
 
     if preds_raw.empty:
-        logging.warning("No aligned predictions for today. Will still try odds/save in empty mode.")
+        logger.warning("No aligned predictions for today. Will still try odds/save in empty mode.")
 
     # 9. Fetch odds
     odds_df = fetch_odds(games_df, API_KEY, preferred=["draftkings", "fanduel"])
@@ -1089,10 +1108,23 @@ def main() -> str:
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
-        logging.exception("An unexpected error occurred during prediction.")
+        logger.info("=" * 60)
+        logger.info("Script 3 completed successfully")
+        logger.info("=" * 60)
+    except KeyboardInterrupt:
+        logger.warning("Script interrupted by user")
+    except Exception as e:
+        logger.error("=" * 60)
+        logger.error("FATAL ERROR in Script 3")
+        logger.error("=" * 60)
+        logger.exception(f"Unexpected error: {e}")
+        raise
     finally:
-        try:
-            input("Prediction complete. Press Enter to close this window...")
-        except EOFError:
-            pass
+        # Keep the console window open so the user can read the logs.  In a non-interactive
+        # environment (e.g. GitHub Actions), input() will raise EOFError, which we catch and ignore.
+        in_ci = os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
+        if not in_ci:
+            try:
+                input("\nPress Enter to close this window...")
+            except (EOFError, KeyboardInterrupt):
+                pass
