@@ -103,14 +103,65 @@ cp .env.example .env
 # Edit .env and add your ODDS_API_KEY
 ```
 
-4. **Optional: Set up database** (see [DATABASE_SETUP.md](docs/DATABASE_SETUP.md))
+4. **Install the CLI** (makes `nba-predict` command available)
+```bash
+pip install -e .
+```
+
+5. **Optional: Set up database** (see [DATABASE_SETUP.md](docs/DATABASE_SETUP.md))
 ```bash
 # In .env, add:
 USE_DATABASE=true
 DATABASE_URL=postgresql://postgres:[password]@db.yourproject.supabase.co:5432/postgres
 ```
 
-### 🐳 Docker Setup (Recommended)
+### ⚡ Using the CLI (Recommended)
+
+The modern CLI provides a clean interface to all functionality:
+
+**Run the complete pipeline:**
+```bash
+nba-predict pipeline
+```
+
+**Or run individual steps:**
+```bash
+# Collect data
+nba-predict collect historical
+nba-predict collect upcoming
+
+# Generate predictions
+nba-predict predict
+
+# Run analysis
+nba-predict analyze stats
+nba-predict analyze kelly
+nba-predict analyze recommend
+
+# Or run all analysis at once
+nba-predict analyze all
+
+# Launch dashboard
+nba-predict dashboard
+```
+
+**Advanced usage:**
+```bash
+# Skip data collection (use existing data)
+nba-predict pipeline --skip-collection
+
+# Skip analysis (only predict)
+nba-predict pipeline --skip-analysis
+
+# Collect specific date
+nba-predict collect historical --date 2025-11-15
+
+# Get help
+nba-predict --help
+nba-predict collect --help
+```
+
+### 🐳 Docker Setup (Alternative)
 
 ![Docker](https://img.shields.io/badge/Docker-20.10+-2496ED.svg?logo=docker)
 
@@ -136,9 +187,10 @@ docker-compose run --rm app python 2026/src/3_predict_games_hybrid_2026.py
 
 See **[DOCKER.md](DOCKER.md)** for complete Docker setup guide.
 
-### Running the Pipeline
+### Alternative: Running Scripts Directly
 
-Execute scripts in order:
+The numbered scripts are still available for backward compatibility:
+
 ```bash
 # 1. Scrape previous game data
 python 2026/src/1_get_data_previous_game_day_2026.py
@@ -158,6 +210,8 @@ python 2026/src/5_kelly_betting_parameters_2026.py
 # 6. View proposed bets
 python 2026/src/6_proposed_bets_2026.py
 ```
+
+**Note:** The new CLI interface (`nba-predict`) is recommended for better UX and error handling.
 
 ---
 

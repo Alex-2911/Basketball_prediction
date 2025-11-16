@@ -50,8 +50,20 @@ docker-compose up -d
 docker-compose logs -f dashboard
 ```
 
-### 4. Run Prediction Scripts
+### 4. Run Prediction Pipeline
 
+**Using the CLI (Recommended):**
+```bash
+# Run complete pipeline
+docker-compose run --rm app nba-predict pipeline
+
+# Run individual steps
+docker-compose run --rm app nba-predict collect historical
+docker-compose run --rm app nba-predict predict
+docker-compose run --rm app nba-predict analyze all
+```
+
+**Legacy method (still works):**
 ```bash
 # Run a specific script
 docker-compose run --rm app python 2026/src/3_predict_games_hybrid_2026.py
@@ -91,13 +103,22 @@ docker-compose up dashboard
 
 ### Case 2: Daily Predictions (Automated)
 
+**Using the CLI (Recommended):**
+```bash
+# Run full prediction pipeline
+docker-compose run --rm app nba-predict pipeline
+```
+
+**Legacy method:**
 ```bash
 # Run full prediction pipeline
 docker-compose run --rm app bash -c "
   python 2026/src/1_get_data_previous_game_day_2026.py &&
   python 2026/src/2_get_data_next_game_day_2026.py &&
   python 2026/src/3_predict_games_hybrid_2026.py &&
-  python 2026/src/5_enrich_with_betting_recs_2026.py
+  python 2026/src/4_calculate_betting_statistics_2026.py &&
+  python 2026/src/5_kelly_betting_parameters_2026.py &&
+  python 2026/src/6_proposed_bets_2026.py
 "
 ```
 
@@ -353,6 +374,13 @@ gcloud run deploy nba-dashboard \
 
 ### Scheduled Runs (Cron)
 
+**Using the CLI:**
+```bash
+# Add to crontab (runs full pipeline daily at 9 AM)
+0 9 * * * cd /path/to/project && docker-compose run --rm app nba-predict pipeline
+```
+
+**Legacy method:**
 ```bash
 # Add to crontab
 0 9 * * * cd /path/to/project && docker-compose run --rm app python 2026/src/3_predict_games_hybrid_2026.py

@@ -1,0 +1,57 @@
+"""
+Prediction command
+
+Wraps the prediction script (3) for the CLI interface.
+"""
+
+import subprocess
+import sys
+from pathlib import Path
+from typing import Optional
+
+from logger import get_logger
+
+logger = get_logger(__name__)
+
+# Get the src directory
+SRC_DIR = Path(__file__).parent.parent
+
+
+def run_prediction(
+    model_path: Optional[str] = None,
+    output_dir: Optional[str] = None
+) -> bool:
+    """
+    Generate predictions for upcoming games
+
+    Args:
+        model_path: Path to saved LightGBM model (optional)
+        output_dir: Directory for prediction output files
+
+    Returns:
+        True if successful, False otherwise
+    """
+    script_path = SRC_DIR / "3_predict_games_hybrid_2026.py"
+    cmd = [sys.executable, str(script_path)]
+
+    # Note: Current script doesn't have these CLI args, but we're prepared for future
+    # if model_path:
+    #     cmd.extend(["--model-path", model_path])
+    # if output_dir:
+    #     cmd.extend(["--output-dir", output_dir])
+
+    try:
+        logger.info("Starting prediction generation...")
+        result = subprocess.run(
+            cmd,
+            check=True,
+            capture_output=False,
+            text=True
+        )
+        return result.returncode == 0
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Prediction script failed with exit code {e.returncode}")
+        return False
+    except Exception as e:
+        logger.error(f"Error running prediction script: {e}")
+        return False

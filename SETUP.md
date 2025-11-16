@@ -43,7 +43,17 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4. Configure Environment Variables
+### 4. Install the CLI Tool
+
+Install the package in editable mode to make the `nba-predict` command available:
+
+```bash
+pip install -e .
+```
+
+This creates the `nba-predict` command that you can use from anywhere.
+
+### 5. Configure Environment Variables
 
 Create a `.env` file in the root directory:
 
@@ -63,10 +73,34 @@ ODDS_API_KEY=your_actual_api_key_here
 3. Copy your API key from the dashboard
 4. Paste it into the `.env` file
 
-### 5. Run the Scripts
+### 6. Run the Pipeline
 
-Execute the scripts in order:
+**Option A: Using the CLI (Recommended)**
 
+Run the complete pipeline with one command:
+```bash
+nba-predict pipeline
+```
+
+Or run individual steps:
+```bash
+# Collect data
+nba-predict collect historical
+nba-predict collect upcoming
+
+# Generate predictions
+nba-predict predict
+
+# Run analysis
+nba-predict analyze all
+
+# Launch dashboard
+nba-predict dashboard
+```
+
+**Option B: Running Scripts Directly (Legacy)**
+
+The numbered scripts still work for backward compatibility:
 ```bash
 # Step 1: Collect previous game data
 python 2026/src/1_get_data_previous_game_day_2026.py
@@ -77,7 +111,7 @@ python 2026/src/2_get_data_next_game_day_2026.py
 # Step 3: Generate predictions
 python 2026/src/3_predict_games_hybrid_2026.py
 
-# Step 4: Calculate statistics (optional - requires completed games)
+# Step 4: Calculate statistics
 python 2026/src/4_calculate_betting_statistics_2026.py
 
 # Step 5: Calculate Kelly parameters

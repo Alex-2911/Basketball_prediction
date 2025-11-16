@@ -82,6 +82,9 @@ FROM base as development
 # Copy entire project
 COPY . .
 
+# Install CLI in editable mode
+RUN pip install -e .
+
 # Create necessary directories
 RUN mkdir -p 2026/data 2026/output logs
 
@@ -96,6 +99,9 @@ FROM base as dashboard
 
 # Copy entire project
 COPY . .
+
+# Install CLI in editable mode
+RUN pip install -e .
 
 # Expose Streamlit port
 EXPOSE 8501
@@ -113,6 +119,9 @@ FROM base as production
 # Copy entire project
 COPY . .
 
+# Install CLI in editable mode
+RUN pip install -e .
+
 # Create necessary directories
 RUN mkdir -p 2026/data 2026/output logs
 
@@ -123,4 +132,4 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 WORKDIR /app
 
 ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["python", "2026/src/3_predict_games_hybrid_2026.py"]
+CMD ["nba-predict", "pipeline"]
