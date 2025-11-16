@@ -403,6 +403,7 @@ class TestMigrationDataIntegrity:
     def test_data_types_preserved(self):
         """Test that data types are preserved during migration."""
         from migrate_game_statistics import prepare_dataframe_for_db
+        import numpy as np
 
         df = pd.DataFrame({
             'season': ['2025'],
@@ -417,7 +418,8 @@ class TestMigrationDataIntegrity:
 
         assert isinstance(result['season'].iloc[0], str)
         assert isinstance(result['date'].iloc[0], date)
-        assert isinstance(result['won'].iloc[0], (bool, int))
+        # Boolean can be Python bool, numpy bool, or stored as int
+        assert result['won'].dtype == bool or result['won'].iloc[0] in [True, False, 0, 1]
 
     def test_team_codes_preserved(self):
         """Test that team codes are preserved exactly."""
