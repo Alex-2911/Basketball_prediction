@@ -19,7 +19,7 @@ import logging
 import calendar
 from datetime import datetime, timedelta
 from io import StringIO
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -282,10 +282,13 @@ def rename_duplicated_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def preprocess_nba_data(stats_path: str) -> pd.DataFrame:
+def preprocess_nba_data(stats_path: Union[str, pd.DataFrame]) -> pd.DataFrame:
     """
     Load + sort by date, add target (won shifted -1 within team),
     drop columns that contain nulls to keep modeling simple.
+
+    Args:
+        stats_path: Either a path to CSV file or a DataFrame directly
 
     Output columns will include:
       - team
@@ -297,17 +300,38 @@ def preprocess_nba_data(stats_path: str) -> pd.DataFrame:
       - date
       - numeric stats...
     """
-    df = pd.read_csv(stats_path, index_col=0)
-    df = df.sort_values("date")
+    # Handle both DataFrame and string path inputs
+    if isinstance(stats_path, pd.DataFrame):
+        df = stats_path.copy()
+    else:
+        df = pd.read_csv(stats_path, index_col=0)
+
+    # Add 'won' column if it doesn't exist (for test data)
+    if 'won' not in df.columns:
+        if 'pts' in df.columns and 'opp_pts' in df.columns:
+            df['won'] = (df['pts'] > df['opp_pts']).astype(int)
+
+    # Store original index to preserve order
+    df = df.reset_index(drop=True)
+    df['_original_order'] = df.index
+
+    # Sort by date if date column exists
+    if 'date' in df.columns:
+        df = df.sort_values("date")
 
     def _add_target(g: pd.DataFrame) -> pd.DataFrame:
         g = g.copy()
         g["target"] = g["won"].shift(-1)
         return g
 
-    df = df.groupby("team", as_index=False).apply(_add_target)
+    # Use groupby with sort=False to preserve order, and suppress the deprecation warning
+    # by explicitly handling the grouping column
+    df = df.groupby("team", as_index=False, sort=False, group_keys=False).apply(_add_target)
     df = df.copy()
     df["target"] = df["target"].fillna(2).astype(int)
+
+    # Restore original order and remove helper column
+    df = df.sort_values('_original_order').drop(columns=['_original_order']).reset_index(drop=True)
 
     # drop columns that are entirely NaN
     nulls = pd.isnull(df).sum()
@@ -331,6 +355,10 @@ def calculate_rolling_averages(
     Rolling means per team-season for numeric columns.
     Returns one big concatenated frame with those rolling stats.
     """
+    # Handle empty DataFrame
+    if len(df) == 0:
+        return df.copy()
+
     X = df.copy()
     X["season"] = X["season"].astype(str)
 

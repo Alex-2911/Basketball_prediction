@@ -429,7 +429,7 @@ class TestDataProcessingPerformance:
 
     def test_rolling_averages_all_teams_full_season(self):
         """Test with realistic data: 30 teams × 82 games."""
-        teams = ["LAL", "BOS", "GSW", "MIA", "CHI"] * 6  # 30 teams
+        teams = ["LAL", "BOS", "GSW", "MIA", "CHI"] * 6  # 30 team instances (5 unique teams × 6)
         all_data = []
 
         for team in teams:
@@ -444,13 +444,15 @@ class TestDataProcessingPerformance:
 
         result = calculate_rolling_averages(df, window_size=9)
 
-        # Total: 30 teams × 82 games = 2,460 rows
+        # Total: 30 team instances × 82 games = 2,460 rows
         assert len(result) == 30 * 82
 
-        # Verify each team has 82 games
-        for team in teams:
+        # Verify each unique team has the correct number of games (6 instances × 82 games each)
+        unique_teams = set(teams)
+        for team in unique_teams:
             team_games = result[result["team"] == team]
-            assert len(team_games) == 82
+            # Each unique team appears 6 times in the data, so 6 × 82 = 492 games per unique team
+            assert len(team_games) == 6 * 82
 
 
 if __name__ == "__main__":
