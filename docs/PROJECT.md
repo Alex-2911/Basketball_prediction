@@ -166,7 +166,7 @@ The Basketball Prediction System is a sophisticated, automated platform for pred
 │  • Prediction accuracy tracking                            │
 │  • Bankroll simulation & backtesting                       │
 │  • Performance visualization                               │
-│  • CSV export for analysis                                 │
+│  • CSV export + optional PostgreSQL/Supabase storage       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -612,6 +612,31 @@ EV = (0.60 × 120) - (0.40 × 100)
 - python-dotenv 1.0.0 (environment variables)
 - xlsxwriter 3.1.2 (Excel export)
 - lxml 5.4.0 (XML/HTML processing)
+- requests 2.31.0 (HTTP client with retries)
+
+**Database** (Optional):
+- psycopg2-binary 2.9.9 (PostgreSQL driver)
+- Supabase/PostgreSQL (production data storage)
+
+### Data Storage
+
+The system supports **dual-mode operation**:
+
+**CSV Mode** (Default):
+- Local file-based storage
+- Simple, portable, version-controllable
+- Suitable for development and small-scale use
+- No external dependencies
+
+**Database Mode** (Optional):
+- PostgreSQL/Supabase integration
+- Production-grade relational database
+- Advanced querying and analytics
+- Concurrent access support
+- Automatic audit trails
+- Foreign key constraints and data integrity
+
+Enable database mode with `USE_DATABASE=true` in `.env`. See [DATABASE_SETUP.md](DATABASE_SETUP.md) for setup instructions.
 
 ### External Services
 
