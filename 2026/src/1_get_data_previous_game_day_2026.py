@@ -37,11 +37,20 @@ from nba_utils_2026 import (
     copy_missing_files,
 )
 
-# logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+# Import error handling and logging infrastructure
+from logger import get_logger
+from error_handlers import (
+    ErrorContext,
+    validate_dataframe,
+    validate_file_exists,
+    log_dataframe_info,
+    handle_missing_data,
+    ScrapingError,
+    DataValidationError,
 )
+
+# Initialize logger
+logger = get_logger(__name__)
 
 # ──────────────────────────────────
 # local helpers
@@ -76,59 +85,62 @@ def scrape_season_for_month(season, month_name, standings_dir):
     Download (always fresh) the monthly schedule html for given month.
     We delete any stale local file first so we always pull new data.
     """
-    os.makedirs(standings_dir, exist_ok=True)
-    monthly_filename = f"NBA_{season}_games-{month_name}.html"
-    monthly_path = os.path.join(standings_dir, monthly_filename)
+    with ErrorContext(f"Scraping {month_name} {season} schedule", logger=logger):
+        os.makedirs(standings_dir, exist_ok=True)
+        monthly_filename = f"NBA_{season}_games-{month_name}.html"
+        monthly_path = os.path.join(standings_dir, monthly_filename)
 
-    if os.path.exists(monthly_path):
-        try:
-            os.remove(monthly_path)
-            logging.info(f"Deleted outdated monthly file: {monthly_path}")
-        except Exception as e:
-            logging.error(f"Could not delete {monthly_path}: {e}")
+        if os.path.exists(monthly_path):
+            try:
+                os.remove(monthly_path)
+                logger.info(f"Deleted outdated monthly file: {monthly_path}")
+            except Exception as e:
+                logger.warning(f"Could not delete {monthly_path}: {e}")
 
-    # Hit the season landing page to discover month URLs
-    url = f"https://www.basketball-reference.com/leagues/NBA_{season}_games.html"
-    selector = "#content .filter"
-    html_content = get_html(url, selector)
-    if not html_content:
-        logging.error(f"Failed to retrieve {url}")
-        return None
+        # Hit the season landing page to discover month URLs
+        url = f"https://www.basketball-reference.com/leagues/NBA_{season}_games.html"
+        selector = "#content .filter"
 
-    soup = BeautifulSoup(html_content, 'html.parser')
-    links = soup.find_all(
-        "a",
-        href=re.compile(r"/leagues/NBA_[0-9]{4}_games-[a-z]+\.html")
-    )
+        logger.info(f"Fetching season page: {url}")
+        html_content = get_html(url, selector)
+        if not html_content:
+            logger.error(f"Failed to retrieve {url}")
+            raise ScrapingError(f"Could not fetch season page: {url}")
 
-    wanted_url = None
-    for l in links:
-        href = l.get("href", "")
-        if f"NBA_{season}_games-{month_name}" in href:
-            wanted_url = "https://www.basketball-reference.com" + href
-            break
-
-    if not wanted_url:
-        logging.warning(
-            f"No monthly url found for month '{month_name}' in season {season}"
+        soup = BeautifulSoup(html_content, 'html.parser')
+        links = soup.find_all(
+            "a",
+            href=re.compile(r"/leagues/NBA_[0-9]{4}_games-[a-z]+\.html")
         )
-        return None
 
-    logging.info(f"Fetching fresh month page: {wanted_url}")
-    month_html = get_html(wanted_url, "#all_schedule")
-    if not month_html:
-        logging.warning(f"Could not fetch monthly page: {wanted_url}")
-        return None
+        wanted_url = None
+        for l in links:
+            href = l.get("href", "")
+            if f"NBA_{season}_games-{month_name}" in href:
+                wanted_url = "https://www.basketball-reference.com" + href
+                break
 
-    try:
-        with open(monthly_path, "w", encoding="utf-8") as f:
-            f.write(month_html)
-        logging.info(f"Saved fresh monthly file → {monthly_path}")
-    except Exception as e:
-        logging.error(f"Error saving {monthly_path}: {e}")
-        return None
+        if not wanted_url:
+            logger.warning(
+                f"No monthly url found for month '{month_name}' in season {season}"
+            )
+            return None
 
-    return monthly_path
+        logger.info(f"Fetching fresh month page: {wanted_url}")
+        month_html = get_html(wanted_url, "#all_schedule")
+        if not month_html:
+            logger.warning(f"Could not fetch monthly page: {wanted_url}")
+            return None
+
+        try:
+            with open(monthly_path, "w", encoding="utf-8") as f:
+                f.write(month_html)
+            logger.info(f"Saved fresh monthly file → {monthly_path}")
+        except Exception as e:
+            logger.error(f"Error saving {monthly_path}: {e}")
+            return None
+
+        return monthly_path
 
 def scrape_game_day_boxscores(standings_file, scores_dir, target_games_date: date):
     """
@@ -157,12 +169,12 @@ def scrape_game_day_boxscores(standings_file, scores_dir, target_games_date: dat
             continue
         page_html = get_html(url, "#content")
         if not page_html:
-            logging.warning(f"Failed to fetch box score: {url}")
+            logger.warning(f"Failed to fetch box score: {url}")
             continue
         with open(save_path, "wb") as f:
             f.write(page_html.encode("utf-8"))
         saved += 1
-        logging.info(f"Saved box score → {save_path}")
+        logger.info(f"Saved box score → {save_path}")
 
     return saved
 
@@ -177,7 +189,7 @@ def process_saved_boxscores(scores_dir, existing_statistics, target_games_date: 
         if f.endswith(".html")
     ]
     if not box_files:
-        logging.warning("No box score files found.")
+        logger.warning("No box score files found.")
         return pd.DataFrame()
 
     games = []
@@ -233,7 +245,7 @@ def process_saved_boxscores(scores_dir, existing_statistics, target_games_date: 
             games.append(full_game)
 
         except Exception as e:
-            logging.error(f"Error processing {p}: {e}")
+            logger.error(f"Error processing {p}: {e}", exc_info=True)
 
     if not games:
         return pd.DataFrame()
@@ -285,20 +297,20 @@ def main():
     if args.collect_date:
         target_games_date = parse_ymd(args.collect_date)
         save_as_date = today_date
-        logging.info(
+        logger.info(
             f"Collecting games for exact date: {target_games_date}"
         )
     elif args.date:
         anchor = parse_ymd(args.date)
         target_games_date = anchor - timedelta(days=1)
         save_as_date = anchor
-        logging.info(
+        logger.info(
             f"Anchor date {anchor} → collecting prior day {target_games_date}"
         )
     else:
         target_games_date = today_date - timedelta(days=1)
         save_as_date = today_date
-        logging.info(
+        logger.info(
             f"No args → scraping yesterday {target_games_date} "
             f"and saving snapshot as {save_as_date}"
         )
@@ -322,7 +334,7 @@ def main():
             f"NBA_{CURRENT_SEASON}_games-{month_name}.html"
         )
         if not os.path.exists(fresh_monthly_file):
-            logging.warning(
+            logger.warning(
                 f"No monthly file available for {month_name}, cannot continue."
             )
             _pause_and_exit_ok()
@@ -335,12 +347,12 @@ def main():
             f = os.path.join(STAT_DIR, f"nba_games_{cand}.csv")
             if os.path.exists(f):
                 existing_statistics = pd.read_csv(f)
-                logging.info(
+                logger.info(
                     f"Using existing statistics layout from: {f}"
                 )
                 break
     except Exception as e:
-        logging.warning(
+        logger.warning(
             f"Could not load existing stats layout: {e}"
         )
 
@@ -349,7 +361,7 @@ def main():
         SCORES_DIR,
         target_games_date
     )
-    logging.info(
+    logger.info(
         f"Saved {saved} new box score file(s) for {target_games_date}"
     )
 
@@ -360,7 +372,7 @@ def main():
     )
 
     if games_df is None or games_df.empty:
-        logging.warning(
+        logger.warning(
             f"No games parsed for {target_games_date}. Nothing to append."
         )
         _pause_and_exit_ok()
@@ -385,8 +397,14 @@ def main():
     else:
         combined = games_df
 
+    # Validate DataFrame before saving
+    try:
+        log_dataframe_info(combined, name="Combined game statistics", logger=logger)
+    except Exception as e:
+        logger.warning(f"DataFrame validation warning: {e}")
+
     combined.to_csv(out_daily, index=False)
-    logging.info(
+    logger.info(
         f"Combined statistics saved → {out_daily}"
     )
 
@@ -398,6 +416,15 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
-        logging.exception("Fatal error in script 1.")
+        logger.info("=" * 60)
+        logger.info("Script 1 completed successfully")
+        logger.info("=" * 60)
+    except KeyboardInterrupt:
+        logger.warning("Script interrupted by user")
+    except Exception as e:
+        logger.error("=" * 60)
+        logger.error("FATAL ERROR in Script 1")
+        logger.error("=" * 60)
+        logger.exception(f"Unexpected error: {e}")
         _pause_and_exit_ok()
+        raise
