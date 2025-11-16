@@ -10,16 +10,10 @@ Tests critical financial calculations including:
 These functions handle real money, so comprehensive testing is essential.
 """
 
-import sys
-from pathlib import Path
-
 import numpy as np
 import pytest
 
-# Add source directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "2026" / "src"))
-
-from nba_utils_2026 import am_to_dec, impute_prob, kelly_frac
+from src.utils.nba_utils import am_to_dec, impute_prob, kelly_frac
 
 
 class TestKellyCriterion:

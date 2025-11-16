@@ -12,17 +12,13 @@ Tests logger configuration and functionality:
 
 import logging
 import os
-import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Add source directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "2026" / "src"))
-
-from logger import get_logger
+from src.utils.logger import get_logger
 
 
 class TestGetLogger:

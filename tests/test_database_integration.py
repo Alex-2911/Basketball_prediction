@@ -7,18 +7,13 @@ Database tests are skipped if USE_DATABASE=false to avoid CI failures.
 """
 
 import os
-import sys
 from datetime import date, datetime
-from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pandas as pd
 import pytest
 
-# Add source directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "2026" / "src"))
-
-from db_utils import DatabaseConfig, DatabaseOperations, DatabasePool, db_config
+from src.utils.db_utils import DatabaseConfig, DatabaseOperations, DatabasePool, db_config
 
 
 class TestDatabaseConfig:

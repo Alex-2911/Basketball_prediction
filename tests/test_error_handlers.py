@@ -11,19 +11,14 @@ Tests critical error handling components:
 """
 
 import logging
-import sys
 import time
-from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pandas as pd
 import pytest
 import requests
 
-# Add source directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "2026" / "src"))
-
-from error_handlers import (  # Exceptions; Decorators; Validators; Utilities
+from src.utils.error_handlers import (
     BasketballPredictionError,
     ConfigurationError,
     DataValidationError,

@@ -11,16 +11,10 @@ Tests team abbreviation mapping to handle inconsistencies across:
 Critical for data integrity - mismatched team codes = wrong predictions.
 """
 
-import sys
-from pathlib import Path
-
 import pandas as pd
 import pytest
 
-# Add source directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "2026" / "src"))
-
-from nba_utils_2026 import normalize_team_code, normalize_team_codes_inplace
+from src.utils.nba_utils import normalize_team_code, normalize_team_codes_inplace
 
 
 class TestNormalizeTeamCode:
