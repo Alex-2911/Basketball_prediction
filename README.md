@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/razi90/Basketball_prediction/actions/workflows/tests.yml/badge.svg)](https://github.com/razi90/Basketball_prediction/actions/workflows/tests.yml)
 [![codecov](https://codecov.io/gh/razi90/Basketball_prediction/branch/main/graph/badge.svg)](https://codecov.io/gh/razi90/Basketball_prediction)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests: 262 passing](https://img.shields.io/badge/tests-262%20passing-brightgreen.svg)](https://github.com/razi90/Basketball_prediction)
@@ -79,7 +79,7 @@ Automates **NBA data scraping, machine learning predictions, and betting analyti
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.12
 - Google Chrome (for Selenium web scraping)
 - The Odds API key (free tier: https://the-odds-api.com/)
 - Optional: Supabase account (for database storage)
@@ -317,7 +317,7 @@ Basketball_prediction/
 
 ## Technology Stack
 
-- **Python 3.11** - Core language
+- **Python 3.12** - Core language
 - **LightGBM** - Machine learning
 - **Selenium + BeautifulSoup** - Web scraping
 - **pandas + numpy** - Data processing

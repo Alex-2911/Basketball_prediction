@@ -247,7 +247,7 @@ Trigger: GitHub Actions Schedule
 │ STEP 0: Pre-execution                                       │
 ├─────────────────────────────────────────────────────────────┤
 │ ✓ Checkout repository                                      │
-│ ✓ Install Python 3.11                                      │
+│ ✓ Install Python 3.12                                      │
 │ ✓ Install Google Chrome (headless)                         │
 │ ✓ Install dependencies (pip)                               │
 │ ✓ Create .env file from secrets                            │
@@ -586,7 +586,7 @@ EV = (0.60 × 120) - (0.40 × 100)
 ### Core Technologies
 
 **Programming Language**:
-- Python 3.11
+- Python 3.12
 
 **Web Scraping**:
 - Selenium 4.7.0 (browser automation)
@@ -654,7 +654,7 @@ Enable database mode with `USE_DATABASE=true` in `.env`. See [DATABASE_SETUP.md]
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.12
 - Google Chrome browser
 - Git
 - API key from The Odds API

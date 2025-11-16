@@ -11,7 +11,7 @@ This guide will help you set up the Basketball prediction project for both local
 
 ## 📋 Prerequisites
 
-- Python 3.11 or higher
+- Python 3.12
 - Git
 - Google Chrome (for Selenium web scraping)
 - API key from [The Odds API](https://the-odds-api.com/)

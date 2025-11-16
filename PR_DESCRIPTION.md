@@ -125,8 +125,8 @@ This PR transforms the NBA prediction system into a **production-ready applicati
 
 **Automated on Every Push/PR:**
 
-- **Multi-version Testing**
-  - Python 3.11 and 3.12
+- **Automated Testing**
+  - Python 3.12
   - 262 tests with strict markers
   - Coverage reporting to Codecov
 
@@ -184,7 +184,7 @@ This PR transforms the NBA prediction system into a **production-ready applicati
 
 **Badges Added:**
 - [![Tests](https://img.shields.io/badge/tests-262%20passing-brightgreen.svg)](https://github.com/razi90/Basketball_prediction)
-- [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+- [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 - [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 - [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 - [![Docker](https://img.shields.io/badge/Docker-20.10+-2496ED.svg)](https://docs.docker.com)

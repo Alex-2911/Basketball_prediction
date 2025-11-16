@@ -16,7 +16,7 @@ jobs:
       fail-fast: false  # Continue testing other versions even if one fails
       matrix:
         os: [ubuntu-latest]
-        python-version: ['3.11', '3.12']
+        python-version: ['3.12']
 
     steps:
     - name: Checkout code
@@ -49,7 +49,7 @@ jobs:
         GITHUB_ACTIONS: "true"
 
     - name: Run tests with coverage
-      if: matrix.python-version == '3.11' && matrix.os == 'ubuntu-latest'
+      if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
       run: |
         pytest tests/ \
           --cov=2026/src \
@@ -60,7 +60,7 @@ jobs:
           --ignore=tests/test_data_processing.py
 
     - name: Upload coverage reports
-      if: matrix.python-version == '3.11' && matrix.os == 'ubuntu-latest'
+      if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
       uses: codecov/codecov-action@v4
       with:
         file: ./coverage.xml
@@ -79,7 +79,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
+        python-version: '3.12'
 
     - name: Install linting tools
       run: |
@@ -115,7 +115,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
+        python-version: '3.12'
 
     - name: Install security tools
       run: |
