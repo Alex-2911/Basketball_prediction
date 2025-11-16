@@ -40,6 +40,18 @@ from nba_utils_2026 import (
     get_home_win_rates,
 )
 
+# Import error handling and logging infrastructure
+from logger import get_logger
+from error_handlers import (
+    ErrorContext,
+    validate_dataframe,
+    log_dataframe_info,
+    DataValidationError,
+)
+
+# Initialize logger
+logger = get_logger(__name__)
+
 # ─────────────────────────────────────────────────────────
 # BACKFILL OVERRIDE
 # set this to the historical date you want to generate
@@ -68,7 +80,7 @@ from nba_utils_2026 import (
 #        return d, friendly, ymd
 
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# Logging now handled by logger infrastructure
 
 
 def load_predictions(directory_path: str, force_date: str = None):
@@ -98,7 +110,7 @@ def load_predictions(directory_path: str, force_date: str = None):
     df["odds_2"]  = pd.to_numeric(df["odds_2"].astype(str).str.replace(",", "."), errors="coerce")
     df["raw_prob"] = pd.to_numeric(df["home_team_prob"].astype(str).str.replace(",", "."), errors="coerce")
 
-    logging.info(f"Loaded predictions file: {pred_file} with {len(df)} rows")
+    logger.info(f"Loaded predictions file: {pred_file} with {len(df)} rows")
     return pred_file, df
 
 
@@ -111,7 +123,7 @@ def try_load_combined(directory_path: str):
         return None, None
     df = pd.read_csv(hist_file, encoding="utf-7", decimal=",")
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    logging.info(f"Loaded combined file: {hist_file} with {len(df)} rows")
+    logger.info(f"Loaded combined file: {hist_file} with {len(df)} rows")
     return hist_file, df
 
 
@@ -119,7 +131,7 @@ def compute_home_win_rates_save(hist_df: pd.DataFrame, output_file_home: str):
     """Compute and save home win rates (sorted)."""
     hwr_sorted = get_home_win_rates(hist_df)
     hwr_sorted.to_csv(output_file_home, index=True, index_label="team", float_format="%.4f")
-    logging.info(f"Saved home win rates to: {output_file_home}")
+    logger.info(f"Saved home win rates to: {output_file_home}")
     return hwr_sorted
 
 
@@ -298,7 +310,7 @@ def main():
 
         # Save outputs
         df_sim.to_csv(OUTPUT_FILE, index=False, float_format="%.4f")
-        logging.info(f"✅ Wrote enriched file → {OUTPUT_FILE}")
+        logger.info(f"✅ Wrote enriched file → {OUTPUT_FILE}")
 
         mask = (
             (df_sim["stake_raw"] > 0) |
@@ -307,7 +319,7 @@ def main():
         )
         df_filtered = df_sim.loc[mask].reset_index(drop=True)
         df_filtered.to_csv(OUTPUT_FILE_filtered, index=False, float_format="%.4f")
-        logging.info(f"✅ Wrote enriched file → {OUTPUT_FILE_filtered}")
+        logger.info(f"✅ Wrote enriched file → {OUTPUT_FILE_filtered}")
 
         # Plot bankroll paths
         plt.figure(figsize=(10, 6))
@@ -324,7 +336,7 @@ def main():
         # Always save the Kelly stakes file, even if empty
         pd.DataFrame(rows or []).to_csv(out_path_kelly, index=False, float_format="%.4f")
         if rows:
-            logging.info(f"✅ Wrote Kelly stakes (today) → {out_path_kelly}")
+            logger.info(f"✅ Wrote Kelly stakes (today) → {out_path_kelly}")
         else:
             logging.warning(f"⚠️ No Kelly suggestions — empty file saved at {out_path_kelly}")
 
@@ -382,7 +394,7 @@ def main():
         # Always save the Kelly stakes file, even if empty
         pd.DataFrame(rows or []).to_csv(out_path_kelly, index=False, float_format="%.4f")
         if rows:
-            logging.info(f"✅ Wrote Kelly stakes (today) → {out_path_kelly}")
+            logger.info(f"✅ Wrote Kelly stakes (today) → {out_path_kelly}")
         else:
             logging.warning(f"⚠️ No Kelly suggestions — empty file saved at {out_path_kelly}")
 
@@ -397,15 +409,23 @@ def main():
 if __name__ == "__main__":
     try:
         main()
+        logger.info("=" * 60)
+        logger.info("Script 5 completed successfully")
+        logger.info("=" * 60)
+    except KeyboardInterrupt:
+        logger.warning("Script interrupted by user")
     except Exception as e:
-        print("\nERROR:\n" + "".join(traceback.format_exception(type(e), e, e.__traceback__)))
-        try:
-            input("\nPress Enter to close this window...")
-        except EOFError:
-            pass
-        sys.exit(1)
-    else:
-        try:
-            input("\nPress Enter to close this window...")
-        except EOFError:
-            pass
+        logger.error("=" * 60)
+        logger.error("FATAL ERROR in Script 5")
+        logger.error("=" * 60)
+        logger.exception(f"Unexpected error: {e}")
+        raise
+    finally:
+        # Keep the console window open so the user can read the logs.  In a non-interactive
+        # environment (e.g. GitHub Actions), input() will raise EOFError, which we catch and ignore.
+        in_ci = os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
+        if not in_ci:
+            try:
+                input("\nPress Enter to close this window...")
+            except (EOFError, KeyboardInterrupt):
+                pass
