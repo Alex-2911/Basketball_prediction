@@ -29,6 +29,11 @@ Thumbs.db
 .cache/
 __pycache__/
 
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
 # Output artifacts (optional - comment out if you want to commit these)
 # 2026/output/
-# 2025/output/*.egg-info/
+# 2025/output/
