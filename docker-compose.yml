@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database (optional)
+  postgres:
+    image: postgres:15-alpine
+    container_name: nba_postgres
+    environment:
+      POSTGRES_DB: nba_predictions
+      POSTGRES_USER: nba_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme123}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schemas:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nba_user -d nba_predictions"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nba_network
+    restart: unless-stopped
+
+  # Prediction application (runs scripts)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: nba_app
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://nba_user:${POSTGRES_PASSWORD:-changeme123}@postgres:5432/nba_predictions
+      - USE_DATABASE=${USE_DATABASE:-false}
+    volumes:
+      - ./2026/data:/app/2026/data
+      - ./2026/output:/app/2026/output
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - nba_network
+    # Override command to run specific script
+    # command: python 2026/src/3_predict_games_hybrid_2026.py
+
+  # Streamlit dashboard
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dashboard
+    container_name: nba_dashboard
+    env_file:
+      - .env
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./2026/data:/app/2026/data
+      - ./2026/output:/app/2026/output
+      - ./dashboard:/app/dashboard
+    networks:
+      - nba_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  nba_network:
+    driver: bridge

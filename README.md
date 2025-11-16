@@ -110,6 +110,32 @@ USE_DATABASE=true
 DATABASE_URL=postgresql://postgres:[password]@db.yourproject.supabase.co:5432/postgres
 ```
 
+### 🐳 Docker Setup (Recommended)
+
+![Docker](https://img.shields.io/badge/Docker-20.10+-2496ED.svg?logo=docker)
+
+**Run everything in containers with one command:**
+
+```bash
+# Quick start - Dashboard only
+docker-compose up dashboard
+
+# Full stack - Dashboard + Database
+docker-compose up -d
+
+# Run prediction scripts
+docker-compose run --rm app python 2026/src/3_predict_games_hybrid_2026.py
+```
+
+**Benefits:**
+- ✅ **No dependency conflicts** - Isolated environment
+- ✅ **Works everywhere** - Linux, Mac, Windows
+- ✅ **Includes Chrome/Selenium** - Pre-configured for web scraping
+- ✅ **Database included** - Optional PostgreSQL container
+- ✅ **One-command setup** - No manual installs
+
+See **[DOCKER.md](DOCKER.md)** for complete Docker setup guide.
+
 ### Running the Pipeline
 
 Execute scripts in order:
