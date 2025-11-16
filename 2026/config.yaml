@@ -1,0 +1,234 @@
+# Basketball Prediction System Configuration
+# Season: 2025-26 (2026)
+# Version: 1.0
+
+# ============================================================================
+# SEASON CONFIGURATION
+# ============================================================================
+season:
+  current: 2026
+  year_display: "2025-26"
+  start_date: "2025-10-22"
+  end_date: "2026-04-19"
+
+# ============================================================================
+# DATA COLLECTION
+# ============================================================================
+data_collection:
+  # Rolling average window size for statistics
+  rolling_window_size: 9
+
+  # Historical data limits
+  historical_games_limit: 350  # ~4.3 games per team (30 teams × 12 games)
+
+  # Web scraping settings
+  scraping:
+    headless: true
+    timeout_seconds: 10
+    retry_attempts: 3
+    retry_backoff_factor: 1  # Exponential: 1s, 2s, 4s
+
+  # Basketball-Reference settings
+  basketball_reference:
+    base_url: "https://www.basketball-reference.com"
+    rate_limit_seconds: 1  # Min time between requests
+
+# ============================================================================
+# MACHINE LEARNING
+# ============================================================================
+machine_learning:
+  # Train/test split
+  test_size: 0.20  # 80/20 split
+  random_state: 42
+
+  # LightGBM hyperparameters
+  lightgbm:
+    objective: "binary"
+    metric: "auc"
+    num_leaves: 10
+    learning_rate: 0.1
+    max_depth: 7
+    feature_fraction: 0.9
+    bagging_fraction: 0.9
+    lambda_l1: 0.5
+    lambda_l2: 0.5
+    n_estimators: 100
+    verbose: -1
+
+  # Feature engineering
+  features:
+    scaling_method: "minmax"  # minmax or standard
+    min_value: 0.0
+    max_value: 1.0
+
+  # Probability calibration
+  calibration:
+    methods:
+      - "raw"      # No calibration
+      - "platt"    # Logistic regression
+      - "isotonic" # Isotonic regression
+    default_method: "platt"
+
+# ============================================================================
+# BETTING STRATEGY
+# ============================================================================
+betting:
+  # Bankroll management
+  bankroll:
+    initial_amount: 1000.0  # €1,000
+    currency: "EUR"
+
+  # Kelly Criterion settings
+  kelly:
+    fraction: 0.5  # Half-Kelly (conservative)
+    max_stake_percent: 0.30  # 30% of bankroll max
+    max_stake_absolute: 300.0  # €300 absolute max
+
+  # Bet filters
+  filters:
+    min_probability: 0.40  # Minimum win probability
+    max_probability: 1.00  # Maximum win probability
+    min_odds_decimal: 1.18  # Minimum acceptable odds
+    max_odds_decimal: 3.00  # Maximum acceptable odds
+    min_home_win_rate: 0.50  # Min home team win rate (50%)
+    home_games_lookback: 20  # Last N games for home win rate
+
+  # Value betting
+  value:
+    min_edge_percent: 0.00  # Minimum edge required (0% = any positive edge)
+
+# ============================================================================
+# API INTEGRATION
+# ============================================================================
+apis:
+  the_odds_api:
+    base_url: "https://api.the-odds-api.com/v4"
+    sport: "basketball_nba"
+    regions: "us"
+    markets: "h2h"  # Head-to-head (moneyline)
+    odds_format: "american"
+    timeout_seconds: 10
+    retry_attempts: 3
+
+    # Preferred bookmakers (in order)
+    preferred_bookmakers:
+      - "draftkings"
+      - "fanduel"
+      - "betmgm"
+
+# ============================================================================
+# FILE PATHS
+# ============================================================================
+paths:
+  # Relative to project root
+  output_dir: "2026/output"
+
+  # Data directories
+  gathering_data: "2026/output/Gathering_Data"
+  whole_statistic: "2026/output/Gathering_Data/Whole_Statistic"
+  next_game: "2026/output/Gathering_Data/Next_Game"
+  standings_dir: "2026/output/Gathering_Data/data/2026_standings"
+  scores_dir: "2026/output/Gathering_Data/data/2026_scores"
+
+  # Prediction output
+  predictions_dir: "2026/output/LightGBM"
+
+  # Logs
+  logs_dir: "logs"
+
+# ============================================================================
+# LOGGING
+# ============================================================================
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+
+  # Console logging
+  console:
+    enabled: true
+    level: "INFO"
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+  # File logging
+  file:
+    enabled: true
+    level: "DEBUG"
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s"
+    max_bytes: 10485760  # 10MB
+    backup_count: 5  # Keep 5 backup files
+
+  # Script-specific log files
+  separate_files: true
+
+# ============================================================================
+# TEAM CODE NORMALIZATION
+# ============================================================================
+team_normalization:
+  # Mappings for inconsistent team codes across data sources
+  # Format: "source_code": "canonical_code"
+  aliases:
+    PHO: PHX  # Phoenix Suns
+    BKN: BRK  # Brooklyn Nets
+    CHA: CHO  # Charlotte Hornets
+    WSH: WAS  # Washington Wizards
+    GS: GSW   # Golden State Warriors
+    NO: NOP   # New Orleans Pelicans
+    NY: NYK   # New York Knicks
+    SA: SAS   # San Antonio Spurs
+    UTAH: UTA # Utah Jazz
+    OKL: OKC  # Oklahoma City Thunder
+
+# ============================================================================
+# PERFORMANCE
+# ============================================================================
+performance:
+  # Parallel processing (future)
+  enable_parallel: false
+  num_workers: 4
+
+  # Caching (future)
+  enable_caching: false
+  cache_dir: ".cache"
+
+# ============================================================================
+# NOTIFICATIONS (FUTURE)
+# ============================================================================
+notifications:
+  enabled: false
+
+  # Email notifications
+  email:
+    enabled: false
+    smtp_server: ""
+    smtp_port: 587
+    from_address: ""
+    to_addresses: []
+
+  # Slack notifications
+  slack:
+    enabled: false
+    webhook_url: ""
+
+  # Events to notify on
+  events:
+    - "pipeline_start"
+    - "pipeline_complete"
+    - "pipeline_error"
+    - "high_value_bet"  # Bet with > 10% edge
+
+# ============================================================================
+# DEBUGGING
+# ============================================================================
+debug:
+  # Save intermediate DataFrames
+  save_intermediate_data: false
+
+  # Print feature importances
+  print_feature_importance: true
+  top_n_features: 20
+
+  # Model evaluation metrics
+  print_model_metrics: true
+
+  # Dry run mode (don't place actual bets)
+  dry_run: true
