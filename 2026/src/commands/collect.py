@@ -1,7 +1,7 @@
 """
 Data collection commands
 
-Wraps the data collection scripts (1 and 2) for the CLI interface.
+Wraps the data collection scripts for the CLI interface.
 """
 
 import subprocess
@@ -71,7 +71,7 @@ def run_historical_collection(
         args.extend(["--date", date])
 
     logger.info("Starting historical data collection...")
-    return run_script("1_get_data_previous_game_day_2026.py", args)
+    return run_script("collect_historical_games.py", args)
 
 
 def run_upcoming_collection(date: Optional[str] = None) -> bool:
@@ -89,4 +89,4 @@ def run_upcoming_collection(date: Optional[str] = None) -> bool:
         args.extend(["--date", date])
 
     logger.info("Starting upcoming games collection...")
-    return run_script("2_get_data_next_game_day_2026.py", args)
+    return run_script("collect_upcoming_games.py", args)

@@ -45,7 +45,7 @@ services:
     networks:
       - nba_network
     # Override command to run specific script
-    # command: python 2026/src/3_predict_games_hybrid_2026.py
+    # command: nba-predict predict
 
   # Streamlit dashboard
   dashboard:

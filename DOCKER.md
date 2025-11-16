@@ -63,10 +63,10 @@ docker-compose run --rm app nba-predict predict
 docker-compose run --rm app nba-predict analyze all
 ```
 
-**Legacy method (still works):**
+**Alternative: Run scripts directly:**
 ```bash
 # Run a specific script
-docker-compose run --rm app python 2026/src/3_predict_games_hybrid_2026.py
+docker-compose run --rm app python 2026/src/generate_predictions.py
 
 # Or enter interactive shell
 docker-compose run --rm app bash
@@ -109,16 +109,16 @@ docker-compose up dashboard
 docker-compose run --rm app nba-predict pipeline
 ```
 
-**Legacy method:**
+**Alternative: Run scripts directly:**
 ```bash
 # Run full prediction pipeline
 docker-compose run --rm app bash -c "
-  python 2026/src/1_get_data_previous_game_day_2026.py &&
-  python 2026/src/2_get_data_next_game_day_2026.py &&
-  python 2026/src/3_predict_games_hybrid_2026.py &&
-  python 2026/src/4_calculate_betting_statistics_2026.py &&
-  python 2026/src/5_kelly_betting_parameters_2026.py &&
-  python 2026/src/6_proposed_bets_2026.py
+  python 2026/src/collect_historical_games.py &&
+  python 2026/src/collect_upcoming_games.py &&
+  python 2026/src/generate_predictions.py &&
+  python 2026/src/calculate_betting_statistics.py &&
+  python 2026/src/calculate_kelly_parameters.py &&
+  python 2026/src/show_bet_recommendations.py
 "
 ```
 
@@ -380,10 +380,10 @@ gcloud run deploy nba-dashboard \
 0 9 * * * cd /path/to/project && docker-compose run --rm app nba-predict pipeline
 ```
 
-**Legacy method:**
+**Alternative:**
 ```bash
 # Add to crontab
-0 9 * * * cd /path/to/project && docker-compose run --rm app python 2026/src/3_predict_games_hybrid_2026.py
+0 9 * * * cd /path/to/project && docker-compose run --rm app python 2026/src/generate_predictions.py
 ```
 
 ## 🐞 Troubleshooting

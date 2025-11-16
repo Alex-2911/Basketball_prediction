@@ -1,7 +1,7 @@
 """
 Analysis commands
 
-Wraps the analysis scripts (4, 5, 6) for the CLI interface.
+Wraps the analysis scripts for the CLI interface.
 """
 
 import subprocess
@@ -53,7 +53,7 @@ def run_statistics() -> bool:
         True if successful, False otherwise
     """
     logger.info("Calculating betting statistics...")
-    return run_script("4_calculate_betting_statistics_2026.py")
+    return run_script("calculate_betting_statistics.py")
 
 
 def run_kelly() -> bool:
@@ -64,7 +64,7 @@ def run_kelly() -> bool:
         True if successful, False otherwise
     """
     logger.info("Calculating Kelly Criterion parameters...")
-    return run_script("5_kelly_betting_parameters_2026.py")
+    return run_script("calculate_kelly_parameters.py")
 
 
 def run_recommendations() -> bool:
@@ -75,7 +75,7 @@ def run_recommendations() -> bool:
         True if successful, False otherwise
     """
     logger.info("Generating betting recommendations...")
-    return run_script("6_proposed_bets_2026.py")
+    return run_script("show_bet_recommendations.py")
 
 
 def run_all_analysis() -> bool:

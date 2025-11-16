@@ -175,7 +175,7 @@ docker-compose up dashboard
 docker-compose up -d
 
 # Run prediction scripts
-docker-compose run --rm app python 2026/src/3_predict_games_hybrid_2026.py
+docker-compose run --rm app nba-predict predict
 ```
 
 **Benefits:**
@@ -189,29 +189,29 @@ See **[DOCKER.md](DOCKER.md)** for complete Docker setup guide.
 
 ### Alternative: Running Scripts Directly
 
-The numbered scripts are still available for backward compatibility:
+Scripts can also be run directly:
 
 ```bash
-# 1. Scrape previous game data
-python 2026/src/1_get_data_previous_game_day_2026.py
+# Collect historical game data
+python 2026/src/collect_historical_games.py
 
-# 2. Get upcoming game schedule
-python 2026/src/2_get_data_next_game_day_2026.py
+# Collect upcoming game schedule
+python 2026/src/collect_upcoming_games.py
 
-# 3. Generate predictions
-python 2026/src/3_predict_games_hybrid_2026.py
+# Generate predictions
+python 2026/src/generate_predictions.py
 
-# 4. Calculate betting statistics
-python 2026/src/4_calculate_betting_statistics_2026.py
+# Calculate betting statistics
+python 2026/src/calculate_betting_statistics.py
 
-# 5. Calculate Kelly stakes
-python 2026/src/5_kelly_betting_parameters_2026.py
+# Calculate Kelly Criterion parameters
+python 2026/src/calculate_kelly_parameters.py
 
-# 6. View proposed bets
-python 2026/src/6_proposed_bets_2026.py
+# View betting recommendations
+python 2026/src/show_bet_recommendations.py
 ```
 
-**Note:** The new CLI interface (`nba-predict`) is recommended for better UX and error handling.
+**Note:** The CLI interface (`nba-predict`) is recommended for better UX and error handling.
 
 ---
 

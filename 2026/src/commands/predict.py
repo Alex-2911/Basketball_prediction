@@ -1,7 +1,7 @@
 """
 Prediction command
 
-Wraps the prediction script (3) for the CLI interface.
+Wraps the prediction script for the CLI interface.
 """
 
 import subprocess
@@ -31,7 +31,7 @@ def run_prediction(
     Returns:
         True if successful, False otherwise
     """
-    script_path = SRC_DIR / "3_predict_games_hybrid_2026.py"
+    script_path = SRC_DIR / "generate_predictions.py"
     cmd = [sys.executable, str(script_path)]
 
     # Note: Current script doesn't have these CLI args, but we're prepared for future

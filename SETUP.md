@@ -98,27 +98,27 @@ nba-predict analyze all
 nba-predict dashboard
 ```
 
-**Option B: Running Scripts Directly (Legacy)**
+**Option B: Running Scripts Directly**
 
-The numbered scripts still work for backward compatibility:
+Scripts can also be run individually:
 ```bash
-# Step 1: Collect previous game data
-python 2026/src/1_get_data_previous_game_day_2026.py
+# Collect historical game data
+python 2026/src/collect_historical_games.py
 
-# Step 2: Get next game schedule
-python 2026/src/2_get_data_next_game_day_2026.py
+# Collect upcoming game schedule
+python 2026/src/collect_upcoming_games.py
 
-# Step 3: Generate predictions
-python 2026/src/3_predict_games_hybrid_2026.py
+# Generate predictions
+python 2026/src/generate_predictions.py
 
-# Step 4: Calculate statistics
-python 2026/src/4_calculate_betting_statistics_2026.py
+# Calculate betting statistics
+python 2026/src/calculate_betting_statistics.py
 
-# Step 5: Calculate Kelly parameters
-python 2026/src/5_kelly_betting_parameters_2026.py
+# Calculate Kelly Criterion parameters
+python 2026/src/calculate_kelly_parameters.py
 
-# Step 6: View recommended bets
-python 2026/src/6_proposed_bets_2026.py
+# View betting recommendations
+python 2026/src/show_bet_recommendations.py
 ```
 
 ## 🤖 GitHub Actions Setup (Automated Daily Runs)
