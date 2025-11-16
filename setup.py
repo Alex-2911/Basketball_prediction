@@ -21,8 +21,8 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/razi90/Basketball_prediction",
-    packages=find_packages(where="2026"),
-    package_dir={"": "2026"},
+    packages=find_packages(where="."),
+    package_dir={"": "."},
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
