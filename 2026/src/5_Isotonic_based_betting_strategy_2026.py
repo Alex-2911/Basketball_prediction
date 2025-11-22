@@ -840,69 +840,70 @@ def apply_kelly_and_ev(df: pd.DataFrame, bankroll: float) -> pd.DataFrame:
 # SHORTLIST (LOCAL-STYLE FILTERS)
 # -------------------------------------------------------------------------
 
-def build_shortlist_local_style(
-    df_future: pd.DataFrame,
-    bankroll: float,
-) -> pd.DataFrame:
+def log_future_games_with_reasons(df_future: pd.DataFrame) -> None:
     """
-    Apply LOCAL-style filters to upcoming games and build shortlist:
+    Loggt alle zukünftigen Spiele mit den Gründen, warum sie
+    die LOCAL-Shortlist-Filter nicht schaffen (oder 'QUALIFIES').
+    Ausgabe ähnlich dem lokalen Script:
 
-        home_win_rate >= 0.50
-        iso_proba_home_win >= 0.45
-        closing_home_odds in [1.10, 3.40]
-
-    Then compute EV, Kelly, stake, etc. using ISO-based prob_used.
-    Games mit negativer EV / Kelly bleiben in der Shortlist,
-    erhalten aber stake = 0 (wie dein DEN–SAC Beispiel).
+    === ALL UPCOMING GAMES & FILTER REASONS ===
+          date home_team away_team  home_win_rate  prob_iso  odds_1                           why_not
+    2025-11-22       CHI       WAS           0.71     0.364    1.14              prob_iso 0.36 < 0.45
+    ...
     """
     if df_future.empty:
-        logging.info("No future games found – nothing to shortlist.")
-        return df_future.copy()
+        return
 
-    df = df_future.copy()
+    rows = []
+    for _, r in df_future.iterrows():
+        date_val = r.get(DATE_COL, pd.NaT)
+        home = r.get("home_team", "")
+        away = r.get("away_team", "")
+        hwr = r.get(HOMEWR_COL, np.nan)
+        iso = r.get(ISO_COL, np.nan)
+        odds = r.get(HOME_ODDS_COL, np.nan)
 
-    # apply strict base filters
-    conds = []
+        reasons = []
 
-    # home win rate
-    if HOMEWR_COL in df.columns and pd.api.types.is_numeric_dtype(df[HOMEWR_COL]):
-        conds.append(df[HOMEWR_COL] >= MIN_HOME_WIN_RATE_SHORTLIST)
-    else:
-        # wenn keine Home-Win-Rate, ist alles raus
-        logging.info(
-            "Column '%s' missing or non-numeric – cannot apply home-win-rate filter. Shortlist will be empty.",
-            HOMEWR_COL,
+        # Home-win-rate-Filter
+        if pd.notna(hwr) and hwr < MIN_HOME_WIN_RATE_SHORTLIST:
+            reasons.append(f"home_win_rate {hwr:.2f} < {MIN_HOME_WIN_RATE_SHORTLIST}")
+
+        # Odds-Bereich
+        if pd.notna(odds):
+            if odds < MIN_ODDS_SHORTLIST or odds > MAX_ODDS_SHORTLIST:
+                reasons.append(f"odds {odds:.2f} not in [{MIN_ODDS_SHORTLIST}, {MAX_ODDS_SHORTLIST}]")
+
+        # ISO-Filter
+        if pd.notna(iso) and iso < MIN_ISO_PROBA_SHORTLIST:
+            reasons.append(f"prob_iso {iso:.2f} < {MIN_ISO_PROBA_SHORTLIST}")
+
+        why_not = "QUALIFIES" if not reasons else "; ".join(reasons)
+
+        rows.append(
+            {
+                "date": date_val.date() if isinstance(date_val, pd.Timestamp) else date_val,
+                "home_team": home,
+                "away_team": away,
+                HOMEWR_COL: hwr,
+                "prob_iso": iso,
+                HOME_ODDS_COL: odds,
+                "why_not": why_not,
+            }
         )
-        return df.iloc[0:0].copy()
 
-    # odds range
-    conds.append(df[HOME_ODDS_COL].between(MIN_ODDS_SHORTLIST, MAX_ODDS_SHORTLIST))
+    df_reasons = pd.DataFrame(rows)
 
-    # ISO proba threshold
-    conds.append(df[ISO_COL] >= MIN_ISO_PROBA_SHORTLIST)
+    print("=== ALL UPCOMING GAMES & FILTER REASONS ===")
+    with pd.option_context(
+        "display.width", 160,
+        "display.max_columns", None,
+        "display.max_rows", None,
+        "display.float_format", lambda x: f"{x:0.3f}",
+    ):
+        print(df_reasons)
+        print()
 
-    # need odds + ISO not null
-    conds.append(df[HOME_ODDS_COL].notna())
-    conds.append(df[ISO_COL].notna())
-
-    mask = np.logical_and.reduce(conds)
-    df_sel = df[mask].copy()
-
-    if df_sel.empty:
-        logging.info(
-            "Future games found but none passed LOCAL filters "
-            "(HWR >= %.2f, ISO >= %.2f, odds in [%.2f, %.2f]).",
-            MIN_HOME_WIN_RATE_SHORTLIST,
-            MIN_ISO_PROBA_SHORTLIST,
-            MIN_ODDS_SHORTLIST,
-            MAX_ODDS_SHORTLIST,
-        )
-        return df_sel
-
-    # Apply EV + Kelly based on bankroll
-    df_sel = apply_kelly_and_ev(df_sel, bankroll)
-
-    return df_sel
 
 
 # -------------------------------------------------------------------------
@@ -1010,7 +1011,11 @@ def main() -> None:
         return
 
     # Re-sync future rows to include ISO + HWR etc.
+    # Re-sync future rows to include ISO + HWR etc.
     df_future = df_all.loc[df_all.index.isin(df_future.index)].copy()
+
+    # Alle zukünftigen Spiele + Gründe loggen (wie lokal)
+    log_future_games_with_reasons(df_future)
 
     # Load bankroll from live bet log
     bankroll = load_current_bankroll(pred_dir)
@@ -1018,6 +1023,7 @@ def main() -> None:
 
     # Apply local shortlist filters + Kelly sizing
     shortlist = build_shortlist_local_style(df_future, bankroll)
+
 
     if shortlist.empty:
         logging.info(
