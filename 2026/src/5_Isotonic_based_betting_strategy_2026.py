@@ -709,6 +709,73 @@ def grid_search(
 
     return best_params, df_res
 
+def build_shortlist_local_style(df_future: pd.DataFrame, bankroll: float) -> pd.DataFrame:
+    """
+    Baut Shortlist EXACT wie im lokalen Notebook:
+    - prob_iso (Isotonic-Proba)
+    - prob_used = max(prob_iso, raw_pred)
+    - EV pro 100€
+    - Kelly full + Kelly fraction (max 0.1)
+    - stake in €
+    - expected profit €
+    - fair odds + edge %
+    """
+
+    if df_future.empty:
+        return pd.DataFrame()
+
+    df = df_future.copy()
+
+    # RAW prob + ISO prob
+    df["prob_iso"] = df[ISO_COL]
+    df["prob_raw"] = df[PRED_PROBA_COL]
+
+    # prob_used = max(prob_iso, prob_raw)
+    df["prob_used"] = df[["prob_iso", "prob_raw"]].max(axis=1)
+
+    # EV pro Einheit (1€)
+    df["ev_per_unit"] = (
+        df["prob_used"] * (df[HOME_ODDS_COL] - 1.0)
+        - (1.0 - df["prob_used"])
+    )
+
+    # EV pro 100€
+    df["EV_€_per_100"] = df["ev_per_unit"] * 100.0
+
+    # Kelly full
+    df["kelly_full"] = (
+        (df[HOME_ODDS_COL] * df["prob_used"] - (1 - df["prob_used"]))
+        / (df[HOME_ODDS_COL] - 1)
+    )
+
+    # Kelly fraction (max 10% of stake)
+    df["kelly_fraction_used"] = df["kelly_full"].clip(lower=0, upper=0.10)
+
+    # Stake
+    df["stake_eur"] = bankroll * df["kelly_fraction_used"]
+
+    # Expected profit
+    df["exp_profit_eur"] = df["stake_eur"] * df["ev_per_unit"]
+
+    # Fair odds
+    df["fair_odds"] = 1.0 / df["prob_used"].clip(lower=1e-9)
+
+    # Edge %
+    df["edge_pct"] = (df["fair_odds"] / df[HOME_ODDS_COL] - 1.0) * 100.0
+
+    # Sort wie lokal
+    df = df.sort_values("exp_profit_eur", ascending=False)
+
+    # Lokale Filter:
+    mask = (
+        (df[HOMEWR_COL] >= MIN_HOME_WIN_RATE_SHORTLIST) &
+        (df["prob_iso"] >= MIN_ISO_PROBA_SHORTLIST) &
+        (df[HOME_ODDS_COL].between(MIN_ODDS_SHORTLIST, MAX_ODDS_SHORTLIST))
+    )
+
+    shortlist = df[mask].copy()
+
+    return shortlist
 
 # -------------------------------------------------------------------------
 # BANKROLL / KELLY
