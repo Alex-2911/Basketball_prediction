@@ -78,7 +78,7 @@ AWAY_ODDS_COL = "closing_away_odds"
 HOMEWR_COL = "home_win_rate"
 ISO_COL = "iso_proba_home_win"
 
-FLAT_STAKE = 1000.0
+FLAT_STAKE = 100.0
 
 # 4 x 4 x 4 x 4 = 256 combinations
 ODDS_MIN_GRID = [1.10, 1.25, 1.40, 1.60]
@@ -234,7 +234,7 @@ def merge_today_predictions(
     if they are not already present in df_all.
 
     We assume columns (or fallback to header=None):
-    home_team, away_team, home_team_prob, odds_1, odds_2, result, date.
+    home_team, away_team, home_team_prob (or similar), odds_1, odds_2, result, date.
     """
     today_pred_path = os.path.join(pred_dir, f"nba_games_predict_{ymd_str}.csv")
     if not os.path.exists(today_pred_path):
@@ -246,6 +246,7 @@ def merge_today_predictions(
 
     logging.info("Merging upcoming games from %s", today_pred_path)
 
+    # First try: read with whatever header is there
     tmp = pd.read_csv(
         today_pred_path,
         encoding="utf-7",
@@ -254,10 +255,27 @@ def merge_today_predictions(
         decimal=",",
     )
 
-    # If schema is weird, fallback to manual header
-    expected = {"home_team", "away_team", "home_team_prob"}
-    norm_cols = {c.lower().strip() for c in tmp.columns}
-    if not expected.issubset(norm_cols):
+    # Normalize columns
+    tmp.columns = (
+        tmp.columns
+           .astype(str)
+           .str.strip()
+           .str.lower()
+           .str.replace(r"\s+", "_", regex=True)
+    )
+
+    # If we don't have basic team info OR keine eindeutige Proba-Spalte -> fallback to fixed header
+    has_team_cols = {"home_team", "away_team"}.issubset(set(tmp.columns))
+    has_any_prob = any(
+        col in tmp.columns for col in [
+            "home_team_prob",
+            "pred_home_win_proba",
+            "prob",
+            "proba",
+        ]
+    )
+
+    if not has_team_cols or not has_any_prob:
         tmp = pd.read_csv(
             today_pred_path,
             encoding="utf-7",
@@ -275,18 +293,28 @@ def merge_today_predictions(
                 "date",
             ],
         )
+        tmp.columns = (
+            tmp.columns
+               .astype(str)
+               .str.strip()
+               .str.lower()
+               .str.replace(r"\s+", "_", regex=True)
+        )
 
-    tmp.columns = (
-        tmp.columns
-           .astype(str)
-           .str.strip()
-           .str.lower()
-           .str.replace(r"\s+", "_", regex=True)
-    )
+    # --- Numeric cleanup: probs + odds ---
+    # Probability source (be robust to different column names)
+    prob_source = None
+    for candidate in ["home_team_prob", "pred_home_win_proba", "prob", "proba"]:
+        if candidate in tmp.columns:
+            prob_source = candidate
+            break
 
-    # numeric cleanup
-    if "home_team_prob" in tmp.columns:
-        tmp["home_team_prob"] = to_float_series(tmp["home_team_prob"])
+    if prob_source is not None:
+        tmp[prob_source] = to_float_series(tmp[prob_source])
+        tmp[PRED_PROBA_COL] = tmp[prob_source]
+    else:
+        tmp[PRED_PROBA_COL] = np.nan
+
     if "odds_1" in tmp.columns:
         tmp["odds_1"] = to_float_series(tmp["odds_1"])
     if "odds_2" in tmp.columns:
@@ -301,7 +329,7 @@ def merge_today_predictions(
     # if still NaT, assume "today"
     tmp.loc[tmp["date"].isna(), "date"] = pd.Timestamp(today_date)
 
-    # ensure these exist
+    # ensure 'result' exists
     if "result" not in tmp.columns:
         tmp["result"] = np.nan
 
@@ -330,26 +358,6 @@ def merge_today_predictions(
         logging.info("No new upcoming games to add from TODAY_PRED.")
         return df_all
 
-        # --- ensure derived columns for new rows (same logic as in load_combined_df) ---
-    # prediction probability
-    if "home_team_prob" in new_rows.columns:
-        new_rows[PRED_PROBA_COL] = to_float_series(new_rows["home_team_prob"])
-    else:
-        new_rows[PRED_PROBA_COL] = np.nan
-
-    # home / away odds
-    if "odds_1" in new_rows.columns:
-        new_rows[HOME_ODDS_COL] = to_float_series(new_rows["odds_1"])
-    else:
-        new_rows[HOME_ODDS_COL] = np.nan
-
-    if "odds_2" in new_rows.columns:
-        new_rows[AWAY_ODDS_COL] = to_float_series(new_rows["odds_2"])
-    else:
-        new_rows[AWAY_ODDS_COL] = np.nan
-  
-       
-
     # Align columns between df_all and new_rows
     needed_cols = set(df_all.columns) | set(new_rows.columns)
     for col in needed_cols:
@@ -362,6 +370,7 @@ def merge_today_predictions(
     new_rows[RESULT_COL] = np.nan
     new_rows[RESULT_RAW_COL] = new_rows["result"]
 
+    # Append in same column order as df_all
     df_all = pd.concat(
         [df_all, new_rows[df_all.columns]],
         ignore_index=True,
