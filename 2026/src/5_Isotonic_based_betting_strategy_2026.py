@@ -715,7 +715,7 @@ def build_shortlist_local_style(df_future: pd.DataFrame, bankroll: float) -> pd.
     - prob_iso (Isotonic-Proba)
     - prob_used = max(prob_iso, raw_pred)
     - EV pro 100€
-    - Kelly full + Kelly fraction (max 0.1)
+    - Kelly full + Kelly fraction (max 10%)
     - stake in €
     - expected profit €
     - fair odds + edge %
@@ -748,8 +748,8 @@ def build_shortlist_local_style(df_future: pd.DataFrame, bankroll: float) -> pd.
         / (df[HOME_ODDS_COL] - 1)
     )
 
-    # Kelly fraction (max 10% of stake)
-    df["kelly_fraction_used"] = df["kelly_full"].clip(lower=0, upper=0.10)
+    # Kelly fraction (max 10% von Kelly)
+    df["kelly_fraction_used"] = df["kelly_full"].clip(lower=0.0, upper=MAX_KELLY_FRACTION)
 
     # Stake
     df["stake_eur"] = bankroll * df["kelly_fraction_used"]
@@ -776,6 +776,7 @@ def build_shortlist_local_style(df_future: pd.DataFrame, bankroll: float) -> pd.
     shortlist = df[mask].copy()
 
     return shortlist
+
 
 # -------------------------------------------------------------------------
 # BANKROLL / KELLY
@@ -1059,62 +1060,111 @@ def main() -> None:
         evaluate_strategy(df_past, best_params)["roi_per_bet"],
     )
 
-    # 7) SAVE GRID SEARCH + ISO DF (full)
+        # 7) SAVE GRID SEARCH + ISO DF
     grid_path = os.path.join(kelly_dir, f"nba_grid_search_results_{target_ymd}.csv")
     df_grid.to_csv(grid_path, index=False, encoding="utf-8")
     logging.info("Saved grid search results to %s", grid_path)
-
-    # add prob_iso column to full dataframe for consistency
-    df_all["prob_iso"] = df_all[ISO_COL]
 
     iso_path = os.path.join(kelly_dir, f"combined_nba_predictions_iso_{target_ymd}.csv")
     df_all.to_csv(iso_path, index=False, encoding="utf-8")
     logging.info("Saved full dataframe with %s to %s", ISO_COL, iso_path)
 
-    # 8) BUILD SHORTLIST FOR FUTURE GAMES (TODAY / TOMORROW) – LOCAL STYLE
-    if df_future.empty:
+    # 8) BANKROLL AUS bet_log_live.csv HOLEN
+    live_log_path = os.path.join(pred_dir, "bet_log_live.csv")
+    bankroll = load_current_bankroll(live_log_path)
+    logging.info(
+        "Using bankroll from column 'bankroll_after' in bet_log_live.csv: %.2f €",
+        bankroll,
+    )
+
+    # 9) FUTURE-GAMES NACH ISO-NACHBERECHNUNG NEU AUS df_all HOLEN
+    #    (damit prob_iso und closing_home_odds NICHT NaN sind)
+    mask_future = (
+        (df_all[RESULT_RAW_COL].isna() | (df_all[RESULT_RAW_COL].astype(str) == "0"))
+        & df_all["game_day"].isin([today_date, tomorrow_date])
+    )
+    df_future_view = df_all.loc[mask_future].copy()
+
+    if df_future_view.empty:
         logging.info("No future games found in file – nothing to bet on today.")
-        print("=== Script 5 finished (no future games) ===")
-        return
-
-    # Re-sync future rows to include ISO + HWR etc.
-    # Re-sync future rows to include ISO + HWR etc.
-    df_future = df_all.loc[df_all.index.isin(df_future.index)].copy()
-
-    # Alle zukünftigen Spiele + Gründe loggen (wie lokal)
-    log_future_games_with_reasons(df_future)
-
-    # Load bankroll from live bet log
-    bankroll = load_current_bankroll(pred_dir)
-    print(f"\n💰 Current bankroll for sizing bets: {bankroll:.2f} €\n")
-
-    # Apply local shortlist filters + Kelly sizing
-    shortlist = build_shortlist_local_style(df_future, bankroll)
-
-
-    if shortlist.empty:
-        logging.info(
-            "Future games found but no bets passed LOCAL filters – empty shortlist for today."
-        )
-        print("=== TONIGHT'S SHORTLIST (ISOTONIC + KELLY) ===")
-        print("No games passed the local filters today.\n")
         print("=== Script 5 finished ===")
         return
 
-    # Save shortlist to standard LightGBM output folder
-    shortlist_path = os.path.join(pred_dir, f"bet_shortlist_{target_ymd}.csv")
-    shortlist.to_csv(shortlist_path, index=False, encoding="utf-8")
-    logging.info("Saved bet shortlist (%d rows) to %s", len(shortlist), shortlist_path)
+    # 10) SHORTLIST IM LOKALEN STIL BAUEN (ISO + KELLY)
+    shortlist = build_shortlist_local_style(df_future_view, bankroll)
 
-    # Pretty print for GitHub Actions log (ähnlich lokal)
+    # Für Anzeige: Datum als date, Odds-Kolumnen so benennen wie lokal
+    df_future_view_display = df_future_view.copy()
+    df_future_view_display[DATE_COL] = pd.to_datetime(df_future_view_display[DATE_COL], errors="coerce")
+    df_future_view_display[DATE_COL] = df_future_view_display[DATE_COL].dt.date
+
+    # Alias für Odds wie lokal
+    df_future_view_display["odds_1"] = df_future_view_display[HOME_ODDS_COL]
+
+    if shortlist.empty:
+        logging.info("Future games found but no bets passed LOCAL filters – empty shortlist for today.")
+
+        # === REASON-TABELLE BAUEN ===
+        reasons_rows = []
+        for _, row in df_future_view_display.iterrows():
+            why = []
+            hwr = row.get(HOMEWR_COL, np.nan)
+            iso_p = row.get(ISO_COL, np.nan)
+            odds = row.get("odds_1", np.nan)
+
+            if pd.notna(hwr) and hwr < MIN_HOME_WIN_RATE_SHORTLIST:
+                why.append(f"home_win_rate {hwr:.2f} < {MIN_HOME_WIN_RATE_SHORTLIST}")
+            if pd.notna(iso_p) and iso_p < MIN_ISO_PROBA_SHORTLIST:
+                why.append(f"prob_iso {iso_p:.3f} < {MIN_ISO_PROBA_SHORTLIST}")
+            if pd.notna(odds):
+                if odds < MIN_ODDS_SHORTLIST:
+                    why.append(f"odds {odds:.2f} < min {MIN_ODDS_SHORTLIST}")
+                if odds > MAX_ODDS_SHORTLIST:
+                    why.append(f"odds {odds:.2f} > max {MAX_ODDS_SHORTLIST}")
+
+            if not why:
+                why_str = "QUALIFIES"
+            else:
+                why_str = "; ".join(why)
+
+            reasons_rows.append(
+                {
+                    "date": row[DATE_COL],
+                    "home_team": row.get("home_team"),
+                    "away_team": row.get("away_team"),
+                    "home_win_rate": hwr,
+                    "prob_iso": iso_p,
+                    "odds_1": odds,
+                    "why_not": why_str,
+                }
+            )
+
+        df_reasons = pd.DataFrame(reasons_rows)
+
+        print("=== ALL UPCOMING GAMES & FILTER REASONS ===")
+        print(df_reasons.to_string(index=False))
+        print()
+        print(f"💰 Current bankroll for sizing bets: {bankroll:,.2f} €")
+        print("=== Script 5 finished ===")
+        return
+
+    # === WENN WIR EINE SHORTLIST HABEN ===
+
+    shortlist_print = shortlist.copy()
+    shortlist_print[DATE_COL] = pd.to_datetime(shortlist_print[DATE_COL], errors="coerce")
+    shortlist_print[DATE_COL] = shortlist_print[DATE_COL].dt.date
+
+    # Für Anzeige Odds wie lokal
+    shortlist_print["odds_1"] = shortlist_print[HOME_ODDS_COL]
+
     display_cols = [
-        "game_date",
+        DATE_COL,
         "home_team",
         "away_team",
         HOMEWR_COL,
         "prob_iso",
         "prob_used",
-        HOME_ODDS_COL,
+        "odds_1",
         "EV_€_per_100",
         "kelly_full",
         "kelly_fraction_used",
@@ -1123,42 +1173,60 @@ def main() -> None:
         "fair_odds",
         "edge_pct",
     ]
-    for c in display_cols:
-        if c not in shortlist.columns:
-            # skip missing columns (zur Sicherheit)
-            display_cols.remove(c)
 
+    print(f"💰 Current bankroll for sizing bets: {bankroll:,.2f} €\n")
     print("=== TONIGHT'S SHORTLIST (ISOTONIC + KELLY) ===")
-    # Round some numeric columns for nice log output
-    shortprint = shortlist.copy()
-    for col in [
-        HOMEWR_COL,
-        "prob_iso",
-        "prob_used",
-        HOME_ODDS_COL,
-        "EV_€_per_100",
-        "kelly_full",
-        "kelly_fraction_used",
-        "stake_eur",
-        "exp_profit_eur",
-        "fair_odds",
-        "edge_pct",
-    ]:
-        if col in shortprint.columns:
-            shortprint[col] = pd.to_numeric(shortprint[col], errors="coerce")
+    print(shortlist_print[display_cols].to_string(index=False))
+    print()
 
-    with pd.option_context(
-        "display.width", 160,
-        "display.max_columns", None,
-        "display.max_rows", None,
-        "display.float_format", lambda x: f"{x:0.3f}",
-    ):
-        print(shortprint[display_cols])
-        print()
+    # === REASON-TABELLE AUCH BEI SHORTLIST ===
+    reasons_rows = []
+    for _, row in df_future_view_display.iterrows():
+        why = []
+        hwr = row.get(HOMEWR_COL, np.nan)
+        iso_p = row.get(ISO_COL, np.nan)
+        odds = row.get("odds_1", np.nan)
 
-    print("=== TONIGHT'S SHORTLIST (SAVE SNAPSHOT) ===")
-    print(f"💾 Saved shortlist to {shortlist_path}\n")
+        if pd.notna(hwr) and hwr < MIN_HOME_WIN_RATE_SHORTLIST:
+            why.append(f"home_win_rate {hwr:.2f} < {MIN_HOME_WIN_RATE_SHORTLIST}")
+        if pd.notna(iso_p) and iso_p < MIN_ISO_PROBA_SHORTLIST:
+            why.append(f"prob_iso {iso_p:.3f} < {MIN_ISO_PROBA_SHORTLIST}")
+        if pd.notna(odds):
+            if odds < MIN_ODDS_SHORTLIST:
+                why.append(f"odds {odds:.2f} < min {MIN_ODDS_SHORTLIST}")
+            if odds > MAX_ODDS_SHORTLIST:
+                why.append(f"odds {odds:.2f} > max {MAX_ODDS_SHORTLIST}")
+
+        if not why:
+            why_str = "QUALIFIES"
+        else:
+            why_str = "; ".join(why)
+
+        reasons_rows.append(
+            {
+                "date": row[DATE_COL],
+                "home_team": row.get("home_team"),
+                "away_team": row.get("away_team"),
+                "home_win_rate": hwr,
+                "prob_iso": iso_p,
+                "odds_1": odds,
+                "why_not": why_str,
+            }
+        )
+
+    df_reasons = pd.DataFrame(reasons_rows)
+
+    print("=== ALL UPCOMING GAMES & FILTER REASONS ===")
+    print(df_reasons.to_string(index=False))
+    print()
+
+    # Shortlist-Snapshot speichern (wie bisher)
+    shortlist_path = os.path.join(pred_dir, f"bet_shortlist_{target_ymd}.csv")
+    shortlist.to_csv(shortlist_path, index=False, encoding="utf-8")
+    logging.info("Saved bet shortlist (%d rows) to %s", len(shortlist), shortlist_path)
+
     print("=== Script 5 finished ===")
+
 
 
 if __name__ == "__main__":
