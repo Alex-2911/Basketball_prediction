@@ -1,576 +1,421 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
 """
-3_predict_games_hybrid_2026.py
+Script 3 of 5 (2025-26 season): Predict Next Game Day with LightGBM + Odds
 
-This script predicts win probabilities for today's NBA matchups,
-merges them with betting odds, estimates value edges, and writes out
-a CSV in the standard betting format.
+- Builds rolling features on team game logs
+- Trains LightGBM on historical data
+- Predicts win probabilities for the next game day
+- Fetches bookmaker odds from The Odds API (hard-coded key)
+- Outputs `nba_games_predict_YYYY-MM-DD.csv` with:
+    home_team, away_team, home_team_prob, result, odds 1, odds 2, date
 
-It is a fusion of:
-- your working local notebook logic (rolling window, target=won.shift(-1),
-  manual override of `team_opp_next` / `home_next` / `date_next` using games_df,
-  self-merge to create matchups, LightGBM training, predict_proba, odds fetch)
-AND
-- the "2026" repo style (paths, odds helpers, Kelly downstream compatibility).
-
-Main outputs:
-1. LightGBM model accuracy / feature importances (for sanity check)
-2. CSV: nba_games_predict_<YYYY-MM-DD>.csv
-   columns:
-     home_team, away_team, home_team_prob, result, odds 1, odds 2, date
+Run order:
+    1. 1_get_data_previous_game_day.py
+    2. 2_get_data_next_game_day_2026.py  -> games_df_YYYY-MM-DD.csv
+    3. 3_predict_next_game_day_2026.py   -> nba_games_predict_YYYY-MM-DD.csv
+    4. 4_calculate_betting_statistics_2026.py
+    5. 5_kelly_betting_2026.py
 """
 
 import os
 import glob
 import logging
-from datetime import datetime, timedelta
-from typing import Tuple, List, Dict
+from datetime import timedelta
 
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
+
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 
 import requests
-from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-TEAM_ALIAS_FOR_ODDS = {
-    "PHO": "PHX",
-    "PHX": "PHX",
-    "BKN": "BRK",
-    "BRK": "BRK",
-    "CHA": "CHO",   # sportsbook "CHA" -> our "CHO"
-    "CHO": "CHO",
-    "GS":  "GSW",
-    "GSW": "GSW",
-    "NO":  "NOP",
-    "NOP": "NOP",
-    "NY":  "NYK",
-    "NYK": "NYK",
-    "SA":  "SAS",
-    "SAS": "SAS",
-    "UTAH": "UTA",
-    "UTA": "UTA",
-    "OKL": "OKC",
-    "OKC": "OKC",
-    # rest already match (BOS, LAL, etc.)
-}
-
-def normalize_code_for_odds(abbr: str) -> str:
-    """Return our canonical team code (PHO->PHX, CHA->CHO, BKN->BRK, etc.)."""
-    if not isinstance(abbr, str):
-        return abbr
-    return TEAM_ALIAS_FOR_ODDS.get(abbr.upper(), abbr.upper())
-
-
-# ─────────────────────────────────────────────────────────
-# CONFIG
-# ─────────────────────────────────────────────────────────
-
-ROLLING_WINDOW_SIZE = 9
-CURRENT_SEASON = 2025   # mostly for reference/logging
-API_KEY = "8e9d506f8573b01023028cef1bf645b5"
-
-# you already have these folders in the 2026 repo structure;
-# adjust if your paths differ
-def get_directory_paths() -> Dict[str, str]:
-    """
-    Return a dictionary of important directories.
-    You should keep these paths consistent with your repo.
-    Works on both Windows and Linux (GitHub Actions).
-    """
-    base_repo = os.getcwd()
-    return {
-        "STAT_DIR": os.path.join(base_repo, "2026", "output", "Gathering_Data", "Whole_Statistic"),
-        "NEXT_GAME_DIR": os.path.join(base_repo, "2026", "output", "Gathering_Data", "Next_Game"),
-        "PREDICTION_DIR": os.path.join(base_repo, "2026", "output", "LightGBM"),
-    }
-
-def get_current_date(offset_days: int = 0) -> Tuple[datetime, str, str]:
-    """
-    Returns today's date in different representations:
-    - dt (datetime)
-    - pretty "YYYY-MM-DD"
-    - same "YYYY-MM-DD" (kept for interface compatibility)
-    """
-    dt = datetime.now() - timedelta(days=offset_days)
-    ds = dt.strftime("%Y-%m-%d")
-    return dt, ds, ds
-
-def get_latest_file(directory: str, prefix: str, ext: str) -> str:
-    """
-    Find latest file in directory that matches prefix + *.ext
-    """
-    pattern = os.path.join(directory, f"{prefix}*{ext}")
-    files = glob.glob(pattern)
-    if not files:
-        return ""
-    return max(files, key=os.path.getctime)
-
-# Mapping between sportsbook names and our abbreviations
-TEAM_ALIAS_FOR_ODDS = {
-    "PHO": "PHX", "PHX": "PHX",
-    "BKN": "BRK", "BRK": "BRK",
-    "CHA": "CHO", "CHO": "CHO",  # internal style often "CHO"
-    "GS":  "GSW", "GSW": "GSW",
-    "NO":  "NOP", "NOP": "NOP",
-    "NY":  "NYK", "NYK": "NYK",
-    "SA":  "SAS", "SAS": "SAS",
-    "UTAH":"UTA", "UTA": "UTA",
-    "OKL": "OKC", "OKC": "OKC",
-}
-
-def normalize_code_for_odds(abbr: str) -> str:
-    if not isinstance(abbr, str):
-        return abbr
-    return TEAM_ALIAS_FOR_ODDS.get(abbr.upper(), abbr.upper())
-
-# full-name → our abbrev (used by odds fetch)
-FULL_TO_ABBREV = {
-    "Atlanta Hawks": "ATL",
-    "Boston Celtics": "BOS",
-    "Brooklyn Nets": "BRK",
-    "Charlotte Hornets": "CHO",
-    "Chicago Bulls": "CHI",
-    "Cleveland Cavaliers": "CLE",
-    "Dallas Mavericks": "DAL",
-    "Denver Nuggets": "DEN",
-    "Detroit Pistons": "DET",
-    "Golden State Warriors": "GSW",
-    "Houston Rockets": "HOU",
-    "Indiana Pacers": "IND",
-    "Los Angeles Clippers": "LAC",
-    "LA Clippers": "LAC",
-    "Los Angeles Lakers": "LAL",
-    "Memphis Grizzlies": "MEM",
-    "Miami Heat": "MIA",
-    "Milwaukee Bucks": "MIL",
-    "Minnesota Timberwolves": "MIN",
-    "New Orleans Pelicans": "NOP",
-    "New York Knicks": "NYK",
-    "Oklahoma City Thunder": "OKC",
-    "Orlando Magic": "ORL",
-    "Philadelphia 76ers": "PHI",
-    "Phoenix Suns": "PHX",
-    "Portland Trail Blazers": "POR",
-    "Sacramento Kings": "SAC",
-    "San Antonio Spurs": "SAS",
-    "Toronto Raptors": "TOR",
-    "Utah Jazz": "UTA",
-    "Washington Wizards": "WAS",
-}
-
-# ─────────────────────────────────────────────────────────
-# LOGGING
-# ─────────────────────────────────────────────────────────
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+# Shared utilities
+from nba_utils_2026 import (
+    CURRENT_SEASON,
+    get_current_date,
+    get_directory_paths,
 )
 
-# ─────────────────────────────────────────────────────────
-# STEP 1. LOAD TODAY'S DATA
-# ─────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------------------------------------------------------
+# CONFIG
+# ----------------------------------------------------------------------------------------------------------------------
 
-def load_games_df(paths: Dict[str, str], today_str_format: str) -> pd.DataFrame:
-    """
-    Load today's games_df_<date>.csv.
-    If not found, fall back to the most recent games_df_*.csv.
-    Must contain columns: home_team, away_team, game_date
-    """
-    next_game_dir = paths["NEXT_GAME_DIR"]
-    direct_path = os.path.join(next_game_dir, f"games_df_{today_str_format}.csv")
+ROLLING_WINDOW_SIZE = 9  # your notebook uses 9 but keeps suffix "_7" – we keep that for compatibility
+MAX_DAYS_BACK = 120
 
-    if os.path.exists(direct_path):
-        file_path = direct_path
+# Hard-coded Odds API key (as you requested)
+ODDS_API_KEY = "8e9d506f8573b01023028cef1bf645b5"
+
+# NBA bookmakers use PHX & CHA; Basketball-Reference uses PHO & CHO.
+# We map only for API calls, and map back for display.
+FETCH_ABBR_MAP = {"PHO": "PHX", "CHO": "CHA"}
+REVERSE_MAP = {v: k for k, v in FETCH_ABBR_MAP.items()}
+
+# Full-name → 3-letter codes for The Odds API
+FULL_TO_ABBREV = {
+    "Atlanta Hawks": "ATL", "Boston Celtics": "BOS", "Brooklyn Nets": "BRK",
+    "Charlotte Hornets": "CHA", "Chicago Bulls": "CHI", "Cleveland Cavaliers": "CLE",
+    "Dallas Mavericks": "DAL", "Denver Nuggets": "DEN", "Detroit Pistons": "DET",
+    "Golden State Warriors": "GSW", "Houston Rockets": "HOU", "Indiana Pacers": "IND",
+    "LA Clippers": "LAC", "Los Angeles Clippers": "LAC", "Los Angeles Lakers": "LAL",
+    "Memphis Grizzlies": "MEM", "Miami Heat": "MIA", "Milwaukee Bucks": "MIL",
+    "Minnesota Timberwolves": "MIN", "New Orleans Pelicans": "NOP",
+    "New York Knicks": "NYK", "Oklahoma City Thunder": "OKC", "Orlando Magic": "ORL",
+    "Philadelphia 76ers": "PHI", "Phoenix Suns": "PHX", "Portland Trail Blazers": "POR",
+    "Sacramento Kings": "SAC", "San Antonio Spurs": "SAS", "Toronto Raptors": "TOR",
+    "Utah Jazz": "UTA", "Washington Wizards": "WAS",
+}
+
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s - %(levelname)s - %(message)s")
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# HELPERS: FILES & DATES
+# ----------------------------------------------------------------------------------------------------------------------
+
+def find_latest_stats_file(stat_dir: str) -> str:
+    """
+    Find the most recent nba_games_YYYY-MM-DD.csv file in STAT_DIR.
+    """
+    pattern = os.path.join(stat_dir, "nba_games_*.csv")
+    files = glob.glob(pattern)
+    if not files:
+        raise FileNotFoundError(f"No nba_games_*.csv files found in {stat_dir}")
+    latest = max(files, key=os.path.getctime)
+    logging.info("Using stats file: %s", latest)
+    return latest
+
+
+def load_games_df(next_game_dir: str):
+    """
+    Load games_df_YYYY-MM-DD.csv from NEXT_GAME_DIR.
+    If today's file is missing, fallback to the latest available.
+
+    Returns:
+        games_df (DataFrame), game_day (date)
+    """
+    today, today_str, _ = get_current_date()
+    file_path = os.path.join(next_game_dir, f"games_df_{today_str}.csv")
+
+    if not os.path.exists(file_path):
+        files = sorted(glob.glob(os.path.join(next_game_dir, "games_df_*.csv")))
+        if not files:
+            raise FileNotFoundError(f"No games_df_*.csv found in {next_game_dir}")
+        file_path = files[-1]
+        logging.info("Using latest games_df file instead of today: %s", file_path)
     else:
-        # fallback to most recent
-        file_path = get_latest_file(next_game_dir, prefix="games_df_", ext=".csv")
-        if not file_path:
-            raise FileNotFoundError(
-                f"No games_df_*.csv found in {next_game_dir}"
-            )
-        logging.info(
-            f"games_df for {today_str_format} not found. Falling back to {file_path}"
-        )
+        logging.info("Using games_df file: %s", file_path)
 
-    games_df = pd.read_csv(file_path)
-    # handle idx col if present
-    if "Unnamed: 0" in games_df.columns:
-        games_df = games_df.drop(columns=["Unnamed: 0"])
-
+    games_df = pd.read_csv(file_path, index_col=0)
     if games_df.empty:
-        logging.warning("games_df is empty (season might be over).")
+        raise SystemExit("No upcoming games – season might be over.")
 
-    logging.info(
-        f"Loaded game schedule from {file_path} with {len(games_df)} games"
-    )
-    return games_df
+    games_df = games_df.reset_index(drop=True).copy()
+    games_df["home_team"] = games_df["home_team"].astype(str).str.strip()
+    games_df["away_team"] = games_df["away_team"].astype(str).str.strip()
+    games_df["game_date"] = pd.to_datetime(games_df["game_date"]).dt.date
 
-
-def load_stats_df(paths: Dict[str, str], today_str_format: str) -> pd.DataFrame:
-    """
-    Load nba_games_<date>.csv from STAT_DIR.
-    If today's file is missing, use the most recent nba_games_*.csv.
-    """
-    stat_dir = paths["STAT_DIR"]
-    direct_path = os.path.join(stat_dir, f"nba_games_{today_str_format}.csv")
-
-    if os.path.exists(direct_path):
-        df_path = direct_path
+    unique_days = games_df["game_date"].dropna().unique()
+    if len(unique_days) == 1:
+        game_day = unique_days[0]
     else:
-        logging.info(
-            f"Stats file for {today_str_format} not found. Searching latest in {stat_dir}..."
-        )
-        df_path = get_latest_file(stat_dir, prefix="nba_games_", ext=".csv")
-        if not df_path:
-            raise FileNotFoundError(
-                f"No nba_games_*.csv files found in {stat_dir}"
-            )
-        logging.info(f"Using latest stats file: {df_path}")
+        game_day = sorted(unique_days)[0]
 
-    df = pd.read_csv(df_path)
-    # Sometimes index col sneaks in
-    if "Unnamed: 0" in df.columns:
-        df = df.drop(columns=["Unnamed: 0"])
+    logging.info("Upcoming games on %s:\n%s",
+                 game_day,
+                 games_df.to_string(index=False))
 
-    logging.info(f"Loaded stats with {len(df)} rows and {len(df.columns)} columns")
-    return df
+    return games_df, game_day
 
 
-# ─────────────────────────────────────────────────────────
-# STEP 2. PREPROCESS (TARGET, SCALING, ROLLING)
-# ─────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------------------------------------------------------
+# HELPERS: DATA PREP
+# ----------------------------------------------------------------------------------------------------------------------
 
-def add_target_per_team(df: pd.DataFrame) -> pd.DataFrame:
+def add_target(group: pd.DataFrame) -> pd.DataFrame:
     """
-    For each team, target = 'won' of NEXT row
-    Then fill last row (future) as 2.
+    Adds 'target' column = next game's 'won' for that team.
     """
-    def add_target(group):
-        group = group.sort_values("date")
-        group["target"] = group["won"].shift(-1)
-        return group
+    group["target"] = group["won"].shift(-1)
+    return group
 
+
+def preprocess_nba_data(df_path: str) -> pd.DataFrame:
+    """
+    Load and preprocess nba_games_*.csv with scaling and rolling features
+    like in your notebook.
+    """
+    df = pd.read_csv(df_path, index_col=0)
     df = df.sort_values("date")
+
+    # add target per team
     df = df.groupby("team", group_keys=False).apply(add_target)
-    df["target"] = df["target"].fillna(2).astype(int)
-    return df
+    df["target"].fillna(2, inplace=True)  # 2 means "unknown" (future)
+    df["target"] = df["target"].astype(int)
 
+    # remove columns with ANY nulls
+    nulls = pd.isnull(df).sum()
+    null_cols = nulls[nulls > 0].index
+    df = df.drop(columns=list(null_cols))
 
-def scale_numeric(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
-    """
-    MinMax-scale all numeric stat columns except a few meta columns.
-    Returns the scaled df and the list of scaled columns.
-    """
-    removed_cols_for_scaling = ["season", "date", "won", "target", "team", "team_opp"]
-    to_scale = df.columns[~df.columns.isin(removed_cols_for_scaling)]
+    # columns to NOT scale
+    removed_columns = ["season", "date", "won", "target", "team", "team_opp"]
 
+    # scale the rest
+    selected_columns = df.columns[~df.columns.isin(removed_columns)]
     scaler = MinMaxScaler()
-    df[to_scale] = scaler.fit_transform(df[to_scale])
-    return df, list(to_scale)
+    df[selected_columns] = scaler.fit_transform(df[selected_columns])
+
+    # rolling features
+    df_rolling = df[list(selected_columns) + ["won", "team", "season"]]
+
+    def find_team_averages(team_df: pd.DataFrame) -> pd.DataFrame:
+        numeric_cols = team_df.select_dtypes(include=[np.number])
+        return numeric_cols.rolling(ROLLING_WINDOW_SIZE, min_periods=1).mean()
+
+    df_rolling = df_rolling.reset_index(drop=True)
+    df_rolling = df_rolling.groupby(["team", "season"], group_keys=False).apply(find_team_averages)
+
+    # rename rolling columns with _7 suffix (to match your existing scripts)
+    rolling_cols = {
+        col: f"{col}_7" for col in df_rolling.columns
+        if col not in ["team", "season"]
+    }
+    df_rolling.rename(columns=rolling_cols, inplace=True)
+
+    # concat original + rolling
+    df = df.reset_index(drop=True)
+    df = pd.concat([df, df_rolling], axis=1)
+
+    # drop any remaining NaNs
+    df = df.dropna()
+
+    return df, rolling_cols, removed_columns
 
 
+def shift_col(team: pd.DataFrame, col_name: str) -> pd.Series:
+    return team[col_name].shift(-1)
 
-def rolling_averages(df: pd.DataFrame) -> pd.DataFrame:
+
+def add_next_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Compute rolling averages for numeric columns grouped by team+season,
-    BUT EXCLUDE 'target' from rolling features so we don't create target_7 leaks.
+    Add 'home_next', 'team_opp_next', 'date_next' per team (shifted).
     """
-    def team_roll(g: pd.DataFrame) -> pd.DataFrame:
-        numeric_cols = g.select_dtypes(include=[np.number]).copy()
-        # do not roll future label info
-        numeric_cols = numeric_cols.drop(columns=["target"], errors="ignore")
-        rolled = numeric_cols.rolling(ROLLING_WINDOW_SIZE, min_periods=1).mean()
-        return rolled
+    df = df.reset_index(drop=True)
 
-    df_numeric = df.groupby(["team", "season"], group_keys=False).apply(team_roll)
+    def add_col(col_name: str) -> pd.Series:
+        if "team" not in df.columns:
+            raise KeyError("The 'team' column is missing in df")
+        return df.groupby("team", group_keys=False).apply(lambda x: shift_col(x, col_name))
 
-    rename_map = {col: f"{col}_7" for col in df_numeric.columns}
-    df_numeric = df_numeric.rename(columns=rename_map)
+    df["home_next"] = add_col("home")
+    df["team_opp_next"] = add_col("team_opp")
+    df["date_next"] = add_col("date")
 
-    df = pd.concat(
-        [df.reset_index(drop=True), df_numeric.reset_index(drop=True)],
-        axis=1
-    )
     return df
 
 
-
-
-# ─────────────────────────────────────────────────────────
-# STEP 3. ADD NEXT-GAME INFO
-# ─────────────────────────────────────────────────────────
-
-def add_next_game_columns(df: pd.DataFrame) -> pd.DataFrame:
+def inject_upcoming_games(df: pd.DataFrame, games_df: pd.DataFrame, game_day) -> pd.DataFrame:
     """
-    For each row, attach info about that team's NEXT game using shift(-1):
-        home_next, team_opp_next, date_next
+    Override 'team_opp_next', 'home_next', 'date_next' for the teams
+    that are actually playing on game_day (your mapping loop from the notebook).
     """
-    def shift_col(team_df: pd.DataFrame, col_name: str) -> pd.Series:
-        return team_df[col_name].shift(-1)
+    games_df_fixed = games_df.reset_index(drop=True).copy()
+    games_df_fixed["home_team"] = games_df_fixed["home_team"].astype(str).str.strip()
+    games_df_fixed["away_team"] = games_df_fixed["away_team"].astype(str).str.strip()
+    games_df_fixed["game_date"] = pd.to_datetime(games_df_fixed["game_date"]).dt.date
 
-    def add_cols(team_df: pd.DataFrame) -> pd.DataFrame:
-        team_df = team_df.copy()
-        team_df["home_next"] = shift_col(team_df, "home")
-        team_df["team_opp_next"] = shift_col(team_df, "team_opp")
-        team_df["date_next"] = shift_col(team_df, "date")
-        return team_df
+    for _, game in games_df_fixed.iterrows():
+        home_team = game["home_team"]
+        away_team = game["away_team"]
+        gd = game["game_date"]
 
-    df2 = (
-        df
-        .groupby("team", group_keys=False)
-        .apply(add_cols)
-    )
-    return df2
-
-
-def override_next_game_with_schedule(df: pd.DataFrame, games_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Notebook logic:
-    For each (home_team, away_team, game_date) in games_df,
-    find the LATEST row of each team and overwrite that row's
-    team_opp_next, home_next, date_next
-    with today's matchup info.
-
-    This forces the "next game" for that last observation to be TODAY's game,
-    so our merge will later align all upcoming games.
-    """
-    if games_df.empty:
-        logging.warning("No upcoming games in schedule; skip override_next_game_with_schedule.")
-        return df
-
-    df = df.copy()
-
-    # assure required columns
-    needed_cols = ["team_opp_next", "home_next", "date_next"]
-    for col in needed_cols:
-        if col not in df.columns:
-            df[col] = np.nan
-
-    for idx, game in games_df.iterrows():
-        home_team = game.get("home_team")
-        away_team = game.get("away_team")
-        game_day  = game.get("game_date")
-
-        if pd.isna(home_team) or pd.isna(away_team) or pd.isna(game_day):
-            logging.warning(f"Skipping row {idx} in games_df due to missing values.")
+        try:
+            last_home_idx = df.loc[df["team"] == home_team].iloc[::-1].index[0]
+            last_away_idx = df.loc[df["team"] == away_team].iloc[::-1].index[0]
+        except IndexError:
+            logging.warning("No history for %s or %s in df – skipping this matchup.",
+                            home_team, away_team)
             continue
 
-        # last row for home team
-        home_mask = df["team"] == home_team
-        if home_mask.any():
-            last_home_idx = df[home_mask].index.max()
-            df.loc[last_home_idx, "team_opp_next"] = away_team
-            df.loc[last_home_idx, "home_next"] = 1
-            df.loc[last_home_idx, "date_next"] = game_day
+        # home team row
+        df.loc[last_home_idx, "team_opp_next"] = away_team
+        df.loc[last_home_idx, "home_next"] = 1
+        df.loc[last_home_idx, "date_next"] = gd
 
-        else:
-            logging.warning(f"Could not find recent row for home team {home_team}")
+        # away team row
+        df.loc[last_away_idx, "team_opp_next"] = home_team
+        df.loc[last_away_idx, "home_next"] = 0
+        df.loc[last_away_idx, "date_next"] = gd
 
-        # last row for away team
-        away_mask = df["team"] == away_team
-        if away_mask.any():
-            last_away_idx = df[away_mask].index.max()
-            df.loc[last_away_idx, "team_opp_next"] = home_team
-            df.loc[last_away_idx, "home_next"] = 0
-            df.loc[last_away_idx, "date_next"] = game_day
-        else:
-            logging.warning(f"Could not find recent row for away team {away_team}")
+        logging.info("Mapped %s (home) vs %s on %s", home_team, away_team, gd)
 
     return df
 
 
-# ─────────────────────────────────────────────────────────
-# STEP 4. BUILD MATCHUPS ("full")
-# ─────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------------------------------------------------------
+# HELPERS: ODDS API
+# ----------------------------------------------------------------------------------------------------------------------
 
-def build_matchup_full(df: pd.DataFrame) -> pd.DataFrame:
+def translate_to_api(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert team codes for API queries (PHO->PHX, CHO->CHA)."""
+    return df.replace(FETCH_ABBR_MAP)
+
+
+def translate_back(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert bookmaker abbreviations back (PHX->PHO, CHA->CHO)."""
+    return df.replace(REVERSE_MAP)
+
+
+def get_session() -> requests.Session:
+    s = requests.Session()
+    retries = Retry(
+        total=3,
+        backoff_factor=0.5,
+        status_forcelist=[429, 500, 502, 503, 504],
+    )
+    s.mount("https://", HTTPAdapter(max_retries=retries))
+    return s
+
+
+def fetch_odds(games_df: pd.DataFrame,
+               api_key: str,
+               preferred: list | None = None) -> pd.DataFrame:
     """
-    Re-create the notebook's self-merge, but safely.
-
-    Concept:
-    - left side: each team's last known stats row, with columns including:
-        team, team_opp_next, date_next, home_next, target, etc.
-    - right side: opponent snapshot.
-      We take a subset of columns (rolling features etc.) and prefix them
-      as "_right", so we don't clash.
-
-    We merge on:
-        left.team == right.team_opp_next
-        left.date_next == right.date_next
-
-    After merge we rename:
-        left.team          -> team_x (this is the focal team)
-        right.team         -> team_y (opponent)
-        left.home_next     -> home_next
-        left.target        -> target
-        left.date_next     -> date_next
-
-    Then:
-      full_train = target != 2
-      full_pred  = target == 2
+    Fetch moneyline odds for the given (home_team, away_team) pairs from The Odds API.
+    Returns a DataFrame with 'home_team', 'away_team', 'odds 1', 'odds 2' in American format.
     """
-    df_left = df.copy()
+    sess = get_session()
+    resp = sess.get(
+        "https://api.the-odds-api.com/v4/sports/basketball_nba/odds",
+        params={
+            "apiKey": api_key,
+            "regions": "us",
+            "markets": "h2h",
+            "oddsFormat": "american",
+        },
+        timeout=10,
+    )
+    resp.raise_for_status()
+    data = resp.json()
 
-    # build df_right with suffix _right for numeric/stat columns
-    banned_right_cols = {
-        "team", "team_opp", "team_opp_next", "home", "home_next",
-        "date", "date_next", "target", "won", "season"
-    }
+    # Build lookup: (home_abbr, away_abbr) -> (moneyline_home, moneyline_away)
+    lookup = {}
+    for ev in data:
+        home_abbr = FULL_TO_ABBREV.get(ev["home_team"])
+        away_abbr = FULL_TO_ABBREV.get(ev["away_team"])
+        if not home_abbr or not away_abbr or not ev.get("bookmakers"):
+            continue
 
-    keep_for_right = [c for c in df.columns if c not in banned_right_cols]
-    df_right = df[keep_for_right + ["team_opp_next", "date_next", "team"]].copy()
+        bookmakers = ev["bookmakers"]
+        bm = None
+        if preferred:
+            for key in preferred:
+                bm = next((b for b in bookmakers if b["key"] == key), None)
+                if bm:
+                    break
+        if bm is None:
+            bm = bookmakers[0]
 
-    # rename df_right's feature columns with _right suffix,
-    # but keep merge keys + team plain to map later
-    rename_map = {}
-    for c in keep_for_right:
-        rename_map[c] = f"{c}_right"
+        market = next((m for m in bm["markets"] if m["key"] == "h2h"), None)
+        if not market:
+            continue
 
-    df_right = df_right.rename(columns=rename_map)
+        prices = {}
+        for out in market["outcomes"]:
+            abbr = FULL_TO_ABBREV.get(out["name"])
+            if abbr:
+                prices[abbr] = out["price"]
 
-    full = df_left.merge(
-        df_right,
+        lookup[(home_abbr, away_abbr)] = (prices.get(home_abbr), prices.get(away_abbr))
+
+    # Build odds DataFrame aligned to games_df
+    rows = []
+    for _, gm in games_df.iterrows():
+        h, a = gm.home_team, gm.away_team
+        o1, o2 = lookup.get((h, a), (None, None))
+        if o1 is None or o2 is None:
+            logging.warning("No odds found for %s vs %s", h, a)
+        rows.append({"home_team": h, "away_team": a, "odds 1": o1, "odds 2": o2})
+
+    return pd.DataFrame(rows)
+
+
+def american_to_decimal(ml):
+    """
+    Convert American odds to decimal odds.
+    """
+    if pd.isna(ml):
+        return np.nan
+    ml = int(ml)
+    if ml > 0:
+        return ml / 100.0 + 1.0
+    else:
+        return 100.0 / abs(ml) + 1.0
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# MAIN
+# ----------------------------------------------------------------------------------------------------------------------
+
+def main():
+    # Dates and dirs
+    today, today_str, today_str_format = get_current_date()
+    paths = get_directory_paths()
+    stat_dir = paths["STAT_DIR"]
+    next_game_dir = paths["NEXT_GAME_DIR"]
+    prediction_dir = paths["PREDICTION_DIR"]
+
+    logging.info("Today: %s", today_str_format)
+    logging.info("STAT_DIR: %s", stat_dir)
+    logging.info("NEXT_GAME_DIR: %s", next_game_dir)
+    logging.info("PREDICTION_DIR: %s", prediction_dir)
+
+    # 1) Load historical stats
+    stats_file = find_latest_stats_file(stat_dir)
+    df, rolling_cols, removed_columns = preprocess_nba_data(stats_file)
+
+    # 2) Add shifted "next" columns
+    df = add_next_columns(df)
+
+    # 3) Load upcoming games & inject next-game info into df
+    games_df, game_day = load_games_df(next_game_dir)
+    df = inject_upcoming_games(df, games_df, game_day)
+
+    # 4) Build "full" matrix merging team vs opponent (your notebook logic)
+    #    Use original col names from rolling_cols as keys for the opponent side.
+    full = df.merge(
+        df[list(rolling_cols.keys()) + ["team_opp_next", "date_next", "team"]],
         left_on=["team", "date_next"],
         right_on=["team_opp_next", "date_next"],
-        how="inner"
+        suffixes=("_x", "_y"),
     )
 
-    # rename columns to stable names
-    full = full.rename(columns={
-        "team_x": "team",  # pandas may have created team_x / team_y; handle carefully below
-    }) if "team_x" in full.columns else full
+    # 5) Features & train/pred split
+    # add all object columns to removed_columns
+    removed_columns = list(full.columns[full.dtypes == "object"]) + removed_columns
+    selected_columns = full.columns[~full.columns.isin(removed_columns)]
+    selected_features = selected_columns.unique()
 
-    # We want focal team as team_x and opp as team_y
-    # after merge, df_left columns kept their original names
-    # df_right has "team" (the opponent's team) but not suffixed
-    if "team_x" in full.columns and "team_y" in full.columns:
-        # if pandas auto-created team_x/team_y because of collision:
-        team_x_col = "team_x"
-        team_y_col = "team_y"
-    else:
-        # if pandas DIDN'T create team_x/team_y because we renamed df_right cols:
-        team_x_col = "team"
-        team_y_col = "team_y" if "team_y" in full.columns else "team_right"
-        if team_y_col not in full.columns and "team" in df_right.columns:
-            # after merge, df_right "team" might appear as just "team_y"
-            # but to be safe, detect it
-            candidates = [c for c in full.columns if c.endswith("_y")]
-            if len(candidates) == 1:
-                team_y_col = candidates[0]
+    full_train = full[full["target"] != 2]
+    full_pred = full[full["target"] == 2]
 
-    # final standard names
-    if team_x_col not in full.columns:
-        raise RuntimeError("Could not identify 'team_x' in merged data.")
-    if team_y_col not in full.columns:
-        raise RuntimeError("Could not identify 'team_y' (opponent) in merged data.")
-
-    full = full.rename(columns={
-        team_x_col: "team_x",
-        team_y_col: "team_y",
-    })
-
-    return full
-
-
-def split_train_pred(full: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Split full into training rows (target != 2) and prediction rows (target == 2).
-    """
-    if "target" not in full.columns:
-        raise RuntimeError("Expected 'target' column in full after merge.")
-    full_train = full[full["target"] != 2].copy()
-    full_pred  = full[full["target"] == 2].copy()
-    return full_train, full_pred
-
-
-# ─────────────────────────────────────────────────────────
-# STEP 5. TRAIN MODEL
-# ─────────────────────────────────────────────────────────
-
-def build_feature_list(full: pd.DataFrame) -> Tuple[List[str], List[str]]:
-    """
-    Select model features, making sure we do NOT leak outcome info.
-    We drop:
-      - any column explicitly known to be metadata
-      - any column containing 'target' or 'won'
-      - any non-numeric / object columns
-    """
-    banned_explicit = {
-        "team_x",
-        "team_y",
-        "target",
-        "home_next",
-        "date_next",
-        "season",
-        "won",
-        "team",
-        "team_opp",
-        "team_opp_next",
-        "date",
-        "home",
-    }
-
-    feature_cols: List[str] = []
-    for col in full.columns:
-        if col in banned_explicit:
-            continue
-
-        # remove anything derived from target/won to kill leakage
-        if "target" in col.lower():
-            continue
-        if "won" in col.lower():
-            continue
-
-        # must be numeric
-        if full[col].dtype == object:
-            continue
-        if not pd.api.types.is_numeric_dtype(full[col]):
-            continue
-
-        feature_cols.append(col)
-
-    return feature_cols, sorted(list(banned_explicit))
-
-
-    feature_cols: List[str] = []
-    for col in full.columns:
-        if col in banned_cols:
-            continue
-        # skip object/datetime
-        if full[col].dtype == object:
-            continue
-        # skip obviously non-numeric
-        if not pd.api.types.is_numeric_dtype(full[col]):
-            continue
-        feature_cols.append(col)
-
-    return feature_cols, banned_cols
-
-
-def train_lightgbm(full_train: pd.DataFrame,
-                   feature_cols: List[str]) -> Tuple[lgb.LGBMClassifier, float]:
-    """
-    Train LightGBM with fixed params from notebook.
-    Return model and accuracy on holdout.
-    """
-    if len(full_train) < 10:
-        raise ValueError("Not enough training samples (<10).")
-
-    X = full_train[feature_cols].values
+    X = full_train[selected_features].values
     y = full_train["target"].values
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y,
-        test_size=0.2,
-        random_state=42
+        X, y, test_size=0.2, random_state=42
     )
 
+    # 6) LightGBM model (same params as notebook)
     params = {
         "objective": "binary",
         "metric": "auc",
@@ -593,491 +438,78 @@ def train_lightgbm(full_train: pd.DataFrame,
 
     y_pred = model.predict(X_test)
     acc = accuracy_score(y_test, y_pred)
+    logging.info("LightGBM accuracy on hold-out: %.2f%%", acc * 100)
 
-    logging.info(f"LightGBM model trained. Accuracy: {acc:.2%}")
-
-    # feature importances log
-    importances = model.feature_importances_
-    pairs = sorted(
-        zip(feature_cols, importances),
-        key=lambda x: x[1],
-        reverse=True
-    )[:10]
-    logging.info("Top feature importances (first 10):")
-    for i, (name, score) in enumerate(pairs, start=1):
-        logging.info(f"  {i}. {name}: {score}")
-
-    return model, acc
-
-
-# ─────────────────────────────────────────────────────────
-# STEP 6. PREDICT NEXT GAMES
-# ─────────────────────────────────────────────────────────
-
-def predict_upcoming(full_pred: pd.DataFrame,
-                     model: lgb.LGBMClassifier,
-                     feature_cols: List[str],
-                     games_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    From full_pred (target==2 rows), get model P(home team wins).
-
-    We interpret team_x as "the team whose 'home_next' tells us if it's home".
-    We only keep rows where home_next == 1, to ensure team_x is the home team.
-
-    Then we align them with today's schedule order.
-    Result columns:
-        home_team, away_team, home_team_prob, result, date
-    """
+    # 7) Predict probabilities for future rows (target == 2)
     if full_pred.empty:
-        logging.warning("No rows for prediction (full_pred is empty).")
-        return pd.DataFrame()
+        logging.warning("No future rows (target == 2). Probably no upcoming games in stats yet.")
+        return
 
-    X_pred = full_pred[feature_cols].values
-    probs = model.predict_proba(X_pred)[:, 1]
+    full_pred = full_pred.copy()
+    full_pred["proba"] = model.predict_proba(full_pred[selected_features])[:, 1]
 
-    pred_df = full_pred.copy()
-    pred_df["proba"] = probs
-
-    # keep only rows where team_x is home in its NEXT game
-    pred_df = pred_df[pred_df["home_next"] == 1].copy()
-
-    # build nice output
-    out_rows = []
-    for _, row in pred_df.iterrows():
-        out_rows.append({
-            "home_team": row["team_x"],
-            "away_team": row["team_y"],
-            "home_team_prob": float(row["proba"]),
-            "result": 0,
-            "date": row["date_next"],
-        })
-
-    preds = pd.DataFrame(out_rows)
-
-    if preds.empty:
-        logging.warning("No aligned rows where team_x is home in its next game.")
-
-    # optional: restrict to only teams present in games_df (safety)
-    if not games_df.empty and "home_team" in games_df.columns and "away_team" in games_df.columns:
-        pairs = set(zip(games_df["home_team"], games_df["away_team"]))
-        preds = preds[preds.apply(
-            lambda r: (r["home_team"], r["away_team"]) in pairs,
-            axis=1
-        )].copy()
-
-    if preds.empty:
-        logging.warning("After schedule alignment, no predictions remain for today's games.")
-
-    return preds
-
-
-# ─────────────────────────────────────────────────────────
-# STEP 7. ODDS FETCH + MERGE
-# ─────────────────────────────────────────────────────────
-
-def get_session() -> requests.Session:
-    s = requests.Session()
-    retries = Retry(
-        total=3,
-        backoff_factor=0.5,
-        status_forcelist=[429, 500, 502, 503, 504],
-    )
-    s.mount("https://", HTTPAdapter(max_retries=retries))
-    return s
-
-
-def fetch_odds(games_df: pd.DataFrame, api_key: str, preferred: List[str] = None) -> pd.DataFrame:
-    """
-    Fetch H2H odds and return a DataFrame with columns:
-    home_team | away_team | odds 1 | odds 2
-    where team codes are normalized to our internal canon
-    (PHX, BRK, CHO, etc.).
-    """
-
-    # sportsbook full name -> "raw" abbrev first
-    full_to_abbrev = {
-        "Atlanta Hawks": "ATL",
-        "Boston Celtics": "BOS",
-        "Brooklyn Nets": "BRK",          # force BRK not BKN
-        "Charlotte Hornets": "CHO",      # force CHO not CHA
-        "Chicago Bulls": "CHI",
-        "Cleveland Cavaliers": "CLE",
-        "Dallas Mavericks": "DAL",
-        "Denver Nuggets": "DEN",
-        "Detroit Pistons": "DET",
-        "Golden State Warriors": "GSW",
-        "Houston Rockets": "HOU",
-        "Indiana Pacers": "IND",
-        "Los Angeles Clippers": "LAC",
-        "LA Clippers": "LAC",
-        "Los Angeles Lakers": "LAL",
-        "Memphis Grizzlies": "MEM",
-        "Miami Heat": "MIA",
-        "Milwaukee Bucks": "MIL",
-        "Minnesota Timberwolves": "MIN",
-        "New Orleans Pelicans": "NOP",
-        "New York Knicks": "NYK",
-        "Oklahoma City Thunder": "OKC",
-        "Orlando Magic": "ORL",
-        "Philadelphia 76ers": "PHI",
-        "Phoenix Suns": "PHX",            # force PHX not PHO
-        "Portland Trail Blazers": "POR",
-        "Sacramento Kings": "SAC",
-        "San Antonio Spurs": "SAS",
-        "Toronto Raptors": "TOR",
-        "Utah Jazz": "UTA",
-        "Washington Wizards": "WAS",
-    }
-
-    session = get_session()
-    response = session.get(
-        "https://api.the-odds-api.com/v4/sports/basketball_nba/odds",
-        params={
-            "apiKey": api_key,
-            "regions": "us",
-            "markets": "h2h",
-            "oddsFormat": "american",
-        },
-        timeout=10,
-    )
-    response.raise_for_status()
-    data = response.json()
-
-    lookup = {}  # (HOME, AWAY) -> (ml_home, ml_away) using canonical codes
-
-    for event in data:
-        home_full = event.get("home_team")
-        away_full = event.get("away_team")
-
-        raw_home = full_to_abbrev.get(home_full)
-        raw_away = full_to_abbrev.get(away_full)
-        if not raw_home or not raw_away:
-            continue
-
-        # normalize to canon (PHO->PHX etc.)
-        home_code = normalize_code_for_odds(raw_home)
-        away_code = normalize_code_for_odds(raw_away)
-
-        bookmakers = event.get("bookmakers", [])
-        chosen = None
-        if preferred:
-            for bkey in preferred:
-                chosen = next((b for b in bookmakers if b.get("key") == bkey), None)
-                if chosen:
-                    break
-        if not chosen and bookmakers:
-            chosen = bookmakers[0]
-        if not chosen:
-            continue
-
-        market = next(
-            (m for m in chosen.get("markets", []) if m.get("key") == "h2h"),
-            None
-        )
-        if not market:
-            continue
-
-        prices_by_code = {}
-        for outcome in market.get("outcomes", []):
-            full_name = outcome.get("name")               # e.g. "Phoenix Suns"
-            raw_abbr  = full_to_abbrev.get(full_name)     # -> "PHX"
-            if raw_abbr:
-                canon_abbr = normalize_code_for_odds(raw_abbr)
-                prices_by_code[canon_abbr] = outcome.get("price")
-
-        ml_home = prices_by_code.get(home_code)
-        ml_away = prices_by_code.get(away_code)
-
-        lookup[(home_code, away_code)] = (ml_home, ml_away)
-
-    # now align to our schedule games_df
-    odds_rows = []
-    for _, gm in games_df.iterrows():
-        # normalize schedule teams to canon too
-        h = normalize_code_for_odds(gm["home_team"])
-        a = normalize_code_for_odds(gm["away_team"])
-
-        o1, o2 = lookup.get((h, a), (None, None))
-        if o1 is None or o2 is None:
-            logging.warning(f"No odds found for {h} vs {a}")
-        odds_rows.append(
-            {"home_team": h, "away_team": a, "odds 1": o1, "odds 2": o2}
-        )
-
-    return pd.DataFrame(odds_rows)
-
-
-def american_to_decimal(ml: float) -> float:
-    """
-    Convert American moneyline to decimal odds.
-    """
-    if pd.isna(ml):
-        return np.nan
-    ml = float(ml)
-    if ml > 0:
-        return round(ml / 100.0 + 1.0, 2)
-    else:
-        return round(100.0 / abs(ml) + 1.0, 2)
-
-
-def implied_prob(ml: float) -> float:
-    """
-    Convert American moneyline to implied probability.
-    """
-    if ml is None or (isinstance(ml, float) and np.isnan(ml)):
-        return np.nan
-    ml = float(ml)
-    if ml < 0:
-        # favorite
-        return abs(ml) / (abs(ml) + 100.0)
-    else:
-        # underdog
-        return 100.0 / (ml + 100.0)
-        
-def impute_prob(moneyline):
-    """
-    Convert American moneyline (e.g. -150, +200) to implied win probability in [0,1].
-    If moneyline is NaN/None -> returns None.
-    """
-    if moneyline is None or (isinstance(moneyline, float) and np.isnan(moneyline)):
-        return None
-    ml = int(moneyline)
-    # For negative odds (favorite): prob = |ml| / (|ml| + 100)
-    # For positive odds (underdog): prob = 100 / (ml + 100)
-    if ml < 0:
-        return abs(ml) / (abs(ml) + 100)
-    else:
-        return 100 / (ml + 100)
-
-
-def merge_predictions_with_odds(preds: pd.DataFrame, odds: pd.DataFrame) -> pd.DataFrame:
-    """
-    Join model preds with odds and compute implied probs + model edge.
-    Both DataFrames are normalized to canonical team codes first.
-    """
-    preds = preds.copy()
-    odds = odds.copy()
-
-    # normalize again just to be paranoid
-    preds["home_team"] = preds["home_team"].apply(normalize_code_for_odds)
-    preds["away_team"] = preds["away_team"].apply(normalize_code_for_odds)
-    odds["home_team"]  = odds["home_team"].apply(normalize_code_for_odds)
-    odds["away_team"]  = odds["away_team"].apply(normalize_code_for_odds)
-
-    df = preds.merge(odds, on=["home_team", "away_team"], how="left")
-
-    for col in ["odds 1", "odds 2"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    df["imp_prob_home"] = df["odds 1"].apply(impute_prob)
-    df["imp_prob_away"] = df["odds 2"].apply(impute_prob)
-
-    df["value_home"] = np.where(
-        df["imp_prob_home"].notna(),
-        df["home_team_prob"] - df["imp_prob_home"],
-        np.nan
-    )
-    df["value_away"] = np.where(
-        df["imp_prob_away"].notna(),
-        (1.0 - df["home_team_prob"]) - df["imp_prob_away"],
-        np.nan
+    # 8) Build team → win_prob lookup and attach to tonight's games
+    team_winprob = (
+        full_pred[["team_x", "proba"]]
+        .drop_duplicates(subset="team_x")
+        .set_index("team_x")["proba"]
+        .to_dict()
     )
 
-    return df
+    logging.info("Team win probability lookup (sample): %s",
+                 list(team_winprob.items())[:5])
 
+    games_today = games_df.copy()
+    games_today["home_team_prob"] = games_today["home_team"].map(team_winprob)
+    games_today["away_team_prob"] = games_today["away_team"].map(team_winprob)
 
-def build_home_team_preds_csv(preds: pd.DataFrame,
-                              odds_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Build final table to save:
-      home_team, away_team, home_team_prob, result, odds 1, odds 2, date
-    Odds converted to DECIMAL for bankroll workflow.
-    """
-    if preds.empty:
-        logging.warning("build_home_team_preds_csv: preds empty.")
-        return pd.DataFrame(columns=[
-            "home_team", "away_team",
-            "home_team_prob", "result",
-            "odds 1", "odds 2",
-            "date"
-        ])
+    logging.info("Games with model probs:\n%s",
+                 games_today[["home_team", "away_team", "home_team_prob", "away_team_prob"]]
+                 .to_string(index=False))
 
-    out = preds.merge(
+    # 9) Fetch odds via The Odds API (hard-coded key)
+    api_key = ODDS_API_KEY
+
+    query_df = translate_to_api(games_today[["home_team", "away_team"]].copy())
+    odds_df = fetch_odds(query_df, api_key, preferred=["draftkings", "fanduel"])
+    odds_df = translate_back(odds_df)
+
+    # 10) Build final predictions DataFrame (same structure as your notebook output)
+    home_team_preds = (
+        games_today[["home_team", "away_team", "home_team_prob"]]
+        .rename(columns={"home_team_prob": "home_team_prob"})
+        .assign(result=0, date=game_day)
+    )
+
+    home_team_preds = home_team_preds.merge(
         odds_df[["home_team", "away_team", "odds 1", "odds 2"]],
         on=["home_team", "away_team"],
-        how="left"
-    ).copy()
-
-    out["odds 1"] = out["odds 1"].apply(american_to_decimal)
-    out["odds 2"] = out["odds 2"].apply(american_to_decimal)
-
-    out["result"] = 0  # unknown yet
-    # 'date' is already present in preds
-
-    # ensure column order
-    out = out[[
-        "home_team",
-        "away_team",
-        "home_team_prob",
-        "result",
-        "odds 1",
-        "odds 2",
-        "date",
-    ]]
-
-    return out
-
-FINAL_EXPORT_CODES = {
-    # what model/odds use  -> what you want to SEE in the CSV
-    "PHX": "PHO",
-    "CHO": "CHO",  # stays same
-    "BRK": "BRK",  # stays same (но можешь тут поменять на BKN если захочешь bkn)
-    # если надо, можешь добавить другие маппинги
-}
-
-def prettify_team_codes_for_output(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Convert canonical internal codes (PHX, CHO, BRK, ...) into the
-    display codes you actually want in the saved CSV (PHO, CHO, ...).
-    Only touches the final exported table.
-    """
-    out = df.copy()
-
-    for col in ["home_team", "away_team"]:
-        if col in out.columns:
-            out[col] = out[col].apply(
-                lambda x: FINAL_EXPORT_CODES.get(str(x), str(x))
-            )
-
-    return out
-
-# ─────────────────────────────────────────────────────────
-# STEP 8. SAVE
-# ─────────────────────────────────────────────────────────
-
-def save_predictions_csv(df_to_save: pd.DataFrame,
-                          paths: Dict[str, str],
-                          today_str_format: str) -> str:
-    """
-    Save the final predictions in the fixed betting format.
-    """
-    pred_dir = paths["PREDICTION_DIR"]
-    os.makedirs(pred_dir, exist_ok=True)
-
-    filename = f"nba_games_predict_{today_str_format}.csv"
-    filepath = os.path.join(pred_dir, filename)
-
-    if os.path.exists(filepath):
-        logging.info(f"Prediction file already exists: {filepath}")
-    else:
-        df_to_save.to_csv(filepath, index=False)
-        logging.info(f"Saved predictions to {filepath}")
-
-    logging.info(f"Prediction CSV saved to {filepath}")
-    return filepath
-
-
-# ─────────────────────────────────────────────────────────
-# MAIN
-# ─────────────────────────────────────────────────────────
-
-def main() -> str:
-    # 1. Paths + date
-    paths = get_directory_paths()
-    today_dt, today_pretty, today_str_format = get_current_date(0)
-
-    # 2. Load inputs
-    games_df = load_games_df(paths, today_str_format)
-    stats_df = load_stats_df(paths, today_str_format)
-
-    # 3. Preprocess base stats
-    df = stats_df.copy()
-    df = add_target_per_team(df)
-
-    # remove columns that are completely null to match notebook
-    nulls = df.isnull().sum()
-    drop_cols = nulls[nulls > 0].index.tolist()
-    # BUT we don't want to drop columns we actually need (team,date,...).
-    # In notebook you dropped all null columns before shift etc,
-    # but by now df already has all needed cols.
-    # We'll be conservative: drop columns that are entirely NaN AND not key cols:
-    key_keep = {"team", "date", "won", "home", "team_opp", "season"}
-    truly_all_nan = [c for c in drop_cols if c not in key_keep and df[c].isna().all()]
-    if truly_all_nan:
-        df = df.drop(columns=truly_all_nan)
-
-    df, scaled_cols = scale_numeric(df)
-    df = rolling_averages(df)
-    df = add_next_game_columns(df)
-    
-    df["team"] = df["team"].apply(normalize_code_for_odds)
-    df["team_opp"] = df["team_opp"].apply(normalize_code_for_odds)
-    games_df["home_team"] = games_df["home_team"].apply(normalize_code_for_odds)
-    games_df["away_team"] = games_df["away_team"].apply(normalize_code_for_odds)
-
-    # 4. Inject today's schedule into df (override last rows)
-    #    so that each team's NEXT game == today's game
-    if not games_df.empty:
-        df = override_next_game_with_schedule(df, games_df)
-    else:
-        logging.warning("No games_df rows; season may be over.")
-
-    # 5. Build matchup table
-    full = build_matchup_full(df)
-    
-        # 6. Split train vs predict
-    full_train, full_pred = split_train_pred(full)
-
-    logging.info(
-        f"Training data contains {len(full_train)} rows and {len(full_train.columns)} columns"
+        how="left",
     )
-    if full_pred.empty:
-        logging.warning("No prediction rows with target==2 found in 'full'.")
 
-    # 7. Build feature list + train LightGBM
-    feature_cols, banned_cols = build_feature_list(full_train)
-    model, acc = train_lightgbm(full_train, feature_cols)
+    # Convert American odds to decimal and round
+    home_team_preds["odds 1"] = home_team_preds["odds 1"].apply(american_to_decimal)
+    home_team_preds["odds 2"] = home_team_preds["odds 2"].apply(american_to_decimal)
+    home_team_preds["odds 1"] = home_team_preds["odds 1"].round(2)
+    home_team_preds["odds 2"] = home_team_preds["odds 2"].round(2)
 
-    # 8. Predict probabilities for upcoming games
-    preds_raw = predict_upcoming(full_pred, model, feature_cols, games_df)
+    # Print to console for today
+    cols = ["home_team", "away_team", "home_team_prob", "odds 1", "odds 2", "result", "date"]
+    logging.info("Final predictions for %s:\n%s",
+                 game_day,
+                 home_team_preds[cols].to_string(index=False))
 
-    if preds_raw.empty:
-        logging.warning("No aligned predictions for today. Will still try odds/save in empty mode.")
+    # 11) Save CSV in PREDICTION_DIR
+    os.makedirs(prediction_dir, exist_ok=True)
+    out_name = f"nba_games_predict_{game_day}.csv"
+    out_path = os.path.join(prediction_dir, out_name)
 
-    # 9. Fetch odds
-    odds_df = fetch_odds(games_df, API_KEY, preferred=["draftkings", "fanduel"])
-
-    # 10. Merge predictions with odds and compute value edges (for logging / diagnostics)
-    if preds_raw.empty:
-        merged_value = pd.DataFrame()
+    if os.path.exists(out_path):
+        logging.info("File already exists: %s (not overwriting)", out_path)
     else:
-        merged_value = merge_predictions_with_odds(preds_raw, odds_df)
-        # (не сохраняем merged_value, это просто для отладки/анализа)
-
-    # 11. Build final CSV frame (decimal odds etc.)
-    csv_frame = build_home_team_preds_csv(preds_raw, odds_df)
-
-    # 11.1 apply pretty code mapping (PHX -> PHO, etc.) ONLY for output
-    csv_frame = prettify_team_codes_for_output(csv_frame)
-
-    # 12. Save (even if empty, this keeps your daily file pipeline consistent)
-    output_path = save_predictions_csv(csv_frame, paths, today_str_format)
-
-    return output_path
-
-
-
-    return output_path
+        home_team_preds[cols].to_csv(out_path, index=False)
+        logging.info("Saved predictions to %s", out_path)
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception:
-        logging.exception("An unexpected error occurred during prediction.")
-    finally:
-        try:
-            input("Prediction complete. Press Enter to close this window...")
-        except EOFError:
-            pass
+    main()
