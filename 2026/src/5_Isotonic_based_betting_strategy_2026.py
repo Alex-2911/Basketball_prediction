@@ -38,7 +38,7 @@ Step 5 of the 2026 pipeline (GitHub version, aligned with local notebook):
    - Kelly/nba_grid_search_results_YYYY-MM-DD.csv
    - Kelly/combined_nba_predictions_iso_YYYY-MM-DD.csv
 
-8) Build TONIGHT'S SHORTLIST exactly like the local notebook:
+8) Build TONIGHT'S SHORTLIST:
 
    LOCAL FILTERS:
      - home_win_rate >= 0.50
@@ -107,7 +107,7 @@ LOCAL_MIN_ISO = 0.45
 LOCAL_MIN_ODDS = 1.10
 LOCAL_MAX_ODDS = 3.40
 LOCAL_MAX_KELLY_FRACTION = 0.10  # 10 % cap
-LOCAL_PROB_CAP = 0.75            # cap prob_used at 0.75 (same as local)
+LOCAL_PROB_CAP = 0.75            # cap prob_used at 0.75
 
 START_BANKROLL = 1000.0
 
@@ -700,7 +700,9 @@ def grid_search(
         ascending=[False, False],
     ).reset_index(drop=True)
 
+    best_row = df_res.iloc(0) if callable(getattr(df_res, 'iloc', None)) else df_res.iloc[0]  # safety, but we'll just trust standard:
     best_row = df_res.iloc[0]
+
     best_params = StrategyParams(
         min_home_win_rate=float(best_row["min_home_win_rate"]),
         min_odds=float(best_row["min_odds"]),
@@ -772,6 +774,11 @@ def build_shortlist_local_style(
     Returns:
       shortlist  – only QUALIFIES games with full EV/Kelly columns
       explainer  – ALL upcoming games with 'why_not' reason string
+
+    This version is adjusted to match the local notebook behavior:
+    - prob_used is clipped to [0.50, 0.75]
+    - half Kelly is used (0.5 * kelly_full), then capped at 10%
+    - bets with small/negative EV or stake < 10€ are discarded (stake set to 0)
     """
     if df_future.empty:
         explainer = pd.DataFrame(
@@ -851,16 +858,21 @@ def build_shortlist_local_style(
     if shortlist.empty:
         return shortlist, explainer
 
-    # EV + Kelly + stake
+    # EV + Kelly + stake (aligned with local notebook behavior)
     prob_iso = shortlist[ISO_COL].astype(float)
-    prob_used = np.clip(prob_iso, None, LOCAL_PROB_CAP)
+
+    # local: clip probs used for staking to [0.50, 0.75]
+    prob_used = np.clip(prob_iso, 0.50, LOCAL_PROB_CAP)
     odds = shortlist[HOME_ODDS_COL].astype(float)
 
     ev_per_unit = prob_used * (odds - 1.0) - (1.0 - prob_used)
     ev_per_100 = ev_per_unit * 100.0
 
+    # Kelly fraction for single-outcome bet
     kelly_full = (prob_used * odds - 1.0) / (odds - 1.0)
-    kelly_fraction_used = np.clip(kelly_full, 0.0, LOCAL_MAX_KELLY_FRACTION)
+
+    # local: half Kelly, then cap at 10%
+    kelly_fraction_used = np.clip(kelly_full * 0.5, 0.0, LOCAL_MAX_KELLY_FRACTION)
 
     stake_eur = bankroll * kelly_fraction_used
     exp_profit_eur = stake_eur * ev_per_unit
@@ -876,6 +888,14 @@ def build_shortlist_local_style(
     shortlist["exp_profit_eur"] = exp_profit_eur
     shortlist["fair_odds"] = fair_odds
     shortlist["edge_pct"] = edge_pct
+
+    # local-style safety filters
+    MIN_STAKE_ABS = 10.0
+    shortlist.loc[shortlist[HOME_ODDS_COL].isna(), "stake_eur"] = 0.0
+    shortlist.loc[shortlist["stake_eur"] < MIN_STAKE_ABS, "stake_eur"] = 0.0
+    shortlist.loc[shortlist["exp_profit_eur"] <= 0, "stake_eur"] = 0.0
+    shortlist.loc[shortlist["EV_€_per_100"] < 0, "stake_eur"] = 0.0
+    shortlist.loc[shortlist["stake_eur"] == 0.0, "kelly_fraction_used"] = 0.0
 
     # Rename odds column for display to match local
     shortlist.rename(columns={HOME_ODDS_COL: "odds_1"}, inplace=True)
@@ -983,12 +1003,13 @@ def main() -> None:
     # 6) GRID SEARCH ON PAST (for documentation only)
     logging.info("Starting grid search...")
     best_params, df_grid = grid_search(df_past)
+    best_metrics = evaluate_strategy(df_past, best_params)
     logging.info(
         "Best strategy (historical, ISO-based): %s | %d bets | flat profit %.2f | ROI per bet %.4f",
         best_params,
-        evaluate_strategy(df_past, best_params)["n_bets"],
-        evaluate_strategy(df_past, best_params)["total_profit"],
-        evaluate_strategy(df_past, best_params)["roi_per_bet"],
+        best_metrics["n_bets"],
+        best_metrics["total_profit"],
+        best_metrics["roi_per_bet"],
     )
 
     # 7) SAVE GRID SEARCH + ISO DF
