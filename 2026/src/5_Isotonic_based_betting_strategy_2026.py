@@ -78,7 +78,7 @@ AWAY_ODDS_COL = "closing_away_odds"
 HOMEWR_COL = "home_win_rate"
 ISO_COL = "iso_proba_home_win"
 
-FLAT_STAKE = 100.0
+FLAT_STAKE = 1000.0
 
 # 4 x 4 x 4 x 4 = 256 combinations
 ODDS_MIN_GRID = [1.10, 1.25, 1.40, 1.60]
