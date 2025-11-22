@@ -330,6 +330,26 @@ def merge_today_predictions(
         logging.info("No new upcoming games to add from TODAY_PRED.")
         return df_all
 
+        # --- ensure derived columns for new rows (same logic as in load_combined_df) ---
+    # prediction probability
+    if "home_team_prob" in new_rows.columns:
+        new_rows[PRED_PROBA_COL] = to_float_series(new_rows["home_team_prob"])
+    else:
+        new_rows[PRED_PROBA_COL] = np.nan
+
+    # home / away odds
+    if "odds_1" in new_rows.columns:
+        new_rows[HOME_ODDS_COL] = to_float_series(new_rows["odds_1"])
+    else:
+        new_rows[HOME_ODDS_COL] = np.nan
+
+    if "odds_2" in new_rows.columns:
+        new_rows[AWAY_ODDS_COL] = to_float_series(new_rows["odds_2"])
+    else:
+        new_rows[AWAY_ODDS_COL] = np.nan
+  
+       
+
     # Align columns between df_all and new_rows
     needed_cols = set(df_all.columns) | set(new_rows.columns)
     for col in needed_cols:
