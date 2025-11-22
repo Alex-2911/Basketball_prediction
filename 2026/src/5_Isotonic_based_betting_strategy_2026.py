@@ -38,9 +38,15 @@ Step 5 of the 2026 pipeline:
    - Kelly/nba_grid_search_results_YYYY-MM-DD.csv
    - Kelly/combined_nba_predictions_iso_YYYY-MM-DD.csv
 
-8) Apply a SHORTLIST STRATEGY (based on raw probas + HWR)
-   to df_future (today/tomorrow) and write:
-   - bet_shortlist_YYYY-MM-DD.csv
+8) Apply *LOCAL-STYLE* SHORTLIST FILTERS (fixed, not from grid search):
+   - home_win_rate    >= 0.50
+   - iso_proba_home_win >= 0.45
+   - closing_home_odds between 1.10 and 3.40
+
+   For all qualifying games:
+   - compute prob_iso, prob_used (capped at 0.75), EV, Kelly, stake from bankroll
+   - save to bet_shortlist_YYYY-MM-DD.csv
+   - print a clear shortlist summary to stdout (GitHub Actions log)
 
 If there are no upcoming games OR no suitable bets, script still succeeds.
 """
@@ -78,24 +84,23 @@ AWAY_ODDS_COL = "closing_away_odds"
 HOMEWR_COL = "home_win_rate"
 ISO_COL = "iso_proba_home_win"
 
-FLAT_STAKE = 100.0  # Basis für EV_€_per_100
-
-# Grid Search Parameterraum (Historik)
+# Grid search (historical backtest) — same as vorher
+FLAT_STAKE = 100.0
 ODDS_MIN_GRID = [1.10, 1.25, 1.40, 1.60]
 ODDS_MAX_GRID = [2.00, 2.10, 2.50, 3.00]
 PROB_MIN_GRID = [0.55, 0.60, 0.65, 0.70]
 HOMEWR_MIN_GRID = [0.50, 0.55, 0.60, 0.65]
 
-# Shortlist-Regeln (für heutige Wetten) – DEKOPPELT von Grid-Search
-SHORTLIST_MIN_HWR = 0.60
-SHORTLIST_MIN_ODDS = 1.10
-SHORTLIST_MAX_ODDS = 3.00
-SHORTLIST_MIN_PROB = 0.55
+# SHORTLIST FILTERS — "genau wie lokal"
+MIN_HOME_WIN_RATE_SHORTLIST = 0.50
+MIN_ISO_PROBA_SHORTLIST = 0.45
+MIN_ODDS_SHORTLIST = 1.10
+MAX_ODDS_SHORTLIST = 3.40
 
-# Kelly – maximal 10 % Kelly setzen
-MAX_KELLY_FRACTION = 0.10
-# "Bankroll-Proxy" für Stake-Berechnung: max Einsatz ~100€
-BANKROLL_FOR_KELLY = FLAT_STAKE * 10.0  # 1000
+# Kelly / Bankroll
+START_BANKROLL = 1000.0
+MAX_KELLY_FRACTION = 0.10  # cap at 10 % vom Bankroll
+MAX_PROB_USED = 0.75       # cap für prob_used = min(iso_proba, 0.75)
 
 
 @dataclass
@@ -243,9 +248,6 @@ def merge_today_predictions(
     """
     Merge in upcoming games from nba_games_predict_YYYY-MM-DD.csv
     if they are not already present in df_all.
-
-    We assume columns (or fallback to header=None):
-    home_team, away_team, home_team_prob (or similar), odds_1, odds_2, result, date.
     """
     today_pred_path = os.path.join(pred_dir, f"nba_games_predict_{ymd_str}.csv")
     if not os.path.exists(today_pred_path):
@@ -257,7 +259,6 @@ def merge_today_predictions(
 
     logging.info("Merging upcoming games from %s", today_pred_path)
 
-    # First try: read with whatever header is there
     tmp = pd.read_csv(
         today_pred_path,
         encoding="utf-7",
@@ -266,28 +267,10 @@ def merge_today_predictions(
         decimal=",",
     )
 
-    # Normalize columns
-    tmp.columns = (
-        tmp.columns
-           .astype(str)
-           .str.strip()
-           .str.lower()
-           .str.replace(r"\s+", "_", regex=True)
-    )
-
-    # Check if we have team cols + irgendeine Proba-Spalte
-    has_team_cols = {"home_team", "away_team"}.issubset(set(tmp.columns))
-    has_any_prob = any(
-        col in tmp.columns for col in [
-            "home_team_prob",
-            "pred_home_win_proba",
-            "prob",
-            "proba",
-        ]
-    )
-
-    # Fallback auf fixe Headerstruktur, wenn das nicht passt
-    if not has_team_cols or not has_any_prob:
+    # If schema is weird, fallback to manual header
+    expected = {"home_team", "away_team", "home_team_prob"}
+    norm_cols = {c.lower().strip() for c in tmp.columns}
+    if not expected.issubset(norm_cols):
         tmp = pd.read_csv(
             today_pred_path,
             encoding="utf-7",
@@ -305,36 +288,22 @@ def merge_today_predictions(
                 "date",
             ],
         )
-        tmp.columns = (
-            tmp.columns
-               .astype(str)
-               .str.strip()
-               .str.lower()
-               .str.replace(r"\s+", "_", regex=True)
-        )
 
-    # --- Numeric cleanup: probs + odds ---
-    prob_source = None
-    for candidate in ["home_team_prob", "pred_home_win_proba", "prob", "proba"]:
-        if candidate in tmp.columns:
-            prob_source = candidate
-            break
+    tmp.columns = (
+        tmp.columns
+           .astype(str)
+           .str.strip()
+           .str.lower()
+           .str.replace(r"\s+", "_", regex=True)
+    )
 
-    if prob_source is not None:
-        tmp[prob_source] = to_float_series(tmp[prob_source])
-        tmp[PRED_PROBA_COL] = tmp[prob_source]
-    else:
-        tmp[PRED_PROBA_COL] = np.nan
-
+    # numeric cleanup
+    if "home_team_prob" in tmp.columns:
+        tmp["home_team_prob"] = to_float_series(tmp["home_team_prob"])
     if "odds_1" in tmp.columns:
         tmp["odds_1"] = to_float_series(tmp["odds_1"])
     if "odds_2" in tmp.columns:
         tmp["odds_2"] = to_float_series(tmp["odds_2"])
-
-    # WICHTIG: für Today-Games closing_*_odds aus odds_1/odds_2 setzen
-    # (damit Shortlist & EV wie im Notebook funktionieren)
-    tmp[HOME_ODDS_COL] = tmp.get("odds_1", np.nan)
-    tmp[AWAY_ODDS_COL] = tmp.get("odds_2", np.nan)
 
     # date cleanup
     if "date" in tmp.columns:
@@ -345,7 +314,7 @@ def merge_today_predictions(
     # if still NaT, assume "today"
     tmp.loc[tmp["date"].isna(), "date"] = pd.Timestamp(today_date)
 
-    # ensure 'result' exists
+    # ensure these exist
     if "result" not in tmp.columns:
         tmp["result"] = np.nan
 
@@ -382,7 +351,7 @@ def merge_today_predictions(
         if col not in new_rows.columns:
             new_rows[col] = np.nan
 
-    # 'home_team_won' ist für Future-Games unbekannt
+    # 'home_team_won' is unknown for future games
     new_rows[RESULT_COL] = np.nan
     new_rows[RESULT_RAW_COL] = new_rows["result"]
 
@@ -437,7 +406,7 @@ def attach_home_win_rate(
     team_col = None
     winrate_col = None
 
-    # --- SPECIAL CASE: aktuelles 4-Spalten-Format ---
+    # --- SPECIAL CASE: current 4-column format ---
     if len(cols) == 4 and "home win rate" in cols_lower:
         team_col = cols[0]
         winrate_col = cols[cols_lower.index("home win rate")]
@@ -448,7 +417,7 @@ def attach_home_win_rate(
             winrate_col,
         )
     else:
-        # Generische Erkennung
+        # Generic detection (future proof)
         lower_to_orig = {c.lower().strip(): c for c in cols}
 
         # team column by name
@@ -483,7 +452,7 @@ def attach_home_win_rate(
                 except Exception:
                     continue
 
-        # last fallback for team column: any short uppercase string column
+        # last fallback for team column
         if team_col is None:
             for c in cols:
                 sample = (
@@ -636,7 +605,7 @@ def compute_calibration_metrics(df_past: pd.DataFrame) -> Tuple[float, float, fl
 def evaluate_strategy(df: pd.DataFrame, params: StrategyParams) -> dict:
     """
     Evaluate one parameter combo on a backtest dataframe (df_past).
-    Uses ISO probabilities for calibration/backtest.
+    Flat stake 100€ per bet.
     """
     if df.empty:
         return {
@@ -654,7 +623,7 @@ def evaluate_strategy(df: pd.DataFrame, params: StrategyParams) -> dict:
     # odds range
     conds.append(df[HOME_ODDS_COL].between(params.min_odds, params.max_odds))
 
-    # probability threshold (ISO für Backtest)
+    # probability threshold (ISO based)
     conds.append(df[ISO_COL] >= params.min_iso_proba)
 
     # valid rows: need closing_home_odds + iso prob + result
@@ -741,127 +710,199 @@ def grid_search(
     return best_params, df_res
 
 
-def _compute_shortlist_metrics(df: pd.DataFrame) -> pd.DataFrame:
+# -------------------------------------------------------------------------
+# BANKROLL / KELLY
+# -------------------------------------------------------------------------
+
+def load_current_bankroll(pred_dir: str) -> float:
     """
-    Fügt EV, Kelly, Stakes und Edge-Spalten zur Shortlist hinzu.
-    Erwartet:
-        - PRED_PROBA_COL (roh)
-        - ISO_COL
-        - HOME_ODDS_COL
+    Try to load current bankroll from bet_log_live.csv in pred_dir.
+    Fallback: START_BANKROLL if file/columns are missing.
+
+    Heuristics:
+      - if 'bankroll_after' or 'cum_bankroll' column exists -> last non-null
+      - elif 'profit' column exists -> START_BANKROLL + sum(profit)
+      - else -> START_BANKROLL
     """
+    path = os.path.join(pred_dir, "bet_log_live.csv")
+    bankroll = START_BANKROLL
+
+    if not os.path.exists(path):
+        logging.info(
+            "No bet_log_live.csv found at %s – using start bankroll %.2f €.",
+            path,
+            bankroll,
+        )
+        return bankroll
+
+    try:
+        df_log = pd.read_csv(path, encoding="utf-8")
+    except Exception as e:
+        logging.warning(
+            "Failed to read %s: %s – using start bankroll %.2f €.",
+            path,
+            e,
+            bankroll,
+        )
+        return bankroll
+
+    if df_log.empty:
+        logging.info(
+            "bet_log_live.csv is empty – using start bankroll %.2f €.",
+            bankroll,
+        )
+        return bankroll
+
+    for col in ["bankroll_after", "cum_bankroll"]:
+        if col in df_log.columns:
+            vals = pd.to_numeric(df_log[col], errors="coerce")
+            if vals.notna().any():
+                bankroll = float(vals.dropna().iloc[-1])
+                logging.info(
+                    "Using bankroll from column '%s' in bet_log_live.csv: %.2f €",
+                    col,
+                    bankroll,
+                )
+                return bankroll
+
+    if "profit" in df_log.columns:
+        prof = pd.to_numeric(df_log["profit"], errors="coerce").fillna(0.0)
+        bankroll = float(START_BANKROLL + prof.sum())
+        logging.info(
+            "Using bankroll = START(%.2f) + sum(profit)=%.2f -> %.2f €",
+            START_BANKROLL,
+            prof.sum(),
+            bankroll,
+        )
+        return bankroll
+
+    logging.info(
+        "No bankroll/profit columns found in bet_log_live.csv – using start bankroll %.2f €.",
+        bankroll,
+    )
+    return bankroll
+
+
+def apply_kelly_and_ev(df: pd.DataFrame, bankroll: float) -> pd.DataFrame:
+    """
+    Add prob_iso, prob_used, EV, Kelly, stake, expected profit, fair odds, edge.
+    Uses ISO probability capped at MAX_PROB_USED as prob_used (wie lokal).
+    """
+    if df.empty:
+        return df
+
     df = df.copy()
 
-    # Wahrscheinlichkeiten
-    df["prob_iso"] = df[ISO_COL]
-    df["prob_used"] = df[PRED_PROBA_COL]
+    # prob_iso = ISO_COL
+    df["prob_iso"] = df[ISO_COL].astype(float)
 
-    p = df["prob_used"].astype(float)
-    o = df[HOME_ODDS_COL].astype(float)
+    # prob_used = min(prob_iso, MAX_PROB_USED)
+    df["prob_used"] = df["prob_iso"].clip(upper=MAX_PROB_USED)
 
-    # EV pro 1€ Einsatz
-    df["ev_per_unit"] = p * (o - 1.0) - (1.0 - p)
-    df["EV_€_per_100"] = df["ev_per_unit"] * FLAT_STAKE
+    b = df[HOME_ODDS_COL].astype(float) - 1.0  # "b" in Kelly-Formel
+    p = df["prob_used"]
+    q = 1.0 - p
 
-    # Kelly-Fraction (voll)
-    # Formel: f* = (O * p - 1) / (O - 1)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        df["kelly_full"] = (o * p - 1.0) / (o - 1.0)
+    # EV per 1€ Einsatz
+    df["ev_per_unit"] = p * b - q
+    df["EV_€_per_100"] = df["ev_per_unit"] * 100.0
 
-    # Kelly-Fraction genutzt (zwischen 0 und MAX_KELLY_FRACTION)
-    df["kelly_fraction_used"] = df["kelly_full"].clip(lower=0.0, upper=MAX_KELLY_FRACTION)
+    # Kelly full fraction
+    # k = ev_per_unit / b, aber b kann 0 sein (odds=1) -> dann 0
+    df["kelly_full"] = np.where(
+        b > 0,
+        df["ev_per_unit"] / b,
+        0.0,
+    )
 
-    # Einsatz in € (Bankroll-Proxy)
-    df["stake_eur"] = df["kelly_fraction_used"] * BANKROLL_FOR_KELLY
+    # only positive Kelly, capped at MAX_KELLY_FRACTION
+    df["kelly_fraction_used"] = np.where(
+        df["kelly_full"] > 0,
+        np.minimum(df["kelly_full"], MAX_KELLY_FRACTION),
+        0.0,
+    )
 
-    # erwarteter Profit in €
+    df["stake_eur"] = df["kelly_fraction_used"] * float(bankroll)
     df["exp_profit_eur"] = df["ev_per_unit"] * df["stake_eur"]
 
-    # Fair Odds + Edge
-    df["fair_odds"] = np.where(p > 0, 1.0 / p, np.nan)
-    implied_prob = np.where(o > 0, 1.0 / o, np.nan)
-    df["edge_pct"] = (p - implied_prob) * 100.0
+    # Fair odds + edge in %
+    df["fair_odds"] = np.where(
+        df["prob_used"] > 0,
+        1.0 / df["prob_used"],
+        np.nan,
+    )
+    df["edge_pct"] = (df[HOME_ODDS_COL] / df["fair_odds"] - 1.0) * 100.0
 
     return df
 
 
-def build_shortlist(
+# -------------------------------------------------------------------------
+# SHORTLIST (LOCAL-STYLE FILTERS)
+# -------------------------------------------------------------------------
+
+def build_shortlist_local_style(
     df_future: pd.DataFrame,
-    params: StrategyParams,
+    bankroll: float,
 ) -> pd.DataFrame:
     """
-    Apply SHORTLIST strategy to upcoming games (today/tomorrow) and build shortlist.
+    Apply LOCAL-style filters to upcoming games and build shortlist:
 
-    WICHTIG:
-    - Isotonic wird nur für Historik + Kalibrierung genutzt.
-    - Shortlist basiert primär auf Roh-Probas, HWR und einem moderaten Odds-Bereich.
-    - Wenn keine Spiele strikte Filter überleben, wird schrittweise gelockert,
-      damit du zumindest eine Info-Shortlist bekommst (wie im Notebook mit DEN & ORL).
+        home_win_rate >= 0.50
+        iso_proba_home_win >= 0.45
+        closing_home_odds in [1.10, 3.40]
+
+    Then compute EV, Kelly, stake, etc. using ISO-based prob_used.
+    Games mit negativer EV / Kelly bleiben in der Shortlist,
+    erhalten aber stake = 0 (wie dein DEN–SAC Beispiel).
     """
     if df_future.empty:
+        logging.info("No future games found – nothing to shortlist.")
         return df_future.copy()
 
     df = df_future.copy()
 
-    # Basis-Filter: HWR + vorhandene Odds + Probas
-    min_hwr = max(params.min_home_win_rate, SHORTLIST_MIN_HWR)
+    # apply strict base filters
+    conds = []
 
-    base_mask = (
-        df[HOMEWR_COL].notna()
-        & (df[HOMEWR_COL] >= min_hwr)
-        & df[HOME_ODDS_COL].notna()
-        & df[PRED_PROBA_COL].notna()
-    )
-    base = df[base_mask].copy()
-
-    if base.empty:
+    # home win rate
+    if HOMEWR_COL in df.columns and pd.api.types.is_numeric_dtype(df[HOMEWR_COL]):
+        conds.append(df[HOMEWR_COL] >= MIN_HOME_WIN_RATE_SHORTLIST)
+    else:
+        # wenn keine Home-Win-Rate, ist alles raus
         logging.info(
-            "No future games passed base filters (HWR/odds/proba). "
-            "Shortlist will be empty."
+            "Column '%s' missing or non-numeric – cannot apply home-win-rate filter. Shortlist will be empty.",
+            HOMEWR_COL,
         )
-        return base
+        return df.iloc[0:0].copy()
 
-    # 1) Strikte Shortlist: HWR + Odds-Range + Proba-Schwelle
-    strict_mask = (
-        base[HOME_ODDS_COL].between(SHORTLIST_MIN_ODDS, SHORTLIST_MAX_ODDS)
-        & (base[PRED_PROBA_COL] >= SHORTLIST_MIN_PROB)
-    )
-    shortlist = base[strict_mask].copy()
+    # odds range
+    conds.append(df[HOME_ODDS_COL].between(MIN_ODDS_SHORTLIST, MAX_ODDS_SHORTLIST))
 
-    if shortlist.empty:
+    # ISO proba threshold
+    conds.append(df[ISO_COL] >= MIN_ISO_PROBA_SHORTLIST)
+
+    # need odds + ISO not null
+    conds.append(df[HOME_ODDS_COL].notna())
+    conds.append(df[ISO_COL].notna())
+
+    mask = np.logical_and.reduce(conds)
+    df_sel = df[mask].copy()
+
+    if df_sel.empty:
         logging.info(
-            "No games passed strict shortlist filters "
-            "(HWR >= %.2f, odds in [%.2f, %.2f], prob >= %.2f). "
-            "Relaxing prob threshold.",
-            min_hwr,
-            SHORTLIST_MIN_ODDS,
-            SHORTLIST_MAX_ODDS,
-            SHORTLIST_MIN_PROB,
+            "Future games found but none passed LOCAL filters "
+            "(HWR >= %.2f, ISO >= %.2f, odds in [%.2f, %.2f]).",
+            MIN_HOME_WIN_RATE_SHORTLIST,
+            MIN_ISO_PROBA_SHORTLIST,
+            MIN_ODDS_SHORTLIST,
+            MAX_ODDS_SHORTLIST,
         )
-        # 2) Relax: keine Proba-Schwelle, aber HWR + Odds-Range
-        loose_mask = base[HOME_ODDS_COL].between(SHORTLIST_MIN_ODDS, SHORTLIST_MAX_ODDS)
-        shortlist = base[loose_mask].copy()
+        return df_sel
 
-    if shortlist.empty:
-        logging.info(
-            "Still no games after relaxing prob. "
-            "Relaxing odds thresholds (keep only HWR + valid odds/proba)."
-        )
-        # 3) Letzter Fallback: nur HWR-Basis, sortiert nach Proba
-        shortlist = base.copy()
+    # Apply EV + Kelly based on bankroll
+    df_sel = apply_kelly_and_ev(df_sel, bankroll)
 
-    if shortlist.empty:
-        return shortlist
-
-    # Metriken hinzufügen
-    shortlist = _compute_shortlist_metrics(shortlist)
-
-    # Sortierung: höchste Roh-Proba zuerst
-    shortlist = shortlist.sort_values(
-        by=["prob_used", "home_team", "away_team"],
-        ascending=[False, True, True],
-    ).reset_index(drop=True)
-
-    return shortlist
+    return df_sel
 
 
 # -------------------------------------------------------------------------
@@ -908,13 +949,6 @@ def main() -> None:
     # 2) MERGE TODAY'S PREDICTIONS (if any) TO GET FUTURE GAMES INTO df_all
     df_all = merge_today_predictions(df_all, pred_dir, target_ymd, today_date)
 
-        # Safety: falls irgendwo closing_*_odds noch NaN sind, aber odds_1/odds_2 existieren
-    if "odds_1" in df_all.columns:
-        df_all[HOME_ODDS_COL] = df_all[HOME_ODDS_COL].fillna(df_all["odds_1"])
-    if "odds_2" in df_all.columns:
-        df_all[AWAY_ODDS_COL] = df_all[AWAY_ODDS_COL].fillna(df_all["odds_2"])
-   
-
     # 3) ATTACH HOME WIN RATE IF AVAILABLE
     hwr_path = os.path.join(
         pred_dir,
@@ -928,6 +962,7 @@ def main() -> None:
     # 5) FIT ISOTONIC ON PAST, APPLY TO ALL (PAST + FUTURE)
     if df_past.empty:
         logging.warning("No past games available – cannot fit isotonic. Exiting.")
+        print("=== Script 5 finished (no past games for isotonic) ===")
         return
 
     iso = fit_isotonic(df_past)
@@ -938,75 +973,58 @@ def main() -> None:
         df_all.loc[mask_iso, PRED_PROBA_COL].astype(float).values
     )
 
-    # Für Metrics brauchen wir ISO im df_past
+    # For metrics we need ISO on df_past too
     df_past = df_all.loc[df_all.index.isin(df_past.index)].copy()
 
     brier_before, brier_after, logloss_before, logloss_after = compute_calibration_metrics(df_past)
     logging.info("Brier before: %.6f | after: %.6f", brier_before, brier_after)
     logging.info("Log-loss before: %.6f | after: %.6f", logloss_before, logloss_after)
 
-    # 6) GRID SEARCH ON PAST
+    # 6) GRID SEARCH ON PAST (historical evaluation, not for shortlist filters)
     logging.info("Starting grid search...")
     best_params, df_grid = grid_search(df_past)
     logging.info(
-        "Grid search finished with %d combinations.",
-        len(df_grid),
-    )
-
-    best_metrics = evaluate_strategy(df_past, best_params)
-    logging.info(
         "Best strategy (historical, ISO-based): %s | %d bets | flat profit %.2f | ROI per bet %.4f",
         best_params,
-        best_metrics["n_bets"],
-        best_metrics["total_profit"],
-        best_metrics["roi_per_bet"],
+        evaluate_strategy(df_past, best_params)["n_bets"],
+        evaluate_strategy(df_past, best_params)["total_profit"],
+        evaluate_strategy(df_past, best_params)["roi_per_bet"],
     )
 
-    # 7) SAVE GRID SEARCH + ISO DF
+    # 7) SAVE GRID SEARCH + ISO DF (full)
     grid_path = os.path.join(kelly_dir, f"nba_grid_search_results_{target_ymd}.csv")
     df_grid.to_csv(grid_path, index=False, encoding="utf-8")
     logging.info("Saved grid search results to %s", grid_path)
+
+    # add prob_iso column to full dataframe for consistency
+    df_all["prob_iso"] = df_all[ISO_COL]
 
     iso_path = os.path.join(kelly_dir, f"combined_nba_predictions_iso_{target_ymd}.csv")
     df_all.to_csv(iso_path, index=False, encoding="utf-8")
     logging.info("Saved full dataframe with %s to %s", ISO_COL, iso_path)
 
-    # 8) BUILD SHORTLIST FOR FUTURE GAMES (TODAY / TOMORROW)
+    # 8) BUILD SHORTLIST FOR FUTURE GAMES (TODAY / TOMORROW) – LOCAL STYLE
     if df_future.empty:
         logging.info("No future games found in file – nothing to bet on today.")
-        logging.info("Step 5 finished.")
-        print("=== Script 5 finished ===")
+        print("=== Script 5 finished (no future games) ===")
         return
 
     # Re-sync future rows to include ISO + HWR etc.
     df_future = df_all.loc[df_all.index.isin(df_future.index)].copy()
 
-    # Debug: check Basis-Facts für Future-Games
-    logging.info("Future games total (with ISO & raw proba): %d", len(df_future))
-    if not df_future.empty:
-        logging.info(
-            "Future HWR >= %.2f: %d",
-            max(best_params.min_home_win_rate, SHORTLIST_MIN_HWR),
-            (df_future[HOMEWR_COL] >= max(best_params.min_home_win_rate, SHORTLIST_MIN_HWR)).sum()
-        )
-        logging.info(
-            "Future RAW proba (pred_home_win_proba) not null: %d",
-            df_future[PRED_PROBA_COL].notna().sum()
-        )
-        logging.info(
-            "Future odds between %.2f and %.2f: %d",
-            SHORTLIST_MIN_ODDS,
-            SHORTLIST_MAX_ODDS,
-            df_future[HOME_ODDS_COL].between(SHORTLIST_MIN_ODDS, SHORTLIST_MAX_ODDS).sum()
-        )
+    # Load bankroll from live bet log
+    bankroll = load_current_bankroll(pred_dir)
+    print(f"\n💰 Current bankroll for sizing bets: {bankroll:.2f} €\n")
 
-    shortlist = build_shortlist(df_future, best_params)
+    # Apply local shortlist filters + Kelly sizing
+    shortlist = build_shortlist_local_style(df_future, bankroll)
 
     if shortlist.empty:
         logging.info(
-            "Future games found but no bets passed even the relaxed filters – empty shortlist for today."
+            "Future games found but no bets passed LOCAL filters – empty shortlist for today."
         )
-        logging.info("Step 5 finished.")
+        print("=== TONIGHT'S SHORTLIST (ISOTONIC + KELLY) ===")
+        print("No games passed the local filters today.\n")
         print("=== Script 5 finished ===")
         return
 
@@ -1015,7 +1033,58 @@ def main() -> None:
     shortlist.to_csv(shortlist_path, index=False, encoding="utf-8")
     logging.info("Saved bet shortlist (%d rows) to %s", len(shortlist), shortlist_path)
 
-    logging.info("Step 5 finished.")
+    # Pretty print for GitHub Actions log (ähnlich lokal)
+    display_cols = [
+        "game_date",
+        "home_team",
+        "away_team",
+        HOMEWR_COL,
+        "prob_iso",
+        "prob_used",
+        HOME_ODDS_COL,
+        "EV_€_per_100",
+        "kelly_full",
+        "kelly_fraction_used",
+        "stake_eur",
+        "exp_profit_eur",
+        "fair_odds",
+        "edge_pct",
+    ]
+    for c in display_cols:
+        if c not in shortlist.columns:
+            # skip missing columns (zur Sicherheit)
+            display_cols.remove(c)
+
+    print("=== TONIGHT'S SHORTLIST (ISOTONIC + KELLY) ===")
+    # Round some numeric columns for nice log output
+    shortprint = shortlist.copy()
+    for col in [
+        HOMEWR_COL,
+        "prob_iso",
+        "prob_used",
+        HOME_ODDS_COL,
+        "EV_€_per_100",
+        "kelly_full",
+        "kelly_fraction_used",
+        "stake_eur",
+        "exp_profit_eur",
+        "fair_odds",
+        "edge_pct",
+    ]:
+        if col in shortprint.columns:
+            shortprint[col] = pd.to_numeric(shortprint[col], errors="coerce")
+
+    with pd.option_context(
+        "display.width", 160,
+        "display.max_columns", None,
+        "display.max_rows", None,
+        "display.float_format", lambda x: f"{x:0.3f}",
+    ):
+        print(shortprint[display_cols])
+        print()
+
+    print("=== TONIGHT'S SHORTLIST (SAVE SNAPSHOT) ===")
+    print(f"💾 Saved shortlist to {shortlist_path}\n")
     print("=== Script 5 finished ===")
 
 
