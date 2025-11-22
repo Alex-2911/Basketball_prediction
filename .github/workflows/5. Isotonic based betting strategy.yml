@@ -1,12 +1,12 @@
 name: "🏀 5. Build Shortlist & Bet Log"
 
 on:
-  # Run automatically right after workflow 4 completes
   workflow_run:
-    workflows: "🏀 4. Update Betting Statistics (Accuracy & Combined File"
-    types: [completed]
+    workflows:
+      - "🏀 4. Update Betting Statistics (Accuracy & Combined File)"
+    types:
+      - completed
 
-  # Also allow manual run from the Actions tab
   workflow_dispatch:
 
 jobs:
