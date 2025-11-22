@@ -3,7 +3,7 @@ name: "🏀 5. Build Shortlist & Bet Log"
 on:
   workflow_run:
     workflows:
-      - "🏀 4. Update Betting Statistics (Accuracy & Combined File)"
+      - "🏀 4. Update Betting Statistics (Accuracy & Combined File"
     types:
       - completed
 
@@ -14,7 +14,9 @@ jobs:
     # Only proceed if:
     # - this was started manually (workflow_dispatch), OR
     # - it was started by workflow_run AND workflow 4 concluded with success
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' ||
+        github.event.workflow_run.conclusion == 'success' ||
+        github.event.workflow_run.conclusion == 'completed' }}
 
     runs-on: ubuntu-latest
 
