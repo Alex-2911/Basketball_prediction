@@ -4,7 +4,7 @@
 """
 5_Isotonic_based_betting_strategy_2026.py
 
-Step 5 of the 2026 pipeline:
+Step 5 of the 2026 pipeline (GitHub version, aligned with local notebook):
 
 1) Load combined historical predictions:
        combined_nba_predictions_acc_YYYY-MM-DD.csv
@@ -17,8 +17,8 @@ Step 5 of the 2026 pipeline:
    - closing_home_odds   (from 'odds_1')
    - closing_away_odds   (from 'odds_2')
 
-3) Optionally merge in:
-   - tonight's predictions from nba_games_predict_YYYY-MM-DD.csv
+3) Merge in:
+   - today's predictions from nba_games_predict_YYYY-MM-DD.csv
    - home win rates from home_win_rates_sorted_YYYY-MM-DD.csv
 
 4) Split into:
@@ -38,15 +38,24 @@ Step 5 of the 2026 pipeline:
    - Kelly/nba_grid_search_results_YYYY-MM-DD.csv
    - Kelly/combined_nba_predictions_iso_YYYY-MM-DD.csv
 
-8) Apply *LOCAL-STYLE* SHORTLIST FILTERS (fixed, not from grid search):
-   - home_win_rate    >= 0.50
-   - iso_proba_home_win >= 0.45
-   - closing_home_odds between 1.10 and 3.40
+8) Build TONIGHT'S SHORTLIST exactly like the local notebook:
 
-   For all qualifying games:
-   - compute prob_iso, prob_used (capped at 0.75), EV, Kelly, stake from bankroll
-   - save to bet_shortlist_YYYY-MM-DD.csv
-   - print a clear shortlist summary to stdout (GitHub Actions log)
+   LOCAL FILTERS:
+     - home_win_rate >= 0.50
+     - iso_proba_home_win >= 0.45
+     - closing_home_odds between 1.10 and 3.40
+
+   For all upcoming games:
+     - compute EV per 1 unit
+     - compute Kelly fraction (capped at 10%)
+     - compute stake in EUR from current bankroll
+     - compute expected profit and fair odds
+
+   Then:
+
+   - print TONIGHT'S SHORTLIST (ISOTONIC + KELLY)
+   - print ALL UPCOMING GAMES & FILTER REASONS
+   - save shortlist to bet_shortlist_YYYY-MM-DD.csv
 
 If there are no upcoming games OR no suitable bets, script still succeeds.
 """
@@ -84,23 +93,23 @@ AWAY_ODDS_COL = "closing_away_odds"
 HOMEWR_COL = "home_win_rate"
 ISO_COL = "iso_proba_home_win"
 
-# Grid search (historical backtest) — same as vorher
+# Historical grid search (flat stake)
 FLAT_STAKE = 100.0
+
 ODDS_MIN_GRID = [1.10, 1.25, 1.40, 1.60]
 ODDS_MAX_GRID = [2.00, 2.10, 2.50, 3.00]
 PROB_MIN_GRID = [0.55, 0.60, 0.65, 0.70]
 HOMEWR_MIN_GRID = [0.50, 0.55, 0.60, 0.65]
 
-# SHORTLIST FILTERS — "genau wie lokal"
-MIN_HOME_WIN_RATE_SHORTLIST = 0.50
-MIN_ISO_PROBA_SHORTLIST = 0.45
-MIN_ODDS_SHORTLIST = 1.10
-MAX_ODDS_SHORTLIST = 3.40
+# LOCAL SHORTLIST FILTERS (match local notebook)
+LOCAL_MIN_HOMEWR = 0.50
+LOCAL_MIN_ISO = 0.45
+LOCAL_MIN_ODDS = 1.10
+LOCAL_MAX_ODDS = 3.40
+LOCAL_MAX_KELLY_FRACTION = 0.10  # 10 % cap
+LOCAL_PROB_CAP = 0.75            # cap prob_used at 0.75 (same as local)
 
-# Kelly / Bankroll
 START_BANKROLL = 1000.0
-MAX_KELLY_FRACTION = 0.10  # cap at 10 % vom Bankroll
-MAX_PROB_USED = 0.75       # cap für prob_used = min(iso_proba, 0.75)
 
 
 @dataclass
@@ -117,7 +126,7 @@ class StrategyParams:
 
 def setup_logging() -> None:
     logging.basicConfig(
-        format="[%(asctime)s] %(levelname)s: %(message)s",
+        format="[%(asctime)s] INFO: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
         level=logging.INFO,
     )
@@ -248,6 +257,9 @@ def merge_today_predictions(
     """
     Merge in upcoming games from nba_games_predict_YYYY-MM-DD.csv
     if they are not already present in df_all.
+
+    File format (current):
+      home_team, away_team, home_team_prob, odds 1, odds 2, result, date, accuracy
     """
     today_pred_path = os.path.join(pred_dir, f"nba_games_predict_{ymd_str}.csv")
     if not os.path.exists(today_pred_path):
@@ -264,31 +276,10 @@ def merge_today_predictions(
         encoding="utf-7",
         sep=",",
         quotechar='"',
-        decimal=",",
+        decimal=".",
     )
 
-    # If schema is weird, fallback to manual header
-    expected = {"home_team", "away_team", "home_team_prob"}
-    norm_cols = {c.lower().strip() for c in tmp.columns}
-    if not expected.issubset(norm_cols):
-        tmp = pd.read_csv(
-            today_pred_path,
-            encoding="utf-7",
-            sep=",",
-            quotechar='"',
-            decimal=",",
-            header=None,
-            names=[
-                "home_team",
-                "away_team",
-                "home_team_prob",
-                "odds_1",
-                "odds_2",
-                "result",
-                "date",
-            ],
-        )
-
+    # Normalize columns
     tmp.columns = (
         tmp.columns
            .astype(str)
@@ -314,11 +305,22 @@ def merge_today_predictions(
     # if still NaT, assume "today"
     tmp.loc[tmp["date"].isna(), "date"] = pd.Timestamp(today_date)
 
-    # ensure these exist
+    # ensure result column exists
     if "result" not in tmp.columns:
         tmp["result"] = np.nan
 
     tmp[DATE_COL] = pd.to_datetime(tmp["date"], errors="coerce")
+
+    # --- ensure ALL MODEL COLUMNS ALSO EXIST HERE ---
+    # prob for model
+    if PRED_PROBA_COL not in tmp.columns and "home_team_prob" in tmp.columns:
+        tmp[PRED_PROBA_COL] = tmp["home_team_prob"]
+
+    # closing odds (for filters and EV)
+    if HOME_ODDS_COL not in tmp.columns and "odds_1" in tmp.columns:
+        tmp[HOME_ODDS_COL] = tmp["odds_1"]
+    if AWAY_ODDS_COL not in tmp.columns and "odds_2" in tmp.columns:
+        tmp[AWAY_ODDS_COL] = tmp["odds_2"]
 
     # Make sure main df has away_team for key matching
     if "away_team" not in df_all.columns:
@@ -406,7 +408,7 @@ def attach_home_win_rate(
     team_col = None
     winrate_col = None
 
-    # --- SPECIAL CASE: current 4-column format ---
+    # SPECIAL CASE: 4-column format (first col is team, last col is win rate)
     if len(cols) == 4 and "home win rate" in cols_lower:
         team_col = cols[0]
         winrate_col = cols[cols_lower.index("home win rate")]
@@ -417,7 +419,6 @@ def attach_home_win_rate(
             winrate_col,
         )
     else:
-        # Generic detection (future proof)
         lower_to_orig = {c.lower().strip(): c for c in cols}
 
         # team column by name
@@ -452,7 +453,7 @@ def attach_home_win_rate(
                 except Exception:
                     continue
 
-        # last fallback for team column
+        # last fallback for team column: any short uppercase string column
         if team_col is None:
             for c in cols:
                 sample = (
@@ -479,7 +480,7 @@ def attach_home_win_rate(
             winrate_col,
         )
 
-    # --- normalize team codes and merge ---
+    # normalize team codes and merge
     hwr["_team_norm"] = (
         hwr[team_col]
         .astype(str)
@@ -605,7 +606,7 @@ def compute_calibration_metrics(df_past: pd.DataFrame) -> Tuple[float, float, fl
 def evaluate_strategy(df: pd.DataFrame, params: StrategyParams) -> dict:
     """
     Evaluate one parameter combo on a backtest dataframe (df_past).
-    Flat stake 100€ per bet.
+    Flat stake = FLAT_STAKE per bet.
     """
     if df.empty:
         return {
@@ -623,7 +624,7 @@ def evaluate_strategy(df: pd.DataFrame, params: StrategyParams) -> dict:
     # odds range
     conds.append(df[HOME_ODDS_COL].between(params.min_odds, params.max_odds))
 
-    # probability threshold (ISO based)
+    # probability threshold
     conds.append(df[ISO_COL] >= params.min_iso_proba)
 
     # valid rows: need closing_home_odds + iso prob + result
@@ -709,269 +710,198 @@ def grid_search(
 
     return best_params, df_res
 
-def build_shortlist_local_style(df_future: pd.DataFrame, bankroll: float) -> pd.DataFrame:
-    """
-    Baut Shortlist EXACT wie im lokalen Notebook:
-    - prob_iso (Isotonic-Proba)
-    - prob_used = max(prob_iso, raw_pred)
-    - EV pro 100€
-    - Kelly full + Kelly fraction (max 10%)
-    - stake in €
-    - expected profit €
-    - fair odds + edge %
-    """
-
-    if df_future.empty:
-        return pd.DataFrame()
-
-    df = df_future.copy()
-
-    # RAW prob + ISO prob
-    df["prob_iso"] = df[ISO_COL]
-    df["prob_raw"] = df[PRED_PROBA_COL]
-
-    # prob_used = max(prob_iso, prob_raw)
-    df["prob_used"] = df[["prob_iso", "prob_raw"]].max(axis=1)
-
-    # EV pro Einheit (1€)
-    df["ev_per_unit"] = (
-        df["prob_used"] * (df[HOME_ODDS_COL] - 1.0)
-        - (1.0 - df["prob_used"])
-    )
-
-    # EV pro 100€
-    df["EV_€_per_100"] = df["ev_per_unit"] * 100.0
-
-    # Kelly full
-    df["kelly_full"] = (
-        (df[HOME_ODDS_COL] * df["prob_used"] - (1 - df["prob_used"]))
-        / (df[HOME_ODDS_COL] - 1)
-    )
-
-    # Kelly fraction (max 10% von Kelly)
-    df["kelly_fraction_used"] = df["kelly_full"].clip(lower=0.0, upper=MAX_KELLY_FRACTION)
-
-    # Stake
-    df["stake_eur"] = bankroll * df["kelly_fraction_used"]
-
-    # Expected profit
-    df["exp_profit_eur"] = df["stake_eur"] * df["ev_per_unit"]
-
-    # Fair odds
-    df["fair_odds"] = 1.0 / df["prob_used"].clip(lower=1e-9)
-
-    # Edge %
-    df["edge_pct"] = (df["fair_odds"] / df[HOME_ODDS_COL] - 1.0) * 100.0
-
-    # Sort wie lokal
-    df = df.sort_values("exp_profit_eur", ascending=False)
-
-    # Lokale Filter:
-    mask = (
-        (df[HOMEWR_COL] >= MIN_HOME_WIN_RATE_SHORTLIST) &
-        (df["prob_iso"] >= MIN_ISO_PROBA_SHORTLIST) &
-        (df[HOME_ODDS_COL].between(MIN_ODDS_SHORTLIST, MAX_ODDS_SHORTLIST))
-    )
-
-    shortlist = df[mask].copy()
-
-    return shortlist
-
 
 # -------------------------------------------------------------------------
-# BANKROLL / KELLY
+# LOCAL-STYLE SHORTLIST + BANKROLL
 # -------------------------------------------------------------------------
 
-def load_current_bankroll(pred_dir: str) -> float:
+def load_current_bankroll(pred_dir: str, start_bankroll: float = START_BANKROLL) -> float:
     """
-    Try to load current bankroll from bet_log_live.csv in pred_dir.
-    Fallback: START_BANKROLL if file/columns are missing.
-
-    Heuristics:
-      - if 'bankroll_after' or 'cum_bankroll' column exists -> last non-null
-      - elif 'profit' column exists -> START_BANKROLL + sum(profit)
-      - else -> START_BANKROLL
+    Load last bankroll from bet_log_live.csv if available.
+    Otherwise return start_bankroll.
     """
-    path = os.path.join(pred_dir, "bet_log_live.csv")
-    bankroll = START_BANKROLL
-
-    if not os.path.exists(path):
+    bet_log_path = os.path.join(pred_dir, "bet_log_live.csv")
+    if not os.path.exists(bet_log_path):
         logging.info(
             "No bet_log_live.csv found at %s – using start bankroll %.2f €.",
-            path,
-            bankroll,
+            bet_log_path,
+            start_bankroll,
         )
-        return bankroll
+        return float(start_bankroll)
 
     try:
-        df_log = pd.read_csv(path, encoding="utf-8")
-    except Exception as e:
-        logging.warning(
-            "Failed to read %s: %s – using start bankroll %.2f €.",
-            path,
-            e,
-            bankroll,
-        )
-        return bankroll
+        df_log = pd.read_csv(bet_log_path, encoding="utf-8")
+    except Exception:
+        df_log = pd.read_csv(bet_log_path, encoding="utf-7")
 
-    if df_log.empty:
+    cols_lower = {c.lower(): c for c in df_log.columns}
+    bankroll_col = None
+    for key in ["bankroll_after", "bankroll", "bankroll_after_bet"]:
+        if key in cols_lower:
+            bankroll_col = cols_lower[key]
+            break
+
+    if bankroll_col is None:
         logging.info(
-            "bet_log_live.csv is empty – using start bankroll %.2f €.",
-            bankroll,
+            "No bankroll column found in bet_log_live.csv – using start bankroll %.2f €.",
+            start_bankroll,
         )
-        return bankroll
+        return float(start_bankroll)
 
-    for col in ["bankroll_after", "cum_bankroll"]:
-        if col in df_log.columns:
-            vals = pd.to_numeric(df_log[col], errors="coerce")
-            if vals.notna().any():
-                bankroll = float(vals.dropna().iloc[-1])
-                logging.info(
-                    "Using bankroll from column '%s' in bet_log_live.csv: %.2f €",
-                    col,
-                    bankroll,
-                )
-                return bankroll
-
-    if "profit" in df_log.columns:
-        prof = pd.to_numeric(df_log["profit"], errors="coerce").fillna(0.0)
-        bankroll = float(START_BANKROLL + prof.sum())
-        logging.info(
-            "Using bankroll = START(%.2f) + sum(profit)=%.2f -> %.2f €",
-            START_BANKROLL,
-            prof.sum(),
-            bankroll,
-        )
-        return bankroll
-
+    last_val = (
+        pd.to_numeric(df_log[bankroll_col], errors="coerce")
+        .dropna()
+        .iloc[-1]
+    )
+    bankroll = float(last_val)
     logging.info(
-        "No bankroll/profit columns found in bet_log_live.csv – using start bankroll %.2f €.",
+        "Using bankroll from column '%s' in bet_log_live.csv: %.2f €",
+        bankroll_col,
         bankroll,
     )
     return bankroll
 
 
-def apply_kelly_and_ev(df: pd.DataFrame, bankroll: float) -> pd.DataFrame:
+def build_shortlist_local_style(
+    df_future: pd.DataFrame,
+    bankroll: float,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Add prob_iso, prob_used, EV, Kelly, stake, expected profit, fair odds, edge.
-    Uses ISO probability capped at MAX_PROB_USED as prob_used (wie lokal).
-    """
-    if df.empty:
-        return df
+    Apply LOCAL filters and compute KELLY metrics.
 
-    df = df.copy()
-
-    # prob_iso = ISO_COL
-    df["prob_iso"] = df[ISO_COL].astype(float)
-
-    # prob_used = min(prob_iso, MAX_PROB_USED)
-    df["prob_used"] = df["prob_iso"].clip(upper=MAX_PROB_USED)
-
-    b = df[HOME_ODDS_COL].astype(float) - 1.0  # "b" in Kelly-Formel
-    p = df["prob_used"]
-    q = 1.0 - p
-
-    # EV per 1€ Einsatz
-    df["ev_per_unit"] = p * b - q
-    df["EV_€_per_100"] = df["ev_per_unit"] * 100.0
-
-    # Kelly full fraction
-    # k = ev_per_unit / b, aber b kann 0 sein (odds=1) -> dann 0
-    df["kelly_full"] = np.where(
-        b > 0,
-        df["ev_per_unit"] / b,
-        0.0,
-    )
-
-    # only positive Kelly, capped at MAX_KELLY_FRACTION
-    df["kelly_fraction_used"] = np.where(
-        df["kelly_full"] > 0,
-        np.minimum(df["kelly_full"], MAX_KELLY_FRACTION),
-        0.0,
-    )
-
-    df["stake_eur"] = df["kelly_fraction_used"] * float(bankroll)
-    df["exp_profit_eur"] = df["ev_per_unit"] * df["stake_eur"]
-
-    # Fair odds + edge in %
-    df["fair_odds"] = np.where(
-        df["prob_used"] > 0,
-        1.0 / df["prob_used"],
-        np.nan,
-    )
-    df["edge_pct"] = (df[HOME_ODDS_COL] / df["fair_odds"] - 1.0) * 100.0
-
-    return df
-
-
-# -------------------------------------------------------------------------
-# SHORTLIST (LOCAL-STYLE FILTERS)
-# -------------------------------------------------------------------------
-
-def log_future_games_with_reasons(df_future: pd.DataFrame) -> None:
-    """
-    Loggt alle zukünftigen Spiele mit den Gründen, warum sie
-    die LOCAL-Shortlist-Filter nicht schaffen (oder 'QUALIFIES').
-    Ausgabe ähnlich dem lokalen Script:
-
-    === ALL UPCOMING GAMES & FILTER REASONS ===
-          date home_team away_team  home_win_rate  prob_iso  odds_1                           why_not
-    2025-11-22       CHI       WAS           0.71     0.364    1.14              prob_iso 0.36 < 0.45
-    ...
+    Returns:
+      shortlist  – only QUALIFIES games with full EV/Kelly columns
+      explainer  – ALL upcoming games with 'why_not' reason string
     """
     if df_future.empty:
-        return
+        explainer = pd.DataFrame(
+            columns=["date", "home_team", "away_team",
+                     "home_win_rate", "prob_iso", "odds_1", "why_not"]
+        )
+        return df_future.copy(), explainer
 
-    rows = []
-    for _, r in df_future.iterrows():
-        date_val = r.get(DATE_COL, pd.NaT)
-        home = r.get("home_team", "")
-        away = r.get("away_team", "")
-        hwr = r.get(HOMEWR_COL, np.nan)
-        iso = r.get(ISO_COL, np.nan)
-        odds = r.get(HOME_ODDS_COL, np.nan)
+    df = df_future.copy()
 
-        reasons = []
+    # convenience columns
+    if "date" not in df.columns and DATE_COL in df.columns:
+        df["date"] = df[DATE_COL]
 
-        # Home-win-rate-Filter
-        if pd.notna(hwr) and hwr < MIN_HOME_WIN_RATE_SHORTLIST:
-            reasons.append(f"home_win_rate {hwr:.2f} < {MIN_HOME_WIN_RATE_SHORTLIST}")
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
 
-        # Odds-Bereich
-        if pd.notna(odds):
-            if odds < MIN_ODDS_SHORTLIST or odds > MAX_ODDS_SHORTLIST:
-                reasons.append(f"odds {odds:.2f} not in [{MIN_ODDS_SHORTLIST}, {MAX_ODDS_SHORTLIST}]")
+    df[HOMEWR_COL] = pd.to_numeric(df[HOMEWR_COL], errors="coerce")
+    df[ISO_COL] = pd.to_numeric(df[ISO_COL], errors="coerce")
+    df[HOME_ODDS_COL] = pd.to_numeric(df[HOME_ODDS_COL], errors="coerce")
 
-        # ISO-Filter
-        if pd.notna(iso) and iso < MIN_ISO_PROBA_SHORTLIST:
-            reasons.append(f"prob_iso {iso:.2f} < {MIN_ISO_PROBA_SHORTLIST}")
+    # Explainer reasons
+    reasons = []
+    qualifies_mask = []
 
-        why_not = "QUALIFIES" if not reasons else "; ".join(reasons)
+    for _, row in df.iterrows():
+        r_reasons = []
 
-        rows.append(
-            {
-                "date": date_val.date() if isinstance(date_val, pd.Timestamp) else date_val,
-                "home_team": home,
-                "away_team": away,
-                HOMEWR_COL: hwr,
-                "prob_iso": iso,
-                HOME_ODDS_COL: odds,
-                "why_not": why_not,
-            }
+        hwr = row.get(HOMEWR_COL, np.nan)
+        iso = row.get(ISO_COL, np.nan)
+        odds = row.get(HOME_ODDS_COL, np.nan)
+
+        if pd.isna(hwr) or hwr < LOCAL_MIN_HOMEWR:
+            if not pd.isna(hwr):
+                r_reasons.append(f"home_win_rate {hwr:.2f} < {LOCAL_MIN_HOMEWR}")
+            else:
+                r_reasons.append("home_win_rate missing")
+
+        if pd.isna(iso) or iso < LOCAL_MIN_ISO:
+            if not pd.isna(iso):
+                r_reasons.append(f"prob_iso {iso:.2f} < {LOCAL_MIN_ISO}")
+            else:
+                r_reasons.append("prob_iso missing")
+
+        if pd.isna(odds) or not (LOCAL_MIN_ODDS <= odds <= LOCAL_MAX_ODDS):
+            if not pd.isna(odds):
+                if odds < LOCAL_MIN_ODDS:
+                    r_reasons.append(f"odds {odds:.2f} < min {LOCAL_MIN_ODDS}")
+                else:
+                    r_reasons.append(f"odds {odds:.2f} > max {LOCAL_MAX_ODDS}")
+            else:
+                r_reasons.append("odds missing")
+
+        if not r_reasons:
+            reasons.append("QUALIFIES")
+            qualifies_mask.append(True)
+        else:
+            reasons.append("; ".join(r_reasons))
+            qualifies_mask.append(False)
+
+    df["why_not"] = reasons
+    qualifies_mask = np.array(qualifies_mask, dtype=bool)
+
+    # explainer df (show odds_1 as in local)
+    explainer = df[["date", "home_team", "away_team",
+                    HOMEWR_COL, ISO_COL, HOME_ODDS_COL, "why_not"]].copy()
+    explainer.rename(
+        columns={
+            HOMEWR_COL: "home_win_rate",
+            ISO_COL: "prob_iso",
+            HOME_ODDS_COL: "odds_1",
+        },
+        inplace=True,
+    )
+
+    # shortlist = only QUALIFIES
+    shortlist = df[qualifies_mask].copy()
+    if shortlist.empty:
+        return shortlist, explainer
+
+    # EV + Kelly + stake
+    prob_iso = shortlist[ISO_COL].astype(float)
+    prob_used = np.clip(prob_iso, None, LOCAL_PROB_CAP)
+    odds = shortlist[HOME_ODDS_COL].astype(float)
+
+    ev_per_unit = prob_used * (odds - 1.0) - (1.0 - prob_used)
+    ev_per_100 = ev_per_unit * 100.0
+
+    kelly_full = (prob_used * odds - 1.0) / (odds - 1.0)
+    kelly_fraction_used = np.clip(kelly_full, 0.0, LOCAL_MAX_KELLY_FRACTION)
+
+    stake_eur = bankroll * kelly_fraction_used
+    exp_profit_eur = stake_eur * ev_per_unit
+    fair_odds = 1.0 / prob_used
+    edge_pct = (odds / fair_odds - 1.0) * 100.0
+
+    shortlist["prob_iso"] = prob_iso
+    shortlist["prob_used"] = prob_used
+    shortlist["EV_€_per_100"] = ev_per_100
+    shortlist["kelly_full"] = kelly_full
+    shortlist["kelly_fraction_used"] = kelly_fraction_used
+    shortlist["stake_eur"] = stake_eur
+    shortlist["exp_profit_eur"] = exp_profit_eur
+    shortlist["fair_odds"] = fair_odds
+    shortlist["edge_pct"] = edge_pct
+
+    # Rename odds column for display to match local
+    shortlist.rename(columns={HOME_ODDS_COL: "odds_1"}, inplace=True)
+
+    # Order columns nicely
+    cols_order = [
+        "date", "home_team", "away_team",
+        HOMEWR_COL,
+        "prob_iso", "prob_used",
+        "odds_1",
+        "EV_€_per_100",
+        "kelly_full", "kelly_fraction_used",
+        "stake_eur", "exp_profit_eur",
+        "fair_odds", "edge_pct",
+    ]
+    # Some of these might be missing in edge cases; keep whatever exists
+    cols_order = [c for c in cols_order if c in shortlist.columns]
+    shortlist = shortlist[cols_order]
+
+    # sort by date, then EV descending
+    if "date" in shortlist.columns:
+        shortlist = shortlist.sort_values(
+            by=["date", "EV_€_per_100"], ascending=[True, False]
         )
 
-    df_reasons = pd.DataFrame(rows)
-
-    print("=== ALL UPCOMING GAMES & FILTER REASONS ===")
-    with pd.option_context(
-        "display.width", 160,
-        "display.max_columns", None,
-        "display.max_rows", None,
-        "display.float_format", lambda x: f"{x:0.3f}",
-    ):
-        print(df_reasons)
-        print()
-
+    return shortlist, explainer
 
 
 # -------------------------------------------------------------------------
@@ -1031,7 +961,7 @@ def main() -> None:
     # 5) FIT ISOTONIC ON PAST, APPLY TO ALL (PAST + FUTURE)
     if df_past.empty:
         logging.warning("No past games available – cannot fit isotonic. Exiting.")
-        print("=== Script 5 finished (no past games for isotonic) ===")
+        print("=== Script 5 finished (no past games) ===")
         return
 
     iso = fit_isotonic(df_past)
@@ -1042,14 +972,15 @@ def main() -> None:
         df_all.loc[mask_iso, PRED_PROBA_COL].astype(float).values
     )
 
-    # For metrics we need ISO on df_past too
+    # Update df_past / df_future with ISO values
     df_past = df_all.loc[df_all.index.isin(df_past.index)].copy()
+    df_future = df_all.loc[df_all.index.isin(df_future.index)].copy()
 
     brier_before, brier_after, logloss_before, logloss_after = compute_calibration_metrics(df_past)
     logging.info("Brier before: %.6f | after: %.6f", brier_before, brier_after)
     logging.info("Log-loss before: %.6f | after: %.6f", logloss_before, logloss_after)
 
-    # 6) GRID SEARCH ON PAST (historical evaluation, not for shortlist filters)
+    # 6) GRID SEARCH ON PAST (for documentation only)
     logging.info("Starting grid search...")
     best_params, df_grid = grid_search(df_past)
     logging.info(
@@ -1060,7 +991,7 @@ def main() -> None:
         evaluate_strategy(df_past, best_params)["roi_per_bet"],
     )
 
-        # 7) SAVE GRID SEARCH + ISO DF
+    # 7) SAVE GRID SEARCH + ISO DF
     grid_path = os.path.join(kelly_dir, f"nba_grid_search_results_{target_ymd}.csv")
     df_grid.to_csv(grid_path, index=False, encoding="utf-8")
     logging.info("Saved grid search results to %s", grid_path)
@@ -1069,164 +1000,41 @@ def main() -> None:
     df_all.to_csv(iso_path, index=False, encoding="utf-8")
     logging.info("Saved full dataframe with %s to %s", ISO_COL, iso_path)
 
-    # 8) BANKROLL AUS bet_log_live.csv HOLEN
-    live_log_path = os.path.join(pred_dir, "bet_log_live.csv")
-    bankroll = load_current_bankroll(live_log_path)
-    logging.info(
-        "Using bankroll from column 'bankroll_after' in bet_log_live.csv: %.2f €",
-        bankroll,
-    )
-
-    # 9) FUTURE-GAMES NACH ISO-NACHBERECHNUNG NEU AUS df_all HOLEN
-    #    (damit prob_iso und closing_home_odds NICHT NaN sind)
-    mask_future = (
-        (df_all[RESULT_RAW_COL].isna() | (df_all[RESULT_RAW_COL].astype(str) == "0"))
-        & df_all["game_day"].isin([today_date, tomorrow_date])
-    )
-    df_future_view = df_all.loc[mask_future].copy()
-
-    if df_future_view.empty:
+    # 8) BUILD SHORTLIST FOR FUTURE GAMES (TODAY / TOMORROW) – LOCAL STYLE
+    if df_future.empty:
         logging.info("No future games found in file – nothing to bet on today.")
         print("=== Script 5 finished ===")
         return
 
-    # 10) SHORTLIST IM LOKALEN STIL BAUEN (ISO + KELLY)
-    shortlist = build_shortlist_local_style(df_future_view, bankroll)
+    # BANKROLL
+    bankroll = load_current_bankroll(pred_dir, start_bankroll=START_BANKROLL)
+    print(f"\n💰 Current bankroll for sizing bets: {bankroll:.2f} €\n")
 
-    # Für Anzeige: Datum als date, Odds-Kolumnen so benennen wie lokal
-    df_future_view_display = df_future_view.copy()
-    df_future_view_display[DATE_COL] = pd.to_datetime(df_future_view_display[DATE_COL], errors="coerce")
-    df_future_view_display[DATE_COL] = df_future_view_display[DATE_COL].dt.date
-
-    # Alias für Odds wie lokal
-    df_future_view_display["odds_1"] = df_future_view_display[HOME_ODDS_COL]
+    # SHORTLIST + EXPLAINER
+    shortlist, explainer = build_shortlist_local_style(df_future, bankroll)
 
     if shortlist.empty:
         logging.info("Future games found but no bets passed LOCAL filters – empty shortlist for today.")
+    else:
+        logging.info("Shortlist contains %d games.", len(shortlist))
 
-        # === REASON-TABELLE BAUEN ===
-        reasons_rows = []
-        for _, row in df_future_view_display.iterrows():
-            why = []
-            hwr = row.get(HOMEWR_COL, np.nan)
-            iso_p = row.get(ISO_COL, np.nan)
-            odds = row.get("odds_1", np.nan)
+        print("=== TONIGHT'S SHORTLIST (ISOTONIC + KELLY) ===")
+        print(shortlist.to_string(index=False))
 
-            if pd.notna(hwr) and hwr < MIN_HOME_WIN_RATE_SHORTLIST:
-                why.append(f"home_win_rate {hwr:.2f} < {MIN_HOME_WIN_RATE_SHORTLIST}")
-            if pd.notna(iso_p) and iso_p < MIN_ISO_PROBA_SHORTLIST:
-                why.append(f"prob_iso {iso_p:.3f} < {MIN_ISO_PROBA_SHORTLIST}")
-            if pd.notna(odds):
-                if odds < MIN_ODDS_SHORTLIST:
-                    why.append(f"odds {odds:.2f} < min {MIN_ODDS_SHORTLIST}")
-                if odds > MAX_ODDS_SHORTLIST:
-                    why.append(f"odds {odds:.2f} > max {MAX_ODDS_SHORTLIST}")
+        # Save shortlist to standard LightGBM output folder
+        shortlist_path = os.path.join(pred_dir, f"bet_shortlist_{target_ymd}.csv")
+        shortlist.to_csv(shortlist_path, index=False, encoding="utf-8")
+        logging.info("Saved bet shortlist (%d rows) to %s", len(shortlist), shortlist_path)
 
-            if not why:
-                why_str = "QUALIFIES"
-            else:
-                why_str = "; ".join(why)
+        print("\n=== TONIGHT'S SHORTLIST (SAVE SNAPSHOT) ===")
+        print(f"💾 Saved shortlist to {shortlist_path}\n")
 
-            reasons_rows.append(
-                {
-                    "date": row[DATE_COL],
-                    "home_team": row.get("home_team"),
-                    "away_team": row.get("away_team"),
-                    "home_win_rate": hwr,
-                    "prob_iso": iso_p,
-                    "odds_1": odds,
-                    "why_not": why_str,
-                }
-            )
-
-        df_reasons = pd.DataFrame(reasons_rows)
-
+    # ALWAYS show all upcoming games & reasons (like local notebook)
+    if not explainer.empty:
         print("=== ALL UPCOMING GAMES & FILTER REASONS ===")
-        print(df_reasons.to_string(index=False))
-        print()
-        print(f"💰 Current bankroll for sizing bets: {bankroll:,.2f} €")
-        print("=== Script 5 finished ===")
-        return
-
-    # === WENN WIR EINE SHORTLIST HABEN ===
-
-    shortlist_print = shortlist.copy()
-    shortlist_print[DATE_COL] = pd.to_datetime(shortlist_print[DATE_COL], errors="coerce")
-    shortlist_print[DATE_COL] = shortlist_print[DATE_COL].dt.date
-
-    # Für Anzeige Odds wie lokal
-    shortlist_print["odds_1"] = shortlist_print[HOME_ODDS_COL]
-
-    display_cols = [
-        DATE_COL,
-        "home_team",
-        "away_team",
-        HOMEWR_COL,
-        "prob_iso",
-        "prob_used",
-        "odds_1",
-        "EV_€_per_100",
-        "kelly_full",
-        "kelly_fraction_used",
-        "stake_eur",
-        "exp_profit_eur",
-        "fair_odds",
-        "edge_pct",
-    ]
-
-    print(f"💰 Current bankroll for sizing bets: {bankroll:,.2f} €\n")
-    print("=== TONIGHT'S SHORTLIST (ISOTONIC + KELLY) ===")
-    print(shortlist_print[display_cols].to_string(index=False))
-    print()
-
-    # === REASON-TABELLE AUCH BEI SHORTLIST ===
-    reasons_rows = []
-    for _, row in df_future_view_display.iterrows():
-        why = []
-        hwr = row.get(HOMEWR_COL, np.nan)
-        iso_p = row.get(ISO_COL, np.nan)
-        odds = row.get("odds_1", np.nan)
-
-        if pd.notna(hwr) and hwr < MIN_HOME_WIN_RATE_SHORTLIST:
-            why.append(f"home_win_rate {hwr:.2f} < {MIN_HOME_WIN_RATE_SHORTLIST}")
-        if pd.notna(iso_p) and iso_p < MIN_ISO_PROBA_SHORTLIST:
-            why.append(f"prob_iso {iso_p:.3f} < {MIN_ISO_PROBA_SHORTLIST}")
-        if pd.notna(odds):
-            if odds < MIN_ODDS_SHORTLIST:
-                why.append(f"odds {odds:.2f} < min {MIN_ODDS_SHORTLIST}")
-            if odds > MAX_ODDS_SHORTLIST:
-                why.append(f"odds {odds:.2f} > max {MAX_ODDS_SHORTLIST}")
-
-        if not why:
-            why_str = "QUALIFIES"
-        else:
-            why_str = "; ".join(why)
-
-        reasons_rows.append(
-            {
-                "date": row[DATE_COL],
-                "home_team": row.get("home_team"),
-                "away_team": row.get("away_team"),
-                "home_win_rate": hwr,
-                "prob_iso": iso_p,
-                "odds_1": odds,
-                "why_not": why_str,
-            }
-        )
-
-    df_reasons = pd.DataFrame(reasons_rows)
-
-    print("=== ALL UPCOMING GAMES & FILTER REASONS ===")
-    print(df_reasons.to_string(index=False))
-    print()
-
-    # Shortlist-Snapshot speichern (wie bisher)
-    shortlist_path = os.path.join(pred_dir, f"bet_shortlist_{target_ymd}.csv")
-    shortlist.to_csv(shortlist_path, index=False, encoding="utf-8")
-    logging.info("Saved bet shortlist (%d rows) to %s", len(shortlist), shortlist_path)
+        print(explainer.to_string(index=False))
 
     print("=== Script 5 finished ===")
-
 
 
 if __name__ == "__main__":
