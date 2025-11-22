@@ -802,6 +802,27 @@ def main() -> None:
     # 4) SPLIT PAST / FUTURE
     df_past, df_future = split_past_future(df_all, today_date, tomorrow_date)
 
+    logging.info("Future games total: %d", len(df_future))
+
+    if not df_future.empty:
+           logging.info(
+               "Future HWR >= %.2f: %d",
+               0.6,
+               (df_future[HOMEWR_COL] >= 0.6).sum()
+           )
+           logging.info(
+               "Future ISO >= %.2f: %d",
+               0.55,
+               (df_future[ISO_COL].notna() & (df_future[ISO_COL] >= 0.55)).sum()
+           )
+           logging.info(
+               "Future odds in [%.2f, %.2f]: %d",
+               1.6,
+               3.0,
+               df_future[HOME_ODDS_COL].between(1.6, 3.0).sum()
+           )
+
+
     # 5) FIT ISOTONIC ON PAST, APPLY TO ALL (PAST + FUTURE)
     if df_past.empty:
         logging.warning("No past games available – cannot fit isotonic. Exiting.")
