@@ -331,6 +331,11 @@ def merge_today_predictions(
     if "odds_2" in tmp.columns:
         tmp["odds_2"] = to_float_series(tmp["odds_2"])
 
+    # WICHTIG: für Today-Games closing_*_odds aus odds_1/odds_2 setzen
+    # (damit Shortlist & EV wie im Notebook funktionieren)
+    tmp[HOME_ODDS_COL] = tmp.get("odds_1", np.nan)
+    tmp[AWAY_ODDS_COL] = tmp.get("odds_2", np.nan)
+
     # date cleanup
     if "date" in tmp.columns:
         tmp["date"] = pd.to_datetime(tmp["date"], errors="coerce")
@@ -902,6 +907,13 @@ def main() -> None:
 
     # 2) MERGE TODAY'S PREDICTIONS (if any) TO GET FUTURE GAMES INTO df_all
     df_all = merge_today_predictions(df_all, pred_dir, target_ymd, today_date)
+
+        # Safety: falls irgendwo closing_*_odds noch NaN sind, aber odds_1/odds_2 existieren
+    if "odds_1" in df_all.columns:
+        df_all[HOME_ODDS_COL] = df_all[HOME_ODDS_COL].fillna(df_all["odds_1"])
+    if "odds_2" in df_all.columns:
+        df_all[AWAY_ODDS_COL] = df_all[AWAY_ODDS_COL].fillna(df_all["odds_2"])
+   
 
     # 3) ATTACH HOME WIN RATE IF AVAILABLE
     hwr_path = os.path.join(
