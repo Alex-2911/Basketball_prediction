@@ -386,17 +386,6 @@ def attach_home_win_rate(
     """
     Attach home win rate (HOMEWR_COL) to df based on the
     home_win_rates_sorted_YYYY-MM-DD.csv file.
-
-    Current file format (sample):
-
-        Total Last 20 Games,Total Home Games,Home Wins,Home Win Rate
-        GSW,14,5,1.0
-        OKC,13,6,1.0
-        ...
-
-    So:
-      - first column is actually TEAM CODE
-      - last column is the HOME WIN RATE
     """
     if not os.path.exists(hwr_path):
         logging.warning(
@@ -632,6 +621,7 @@ def compute_calibration_metrics(df_past: pd.DataFrame) -> Tuple[float, float, fl
 def evaluate_strategy(df: pd.DataFrame, params: StrategyParams) -> dict:
     """
     Evaluate one parameter combo on a backtest dataframe (df_past).
+    Uses ISO probabilities for calibration/backtest.
     """
     if df.empty:
         return {
@@ -649,7 +639,7 @@ def evaluate_strategy(df: pd.DataFrame, params: StrategyParams) -> dict:
     # odds range
     conds.append(df[HOME_ODDS_COL].between(params.min_odds, params.max_odds))
 
-    # probability threshold
+    # probability threshold (ISO for backtest)
     conds.append(df[ISO_COL] >= params.min_iso_proba)
 
     # valid rows: need closing_home_odds + iso prob + result
@@ -742,6 +732,11 @@ def build_shortlist(
 ) -> pd.DataFrame:
     """
     Apply best params to upcoming games (today/tomorrow) and build shortlist.
+
+    WICHTIG:
+    - Für die Shortlist nutzen wir die ROH-Proba (pred_home_win_proba)
+      als 'prob_used' für EV / Filter, so wie im lokalen Notebook.
+    - Isotonic wird nur für die historische Kalibrierung & Grid-Search verwendet.
     """
     if df_future.empty:
         return df_future.copy()
@@ -755,12 +750,12 @@ def build_shortlist(
     # odds range
     conds.append(df_future[HOME_ODDS_COL].between(params.min_odds, params.max_odds))
 
-    # iso proba threshold
-    conds.append(df_future[ISO_COL] >= params.min_iso_proba)
+    # PROB-Threshold jetzt auf Basis der ROH-Proba
+    conds.append(df_future[PRED_PROBA_COL] >= params.min_iso_proba)
 
-    # need odds + iso prob
+    # need odds + prob
     conds.append(df_future[HOME_ODDS_COL].notna())
-    conds.append(df_future[ISO_COL].notna())
+    conds.append(df_future[PRED_PROBA_COL].notna())
 
     mask = np.logical_and.reduce(conds)
 
@@ -768,11 +763,18 @@ def build_shortlist(
     if shortlist.empty:
         return shortlist
 
-    shortlist["stake_flat"] = FLAT_STAKE
+    # prob_used = Rohproba (wie im lokalen Script)
+    prob_used = shortlist[PRED_PROBA_COL].astype(float)
+
+    # EV pro 1 Einsatz (nicht 100)
     shortlist["expected_value_per_unit"] = (
-        shortlist[ISO_COL] * (shortlist[HOME_ODDS_COL] - 1.0)
-        - (1.0 - shortlist[ISO_COL])
+        prob_used * (shortlist[HOME_ODDS_COL] - 1.0)
+        - (1.0 - prob_used)
     )
+
+    # Flat Stake wie gehabt (100)
+    shortlist["stake_flat"] = FLAT_STAKE
+    shortlist["expected_value_per_100"] = shortlist["expected_value_per_unit"] * FLAT_STAKE
 
     return shortlist
 
@@ -887,8 +889,8 @@ def main() -> None:
     # Re-sync future rows to include ISO + HWR etc.
     df_future = df_all.loc[df_all.index.isin(df_future.index)].copy()
 
-    # Debug: check how many future games erfüllen welche Filter
-    logging.info("Future games total (with ISO): %d", len(df_future))
+    # Debug: check how viele Future-Games die Roh-Proba / HWR / Odds-Filter erfüllen
+    logging.info("Future games total (with ISO & raw proba): %d", len(df_future))
     if not df_future.empty:
         logging.info(
             "Future HWR >= %.2f: %d",
@@ -896,9 +898,9 @@ def main() -> None:
             (df_future[HOMEWR_COL] >= best_params.min_home_win_rate).sum()
         )
         logging.info(
-            "Future ISO >= %.2f: %d",
+            "Future RAW proba (pred_home_win_proba) >= %.2f: %d",
             best_params.min_iso_proba,
-            (df_future[ISO_COL].notna() & (df_future[ISO_COL] >= best_params.min_iso_proba)).sum()
+            (df_future[PRED_PROBA_COL].notna() & (df_future[PRED_PROBA_COL] >= best_params.min_iso_proba)).sum()
         )
         logging.info(
             "Future odds in [%.2f, %.2f]: %d",
