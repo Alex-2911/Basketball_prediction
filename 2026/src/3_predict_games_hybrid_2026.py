@@ -99,8 +99,9 @@ def load_games_df(next_game_dir: str):
     Load games_df_YYYY-MM-DD.csv from NEXT_GAME_DIR.
     If today's file is missing, fallback to the latest available.
 
-    Returns:
-        games_df (DataFrame), game_day (date)
+    Handles both:
+    - CSV saved with index=False (home_team is a normal column)
+    - CSV saved with index=True (an 'Unnamed: 0' index column)
     """
     today, today_str, _ = get_current_date()
     file_path = os.path.join(next_game_dir, f"games_df_{today_str}.csv")
@@ -114,11 +115,34 @@ def load_games_df(next_game_dir: str):
     else:
         logging.info("Using games_df file: %s", file_path)
 
-    games_df = pd.read_csv(file_path, index_col=0)
-    if games_df.empty:
-        raise SystemExit("No upcoming games – season might be over.")
+    # --- read without forcing an index ---
+    games_df = pd.read_csv(file_path)
 
-    games_df = games_df.reset_index(drop=True).copy()
+    # If we have an auto index column from to_csv(index=True), drop it
+    first_col = games_df.columns[0]
+    if first_col.startswith("Unnamed"):
+        games_df = games_df.drop(columns=[first_col])
+
+    # If home_team ended up in the index (older files), rescue it
+    if "home_team" not in games_df.columns:
+        # maybe index holds the home team
+        if games_df.index.name == "home_team":
+            games_df = games_df.reset_index()
+        else:
+            # as a fallback, reset_index and assume first column is home_team
+            games_df = games_df.reset_index()
+            if "home_team" not in games_df.columns:
+                games_df = games_df.rename(columns={games_df.columns[0]: "home_team"})
+
+    # now we *expect* these three to exist
+    required_cols = {"home_team", "away_team", "game_date"}
+    missing = required_cols - set(games_df.columns)
+    if missing:
+        raise ValueError(
+            f"games_df is missing required columns {missing}. "
+            f"Columns present: {list(games_df.columns)}"
+        )
+
     games_df["home_team"] = games_df["home_team"].astype(str).str.strip()
     games_df["away_team"] = games_df["away_team"].astype(str).str.strip()
     games_df["game_date"] = pd.to_datetime(games_df["game_date"]).dt.date
@@ -134,6 +158,7 @@ def load_games_df(next_game_dir: str):
                  games_df.to_string(index=False))
 
     return games_df, game_day
+
 
 
 # ----------------------------------------------------------------------------------------------------------------------
