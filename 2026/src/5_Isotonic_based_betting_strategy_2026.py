@@ -556,6 +556,80 @@ def split_past_future(
     )
     return df_past, df_future
 
+def compute_home_win_rates(
+    df_all: pd.DataFrame,
+    target_ymd: str,
+    pred_dir: str,
+) -> str:
+    """
+    Compute home win rates for all teams based on the last 20 games
+    (home or away), but only counting *home* games for the win rate.
+
+    Saves:
+      home_win_rates_sorted_<YYYY-MM-DD>.csv
+
+    Returns:
+      path to the saved CSV.
+    """
+    # We rely on the *original* 'date', 'home_team', 'away_team', 'result'
+    # that come from the combined_nba_predictions_acc file.
+
+    df = df_all.copy()
+
+    # Ensure date column exists and is datetime
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    elif DATE_COL in df.columns:
+        df["date"] = pd.to_datetime(df[DATE_COL], errors="coerce")
+    else:
+        logging.warning(
+            "No 'date' or '%s' column found – cannot compute home win rates.",
+            DATE_COL,
+        )
+        # write an empty file to avoid FileNotFound later
+        out_path = os.path.join(pred_dir, f"home_win_rates_sorted_{target_ymd}.csv")
+        pd.DataFrame().to_csv(out_path, index=True)
+        return out_path
+
+    def get_last_20_games_all_teams(df_local: pd.DataFrame) -> pd.DataFrame:
+        team_results = {}
+
+        for team in df_local["home_team"].dropna().unique():
+            # Last 20 games (home or away)
+            team_games = df_local[
+                (df_local["home_team"] == team) | (df_local["away_team"] == team)
+            ].sort_values(by="date", ascending=False).head(20)
+
+            # Only home games from those 20
+            home_games = team_games[team_games["home_team"] == team]
+
+            total_home_games = len(home_games)
+            # 'result' contains the winner team code for played games
+            home_wins = len(home_games[home_games["result"] == team])
+            home_win_rate = round(home_wins / total_home_games, 2) if total_home_games > 0 else 0.0
+
+            team_results[team] = {
+                "Total Last 20 Games": len(team_games),
+                "Total Home Games": total_home_games,
+                "Home Wins": home_wins,
+                "Home Win Rate": home_win_rate,
+            }
+
+        home_win_rates_df = pd.DataFrame.from_dict(team_results, orient="index")
+        home_win_rates_df.sort_values(by="Home Win Rate", ascending=False, inplace=True)
+        return home_win_rates_df
+
+    home_win_rates_all_teams_sorted = get_last_20_games_all_teams(df)
+
+    logging.info("\n🏀 Home Win Rates (Sorted) for All Teams:")
+    logging.info("\n%s", home_win_rates_all_teams_sorted.to_string())
+
+    out_path = os.path.join(pred_dir, f"home_win_rates_sorted_{target_ymd}.csv")
+    home_win_rates_all_teams_sorted.to_csv(out_path, index=True, encoding="utf-8")
+    logging.info("📁 Sorted home win rates saved to: %s", out_path)
+
+    return out_path
+
 
 def fit_isotonic(df_past: pd.DataFrame) -> IsotonicRegression:
     """
@@ -962,13 +1036,19 @@ def main() -> None:
     kelly_dir = os.path.join(pred_dir, "Kelly")
     os.makedirs(kelly_dir, exist_ok=True)
 
-    # 1) LOAD COMBINED
+        # 1) LOAD COMBINED
     df_all = load_combined_df(pred_dir, target_ymd)
+
+    # 1b) COMPUTE HOME WIN RATES (before we merge future games)
+    hwr_path = compute_home_win_rates(df_all, target_ymd, pred_dir)
 
     # 2) MERGE TODAY'S PREDICTIONS (if any) TO GET FUTURE GAMES INTO df_all
     df_all = merge_today_predictions(df_all, pred_dir, target_ymd, today_date)
 
-    # 3) ATTACH HOME WIN RATE IF AVAILABLE
+    # 3) ATTACH HOME WIN RATE (now that file definitely exists)
+    df_all = attach_home_win_rate(df_all, hwr_path)
+
+    # 4) ATTACH HOME WIN RATE IF AVAILABLE
     hwr_path = os.path.join(
         pred_dir,
         f"home_win_rates_sorted_{target_ymd}.csv",
