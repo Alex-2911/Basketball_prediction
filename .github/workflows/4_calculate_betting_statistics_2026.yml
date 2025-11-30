@@ -1,60 +1,51 @@
 name: "🏀 4. Update Betting Statistics (Accuracy & Combined File"
 
+permissions:
+  contents: write
+
 on:
-  # Manual run from Actions tab
   workflow_dispatch:
 
-  # Auto-run after workflow 3 completes successfully
   workflow_run:
     workflows: ["🏀 3. Build Predictions & Betting Lines (Today)"]
     types: [completed]
 
 jobs:
   update_betting_stats:
-    # Run only if triggered manually OR previous workflow succeeded
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
-      ##################################################################
-      # 1️⃣ Checkout repository (always use branch 2026)
-      ##################################################################
       - name: Checkout repository (branch 2026)
         uses: actions/checkout@v4
         with:
           ref: 2026
+          fetch-depth: 0
 
-      ##################################################################
-      # 2️⃣ Set up Python
-      ##################################################################
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      ##################################################################
-      # 3️⃣ Install dependencies
-      ##################################################################
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
 
-      ##################################################################
-      # 4️⃣ Run Script 4 (Calculate betting statistics)
-      #
-      # Produces:
-      #   2026/output/LightGBM/combined_nba_predictions_acc.csv
-      #   2026/output/LightGBM/combined_nba_predictions_acc_<today>.csv
-      ##################################################################
-      - name: Run betting statistics updater
+      # Script 4
+      - name: Run betting statistics updater (Script 4)
         run: |
-          echo "=== Running betting statistics update ==="
+          echo "=== Running betting statistics update (Script 4) ==="
           python 2026/src/4_calculate_betting_statistics_2026.py
-          echo "=== Script finished successfully ==="
+          echo "=== Script 4 finished successfully ==="
 
-      ##################################################################
-      # 5️⃣ Upload the updated combined CSV files as artifacts
-      ##################################################################
+      # Script 5
+      - name: Run shortlist + bet log engine (Script 5)
+        run: |
+          echo "=== Running shortlist + bet log update (Script 5) ==="
+          python 2026/src/5_Isotonic_based_betting_strategy_2026.py
+          echo "=== Script 5 finished ==="
+
+      # Artifacts aus beiden Scripts
       - name: Upload combined prediction files
         uses: actions/upload-artifact@v4
         with:
@@ -63,21 +54,29 @@ jobs:
             2026/output/LightGBM/combined_nba_predictions_acc.csv
             2026/output/LightGBM/combined_nba_predictions_acc_*.csv
 
-      ##################################################################
-      # 6️⃣ Commit & push the updated files to branch 2026
-      ##################################################################
-      - name: Commit and push updated combined stats
+      - name: Upload betting outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: betting_shortlist_and_logs
+          path: |
+            2026/output/LightGBM/bet_log_live.csv
+            2026/output/LightGBM/bet_log_live_*.csv
+            2026/output/LightGBM/bet_shortlist_*.csv
+            2026/output/LightGBM/home_win_rates_sorted_*.csv
+            2026/output/LightGBM/betting_summary_*.xlsx
+
+      # EIN Commit/Pull für alle Outputs
+      - name: Commit and push updated LightGBM outputs
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Stage only the LightGBM folder (this is your target)
           git add 2026/output/LightGBM
 
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else
-            commit_msg="auto-update betting stats ($(date -u +%Y-%m-%dT%H:%MZ))"
+            commit_msg="auto-update betting stats & shortlist ($(date -u +%Y-%m-%dT%H:%MZ))"
             git commit -m "$commit_msg"
             git push origin 2026
           fi
