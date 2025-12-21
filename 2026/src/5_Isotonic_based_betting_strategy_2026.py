@@ -67,7 +67,7 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -787,6 +787,113 @@ def grid_search(
     return best_params, df_res
 
 
+def find_local_params_last_100(
+    df_past: pd.DataFrame,
+) -> Tuple[Optional[StrategyParams], pd.DataFrame, Optional[float]]:
+    """
+    Local parameter search on the last 100 played games (EV > 0, min 10 trades).
+    Mirrors the local notebook behavior and returns best params + subset + ROI%.
+    """
+    if df_past.empty:
+        logging.info("Local params: no past games available.")
+        return None, pd.DataFrame(), None
+
+    df_local = df_past.copy()
+    df_local[DATE_COL] = pd.to_datetime(df_local[DATE_COL], errors="coerce")
+    df_local = df_local.sort_values(DATE_COL)
+    df_local = df_local.tail(100).copy()
+
+    # Ensure numeric columns
+    for col in [HOMEWR_COL, ISO_COL, HOME_ODDS_COL, RESULT_COL]:
+        df_local[col] = pd.to_numeric(df_local[col], errors="coerce")
+
+    df_local = df_local.dropna(
+        subset=[HOMEWR_COL, ISO_COL, HOME_ODDS_COL, RESULT_COL],
+    )
+
+    if len(df_local) < 20:
+        logging.info(
+            "Local params: not enough games after cleaning (%d rows).",
+            len(df_local),
+        )
+        return None, pd.DataFrame(), None
+
+    prob_used = np.clip(df_local[ISO_COL].astype(float), 0.50, LOCAL_PROB_CAP)
+    df_local["prob_used"] = prob_used
+    df_local["EV_€_per_100"] = (
+        prob_used * (df_local[HOME_ODDS_COL].astype(float) - 1.0)
+        - (1.0 - prob_used)
+    ) * FLAT_STAKE
+
+    best_profit = float("-inf")
+    best_subset = pd.DataFrame()
+    best_params = None
+    best_n_trades = 0
+
+    MIN_TRADES_LOCAL = 10
+
+    for hw_cut in HOMEWR_MIN_GRID:
+        for o_min in ODDS_MIN_GRID:
+            for o_max in ODDS_MAX_GRID:
+                if o_max <= o_min:
+                    continue
+                for p_min in PROB_MIN_GRID:
+                    mask_loc = (
+                        (df_local[HOMEWR_COL] >= hw_cut)
+                        & (df_local[HOME_ODDS_COL] >= o_min)
+                        & (df_local[HOME_ODDS_COL] <= o_max)
+                        & (df_local[ISO_COL] >= p_min)
+                        & (df_local["EV_€_per_100"] > 0)
+                    )
+
+                    subset = df_local.loc[mask_loc].copy()
+                    if subset.empty:
+                        continue
+
+                    if len(subset) < MIN_TRADES_LOCAL:
+                        continue
+
+                    subset["pnl"] = np.where(
+                        subset[RESULT_COL].astype(int) == 1,
+                        FLAT_STAKE * (subset[HOME_ODDS_COL] - 1.0),
+                        -FLAT_STAKE,
+                    )
+
+                    total_profit = float(subset["pnl"].sum())
+                    n_trades = len(subset)
+
+                    if total_profit > best_profit:
+                        best_profit = total_profit
+                        best_subset = subset
+                        best_n_trades = n_trades
+                        best_params = StrategyParams(
+                            min_home_win_rate=float(hw_cut),
+                            min_odds=float(o_min),
+                            max_odds=float(o_max),
+                            min_iso_proba=float(p_min),
+                        )
+
+    if best_params is None:
+        logging.info("Local params: no robust params found (min 10 trades).")
+        return None, pd.DataFrame(), None
+
+    total_stake = best_n_trades * FLAT_STAKE
+    roi_local = (best_profit / total_stake * 100.0) if total_stake > 0 else 0.0
+
+    logging.info(
+        "Local params (last 100): hwr>=%.2f odds[%.2f,%.2f] iso>=%.2f | "
+        "trades=%d | ROI=%.2f%%",
+        best_params.min_home_win_rate,
+        best_params.min_odds,
+        best_params.max_odds,
+        best_params.min_iso_proba,
+        best_n_trades,
+        roi_local,
+    )
+
+    return best_params, best_subset, roi_local
+
+
 # -------------------------------------------------------------------------
 # LOCAL-STYLE SHORTLIST + BANKROLL
 # -------------------------------------------------------------------------
@@ -841,9 +948,10 @@ def load_current_bankroll(pred_dir: str, start_bankroll: float = START_BANKROLL)
 def build_shortlist_local_style(
     df_future: pd.DataFrame,
     bankroll: float,
+    params_used: StrategyParams,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Apply LOCAL filters and compute KELLY metrics.
+    Apply LOCAL filters (from params_used) and compute KELLY metrics.
 
     Returns:
       shortlist  – only QUALIFIES games with full EV/Kelly columns
@@ -873,6 +981,12 @@ def build_shortlist_local_style(
     df[ISO_COL] = pd.to_numeric(df[ISO_COL], errors="coerce")
     df[HOME_ODDS_COL] = pd.to_numeric(df[HOME_ODDS_COL], errors="coerce")
 
+    # compute prob_used + EV for filtering
+    df["prob_used"] = np.clip(df[ISO_COL].astype(float), 0.50, LOCAL_PROB_CAP)
+    df["EV_€_per_100"] = (
+        df["prob_used"] * (df[HOME_ODDS_COL] - 1.0) - (1.0 - df["prob_used"])
+    ) * 100.0
+
     # Explainer reasons
     reasons = []
     qualifies_mask = []
@@ -883,27 +997,38 @@ def build_shortlist_local_style(
         hwr = row.get(HOMEWR_COL, np.nan)
         iso = row.get(ISO_COL, np.nan)
         odds = row.get(HOME_ODDS_COL, np.nan)
+        ev100 = row.get("EV_€_per_100", np.nan)
 
-        if pd.isna(hwr) or hwr < LOCAL_MIN_HOMEWR:
+        if pd.isna(hwr) or hwr < params_used.min_home_win_rate:
             if not pd.isna(hwr):
-                r_reasons.append(f"home_win_rate {hwr:.2f} < {LOCAL_MIN_HOMEWR}")
+                r_reasons.append(
+                    f"home_win_rate {hwr:.2f} < {params_used.min_home_win_rate}"
+                )
             else:
                 r_reasons.append("home_win_rate missing")
 
-        if pd.isna(iso) or iso < LOCAL_MIN_ISO:
+        if pd.isna(iso) or iso < params_used.min_iso_proba:
             if not pd.isna(iso):
-                r_reasons.append(f"prob_iso {iso:.2f} < {LOCAL_MIN_ISO}")
+                r_reasons.append(
+                    f"prob_iso {iso:.2f} < {params_used.min_iso_proba}"
+                )
             else:
                 r_reasons.append("prob_iso missing")
 
-        if pd.isna(odds) or not (LOCAL_MIN_ODDS <= odds <= LOCAL_MAX_ODDS):
+        if pd.isna(odds) or not (params_used.min_odds <= odds <= params_used.max_odds):
             if not pd.isna(odds):
-                if odds < LOCAL_MIN_ODDS:
-                    r_reasons.append(f"odds {odds:.2f} < min {LOCAL_MIN_ODDS}")
+                if odds < params_used.min_odds:
+                    r_reasons.append(f"odds {odds:.2f} < min {params_used.min_odds}")
                 else:
-                    r_reasons.append(f"odds {odds:.2f} > max {LOCAL_MAX_ODDS}")
+                    r_reasons.append(f"odds {odds:.2f} > max {params_used.max_odds}")
             else:
                 r_reasons.append("odds missing")
+
+        if pd.isna(ev100) or ev100 <= 0:
+            if not pd.isna(ev100):
+                r_reasons.append(f"EV_€_per_100 {ev100:.2f} <= 0")
+            else:
+                r_reasons.append("EV_€_per_100 missing")
 
         if not r_reasons:
             reasons.append("QUALIFIES")
@@ -916,8 +1041,10 @@ def build_shortlist_local_style(
     qualifies_mask = np.array(qualifies_mask, dtype=bool)
 
     # explainer df (show odds_1 as in local)
-    explainer = df[["date", "home_team", "away_team",
-                    HOMEWR_COL, ISO_COL, HOME_ODDS_COL, "why_not"]].copy()
+    explainer = df[
+        ["date", "home_team", "away_team",
+         HOMEWR_COL, ISO_COL, HOME_ODDS_COL, "EV_€_per_100", "why_not"]
+    ].copy()
     explainer.rename(
         columns={
             HOMEWR_COL: "home_win_rate",
@@ -934,9 +1061,7 @@ def build_shortlist_local_style(
 
     # EV + Kelly + stake (aligned with local notebook behavior)
     prob_iso = shortlist[ISO_COL].astype(float)
-
-    # local: clip probs used for staking to [0.50, 0.75]
-    prob_used = np.clip(prob_iso, 0.50, LOCAL_PROB_CAP)
+    prob_used = shortlist["prob_used"].astype(float)
     odds = shortlist[HOME_ODDS_COL].astype(float)
 
     ev_per_unit = prob_used * (odds - 1.0) - (1.0 - prob_used)
@@ -1101,6 +1226,15 @@ def main() -> None:
     df_all.to_csv(iso_path, index=False, encoding="utf-8")
     logging.info("Saved full dataframe with %s to %s", ISO_COL, iso_path)
 
+    # 7b) LOCAL PARAMETER SEARCH (LAST 100 GAMES)
+    best_params_local, best_subset_local, roi_local = find_local_params_last_100(df_past)
+    params_used = best_params
+    params_source = "GLOBAL"
+    if best_params_local is not None and roi_local is not None and roi_local >= 0:
+        params_used = best_params_local
+        params_source = "LOCAL"
+    logging.info("Params used for shortlist: %s", params_source)
+
     # 8) BUILD SHORTLIST FOR FUTURE GAMES (TODAY / TOMORROW) – LOCAL STYLE
     if df_future.empty:
         logging.info("No future games found in file – nothing to bet on today.")
@@ -1112,7 +1246,7 @@ def main() -> None:
     print(f"\n💰 Current bankroll for sizing bets: {bankroll:.2f} €\n")
 
     # SHORTLIST + EXPLAINER
-    shortlist, explainer = build_shortlist_local_style(df_future, bankroll)
+    shortlist, explainer = build_shortlist_local_style(df_future, bankroll, params_used)
 
     if shortlist.empty:
         logging.info("Future games found but no bets passed LOCAL filters – empty shortlist for today.")
