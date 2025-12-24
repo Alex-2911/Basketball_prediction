@@ -2,7 +2,7 @@ name: 🏀 1. Collect and Prepare NBA Game Data (Previous Game Day)
 
 on:
   schedule:
-    - cron: '0 18 * * *'  # every evening
+    - cron: '0 17 * * *'  # every evening
   workflow_dispatch:
 
 jobs:
@@ -56,4 +56,3 @@ jobs:
           fi
         env:
           CURRENT_SEASON: "2026"
-    
