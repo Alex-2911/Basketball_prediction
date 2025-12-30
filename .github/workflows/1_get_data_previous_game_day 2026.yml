@@ -10,7 +10,7 @@ concurrency:
 on:
   schedule:
     - cron: "0 17 * * *"  # every evening (UTC)
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 jobs:
   collect_data:
@@ -30,6 +30,9 @@ jobs:
 
       - name: Install Google Chrome
         uses: browser-actions/setup-chrome@v1
+
+      - name: Ensure WebDriverManager cache dir exists
+        run: mkdir -p ~/.wdm
 
       - name: Cache WebDriverManager
         uses: actions/cache@v3

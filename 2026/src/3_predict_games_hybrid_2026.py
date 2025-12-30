@@ -50,8 +50,19 @@ from nba_utils_2026 import (
 ROLLING_WINDOW_SIZE = 9  # your notebook uses 9 but keeps suffix "_7" – we keep that for compatibility
 MAX_DAYS_BACK = 120
 
-# Hard-coded Odds API key (as you requested)
-ODDS_API_KEY = "8e9d506f8573b01023028cef1bf645b5"
+#@@
+#-# Hard-coded Odds API key (as you requested)
+#-ODDS_API_KEY = "8e9d506f8573b01023028cef1bf645b5"
+#+# Odds API key: provided via env var in GitHub Actions (secrets.ODDS_API_KEY)
+#+# Falls back to empty string locally if not set.
+ODDS_API_KEY = os.getenv("ODDS_API_KEY", "").strip()
+if not ODDS_API_KEY:
+    raise RuntimeError(
+        "ODDS_API_KEY is missing. Set it locally (export ODDS_API_KEY=...) "
+        "or add it as a GitHub Actions secret and pass it via env."
+    )
+
+
 
 # NBA bookmakers use PHX & CHA; Basketball-Reference uses PHO & CHO.
 # We map only for API calls, and map back for display.
@@ -492,7 +503,7 @@ def main():
                  games_today[["home_team", "away_team", "home_team_prob", "away_team_prob"]]
                  .to_string(index=False))
 
-    # 9) Fetch odds via The Odds API (hard-coded key)
+    # 9) Fetch odds via The Odds API (key from env))
     api_key = ODDS_API_KEY
 
     query_df = translate_to_api(games_today[["home_team", "away_team"]].copy())
