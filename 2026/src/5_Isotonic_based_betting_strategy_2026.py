@@ -1100,6 +1100,8 @@ def build_shortlist_local_style(
     if HOME_ODDS_COL != "odds_1" and "odds_1" in shortlist.columns:
         shortlist.drop(columns=["odds_1"], inplace=True)
     shortlist.rename(columns={HOME_ODDS_COL: "odds_1"}, inplace=True)
+    shortlist = shortlist.loc[:, ~shortlist.columns.duplicated()]
+
 
     # Order columns nicely
     cols_order = [
