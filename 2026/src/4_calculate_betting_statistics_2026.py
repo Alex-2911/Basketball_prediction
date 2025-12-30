@@ -227,11 +227,11 @@ def main():
 
 if __name__ == "__main__":
     main()
-    # Keep the terminal window open after script completion so users can review
-    # the output and logs. In non-interactive environments (e.g., GitHub
-    # Actions), input() will immediately raise EOFError, so we catch and
-    # ignore it to avoid breaking automated runs.
-    try:
-        input("Press Enter to close this window...")
-    except EOFError:
-        pass
+
+    # Don't prompt in GitHub Actions / CI
+    in_ci = os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
+    if not in_ci:
+        try:
+            input("Press Enter to close this window...")
+        except EOFError:
+            pass
