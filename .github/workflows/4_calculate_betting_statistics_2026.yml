@@ -1,7 +1,11 @@
-name: "🏀 4. Update Betting Statistics (Accuracy & Combined File"
+name: "🏀 4. Update Betting Statistics + Shortlist (Scripts 4 & 5)"
 
 permissions:
   contents: write
+
+concurrency:
+  group: nba-step-4-5-stats-shortlist
+  cancel-in-progress: true
 
 on:
   workflow_dispatch:
@@ -11,7 +15,7 @@ on:
     types: [completed]
 
 jobs:
-  update_betting_stats:
+  update_betting_stats_and_shortlist:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
@@ -22,39 +26,46 @@ jobs:
           ref: 2026
           fetch-depth: 0
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.11 (with pip cache)
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
 
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # -----------------------
       # Script 4
+      # -----------------------
       - name: Run betting statistics updater (Script 4)
         run: |
           echo "=== Running betting statistics update (Script 4) ==="
           python 2026/src/4_calculate_betting_statistics_2026.py
-          echo "=== Script 4 finished successfully ==="
+          echo "=== Script 4 finished ==="
 
-      # Script 5
-      - name: Run shortlist + bet log engine (Script 5)
-        run: |
-          echo "=== Running shortlist + bet log update (Script 5) ==="
-          python 2026/src/5_Isotonic_based_betting_strategy_2026.py
-          echo "=== Script 5 finished ==="
-
-      # Artifacts aus beiden Scripts
-      - name: Upload combined prediction files
+      - name: Upload Script 4 outputs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: betting_statistics_outputs
           path: |
-            2026/output/LightGBM/combined_nba_predictions_acc.csv
-            2026/output/LightGBM/combined_nba_predictions_acc_*.csv
+            2026/output/LightGBM/combined_nba_predictions_acc*.csv
+          if-no-files-found: warn
 
-      - name: Upload betting outputs
+      # -----------------------
+      # Script 5
+      # -----------------------
+      - name: Run Isotonic shortlist + bet log engine (Script 5)
+        run: |
+          echo "=== Running isotonic shortlist + bet log update (Script 5) ==="
+          python 2026/src/5_Isotonic_based_betting_strategy_2026.py
+          echo "=== Script 5 finished ==="
+
+      - name: Upload Script 5 outputs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: betting_shortlist_and_logs
@@ -64,14 +75,19 @@ jobs:
             2026/output/LightGBM/bet_shortlist_*.csv
             2026/output/LightGBM/home_win_rates_sorted_*.csv
             2026/output/LightGBM/betting_summary_*.xlsx
+            2026/output/LightGBM/Kelly/*.csv
+          if-no-files-found: warn
 
-      # EIN Commit/Pull für alle Outputs
+      # -----------------------
+      # Commit everything once
+      # -----------------------
       - name: Commit and push updated LightGBM outputs
+        if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add 2026/output/LightGBM
+          git add 2026/output/LightGBM || true
 
           if git diff --cached --quiet; then
             echo "No changes to commit."
