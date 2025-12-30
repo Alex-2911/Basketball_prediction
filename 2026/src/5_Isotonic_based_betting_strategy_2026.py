@@ -1096,7 +1096,9 @@ def build_shortlist_local_style(
     shortlist.loc[shortlist["EV_€_per_100"] < 0, "stake_eur"] = 0.0
     shortlist.loc[shortlist["stake_eur"] == 0.0, "kelly_fraction_used"] = 0.0
 
-    # Rename odds column for display to match local
+    # Rename odds column for display to match local (avoid duplicate 'odds_1')
+    if HOME_ODDS_COL != "odds_1" and "odds_1" in shortlist.columns:
+        shortlist.drop(columns=["odds_1"], inplace=True)
     shortlist.rename(columns={HOME_ODDS_COL: "odds_1"}, inplace=True)
 
     # Order columns nicely
