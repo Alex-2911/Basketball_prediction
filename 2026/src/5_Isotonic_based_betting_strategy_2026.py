@@ -35,10 +35,11 @@ Step 5 of the 2026 pipeline (GitHub version, aligned with local notebook):
    - Kelly/nba_grid_search_results_YYYY-MM-DD.csv
    - Kelly/combined_nba_predictions_iso_YYYY-MM-DD.csv
 
-8) Build TONIGHT'S SHORTLIST (local-style):
-   - prob_used clipped to [0.50, 0.75]
-   - half Kelly used, then capped at 10%
-   - discard stake < 10€ or negative EV / expected profit
+8) Build TODAY'S FLAT-STAKE SHORTLIST (global/local params):
+   - local search uses LOCAL_SEARCH_N only
+   - fair GLOBAL vs LOCAL uses FAIR_COMPARE_N only
+   - prob_used clipped to [0.35, 0.80]
+   - EV per 100 uses prob_used; min_EV default -5
    - print shortlist + explainer (all games + why_not)
    - save shortlist to bet_shortlist_YYYY-MM-DD.csv
 
@@ -89,6 +90,13 @@ HOMEWR_MIN_GRID = [0.50, 0.55, 0.60, 0.65]
 # LOCAL SHORTLIST FILTERS (match local notebook behavior)
 LOCAL_MAX_KELLY_FRACTION = 0.10  # 10 % cap
 LOCAL_PROB_CAP = 0.75            # cap prob_used at 0.75
+
+# Flat-stake shortlist (two-window logic)
+MIN_EV_DEFAULT = -5.0
+PROB_CLIP_LO = 0.35
+PROB_CLIP_HI = 0.80
+LOCAL_SEARCH_N = 150
+FAIR_COMPARE_N = 150
 
 START_BANKROLL = 1000.0
 
@@ -635,270 +643,438 @@ def grid_search(df_past: pd.DataFrame) -> Tuple[StrategyParams, pd.DataFrame]:
     return best_params, df_res
 
 
-def find_local_params_last_100(df_past: pd.DataFrame) -> Tuple[Optional[StrategyParams], pd.DataFrame, Optional[float]]:
-    if df_past.empty:
-        logging.info("Local params: no past games available.")
-        return None, pd.DataFrame(), None
+def _validate_params(params: dict, required=None, name="params"):
+    required = required or ["home_win_rate_threshold", "odds_min", "odds_max", "prob_threshold"]
+    missing = [k for k in required if k not in params]
+    if missing:
+        raise KeyError(f"{name} missing keys: {missing}. Got: {list(params.keys())}")
 
-    df_local = df_past.copy()
-    df_local[DATE_COL] = pd.to_datetime(df_local[DATE_COL], errors="coerce")
-    df_local = df_local.sort_values(DATE_COL).tail(100).copy()
 
-    for col in [HOMEWR_COL, ISO_COL, HOME_ODDS_COL, RESULT_COL]:
-        df_local[col] = pd.to_numeric(df_local[col], errors="coerce")
+def _ensure_datetime(df: pd.DataFrame, col=DATE_COL) -> pd.DataFrame:
+    out = df.copy()
+    if col in out.columns and not np.issubdtype(out[col].dtype, np.datetime64):
+        out[col] = pd.to_datetime(out[col], errors="coerce")
+    return out
 
-    df_local = df_local.dropna(subset=[HOMEWR_COL, ISO_COL, HOME_ODDS_COL, RESULT_COL])
 
-    if len(df_local) < 20:
-        logging.info("Local params: not enough games after cleaning (%d rows).", len(df_local))
-        return None, pd.DataFrame(), None
+def _compute_prob_used(df: pd.DataFrame, lo: float, hi: float, src=ISO_COL, dst="prob_used") -> pd.DataFrame:
+    out = df.copy()
+    if src not in out.columns:
+        raise KeyError(f"Missing column '{src}' needed to compute '{dst}'.")
+    out[dst] = out[src].clip(lower=lo, upper=hi)
+    return out
 
-    prob_used = np.clip(df_local[ISO_COL].astype(float), 0.50, LOCAL_PROB_CAP)
-    df_local["prob_used"] = prob_used
-    df_local["EV_€_per_100"] = (
-        prob_used * (df_local[HOME_ODDS_COL].astype(float) - 1.0) - (1.0 - prob_used)
-    ) * FLAT_STAKE
+
+def _compute_ev_per_100(df: pd.DataFrame, prob_col="prob_used", odds_col=HOME_ODDS_COL, stake_for_ev=100.0, dst="EV_€_per_100"):
+    out = df.copy()
+    out[dst] = (out[prob_col] * (out[odds_col] - 1.0) - (1.0 - out[prob_col])) * stake_for_ev
+    return out
+
+
+def _make_game_key(df: pd.DataFrame, date_col: str, home_col="home_team", away_col="away_team", dst="game_key"):
+    out = _ensure_datetime(df, date_col)
+    out[dst] = (
+        out[date_col].dt.strftime("%Y-%m-%d") + "_" +
+        out[home_col].astype(str) + "_" +
+        out[away_col].astype(str)
+    )
+    return out
+
+
+def _params_to_dict(params: StrategyParams) -> dict:
+    return {
+        "home_win_rate_threshold": float(params.min_home_win_rate),
+        "odds_min": float(params.min_odds),
+        "odds_max": float(params.max_odds),
+        "prob_threshold": float(params.min_iso_proba),
+    }
+
+
+def evaluate_params_on_hist_window(
+    hist_window: pd.DataFrame,
+    params: dict,
+    *,
+    min_ev: float,
+    flat_stake_backtest: float,
+    prob_clip_lo: float,
+    prob_clip_hi: float,
+):
+    _validate_params(params, name="params_to_eval")
+
+    df = hist_window.copy()
+    df = _ensure_datetime(df, DATE_COL)
+    if "date" not in df.columns and DATE_COL in df.columns:
+        df["date"] = df[DATE_COL]
+    df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=ISO_COL, dst="prob_used")
+    df = _compute_ev_per_100(df, prob_col="prob_used", odds_col=HOME_ODDS_COL, stake_for_ev=100.0, dst="EV_€_per_100")
+    df = df.dropna(subset=[HOMEWR_COL, "prob_used", HOME_ODDS_COL, RESULT_COL, "EV_€_per_100"])
+
+    prob_thr_eff = max(float(params["prob_threshold"]), float(prob_clip_lo))
+
+    mask = (
+        (df[HOMEWR_COL]   >= float(params["home_win_rate_threshold"])) &
+        (df[HOME_ODDS_COL] >= float(params["odds_min"])) &
+        (df[HOME_ODDS_COL] <= float(params["odds_max"])) &
+        (df["prob_used"]   >= prob_thr_eff) &
+        (df["EV_€_per_100"] >  float(min_ev))
+    )
+
+    subset = df.loc[mask].copy()
+    if subset.empty:
+        return {
+            "n_trades": 0,
+            "win_rate_%": 0.0,
+            "avg_EV_€_per_100": 0.0,
+            "profit_€": 0.0,
+            "roi_%": 0.0,
+            "prob_thr_eff": round(prob_thr_eff, 3),
+        }, subset
+
+    subset["pnl"] = np.where(
+        subset[RESULT_COL].astype(int) == 1,
+        float(flat_stake_backtest) * (subset[HOME_ODDS_COL] - 1.0),
+        -float(flat_stake_backtest)
+    )
+
+    profit = float(subset["pnl"].sum())
+    n_trades = int(len(subset))
+    total_stake = n_trades * float(flat_stake_backtest)
+    roi = (profit / total_stake * 100.0) if total_stake > 0 else 0.0
+
+    metrics = {
+        "n_trades": n_trades,
+        "win_rate_%": round(float(subset[RESULT_COL].mean() * 100.0), 2),
+        "avg_EV_€_per_100": round(float(subset["EV_€_per_100"].mean()), 2),
+        "profit_€": round(profit, 2),
+        "roi_%": round(roi, 2),
+        "prob_thr_eff": round(prob_thr_eff, 3),
+    }
+    return metrics, subset
+
+
+def find_best_local_params_lastN(
+    hist_df: pd.DataFrame,
+    *,
+    homewr_grid,
+    odds_min_grid,
+    odds_max_grid,
+    prob_min_grid,
+    flat_stake_backtest: float,
+    min_ev: float,
+    min_trades_local: int = 10,
+    prob_clip_lo: float,
+    prob_clip_hi: float,
+    window_n: int,
+):
+    if hist_df is None or hist_df.empty:
+        return None, None, None, None, None
+
+    hist_recent = _ensure_datetime(hist_df, DATE_COL).sort_values(DATE_COL).copy()
+    hist_window = hist_recent.tail(int(window_n)).copy()
+
+    needed = [DATE_COL, "home_team", "away_team", HOMEWR_COL, ISO_COL, HOME_ODDS_COL, RESULT_COL]
+    missing_cols = [c for c in needed if c not in hist_window.columns]
+    if missing_cols:
+        raise KeyError(f"hist_df missing columns: {missing_cols}")
+
+    hist_window = _compute_prob_used(hist_window, lo=prob_clip_lo, hi=prob_clip_hi, src=ISO_COL, dst="prob_used")
+    hist_window = _compute_ev_per_100(hist_window, prob_col="prob_used", odds_col=HOME_ODDS_COL, stake_for_ev=100.0, dst="EV_€_per_100")
+    hist_window = hist_window.dropna(subset=[HOMEWR_COL, "prob_used", HOME_ODDS_COL, RESULT_COL, "EV_€_per_100"])
+
+    if len(hist_window) < 20:
+        return None, None, None, None, hist_window
+
+    prob_min_grid_eff = [p for p in prob_min_grid if p >= prob_clip_lo]
+    if not prob_min_grid_eff:
+        prob_min_grid_eff = [prob_clip_lo]
 
     best_profit = float("-inf")
-    best_subset = pd.DataFrame()
-    best_params = None
+    best_subset = None
+    best_params_local = None
     best_n_trades = 0
-    MIN_TRADES_LOCAL = 10
 
-    for hw_cut in HOMEWR_MIN_GRID:
-        for o_min in ODDS_MIN_GRID:
-            for o_max in ODDS_MAX_GRID:
+    for hw_cut in homewr_grid:
+        for o_min in odds_min_grid:
+            for o_max in odds_max_grid:
                 if o_max <= o_min:
                     continue
-                for p_min in PROB_MIN_GRID:
-                    mask_loc = (
-                        (df_local[HOMEWR_COL] >= hw_cut)
-                        & (df_local[HOME_ODDS_COL] >= o_min)
-                        & (df_local[HOME_ODDS_COL] <= o_max)
-                        & (df_local[ISO_COL] >= p_min)
-                        & (df_local["EV_€_per_100"] > 0)
+                for p_min in prob_min_grid_eff:
+                    mask = (
+                        (hist_window[HOMEWR_COL]   >= hw_cut) &
+                        (hist_window[HOME_ODDS_COL] >= o_min) &
+                        (hist_window[HOME_ODDS_COL] <= o_max) &
+                        (hist_window["prob_used"]   >= p_min) &
+                        (hist_window["EV_€_per_100"] >  float(min_ev))
                     )
-                    subset = df_local.loc[mask_loc].copy()
-                    if subset.empty or len(subset) < MIN_TRADES_LOCAL:
+
+                    subset = hist_window.loc[mask].copy()
+                    if subset.empty:
                         continue
 
                     subset["pnl"] = np.where(
                         subset[RESULT_COL].astype(int) == 1,
-                        FLAT_STAKE * (subset[HOME_ODDS_COL] - 1.0),
-                        -FLAT_STAKE,
+                        float(flat_stake_backtest) * (subset[HOME_ODDS_COL] - 1.0),
+                        -float(flat_stake_backtest)
                     )
 
                     total_profit = float(subset["pnl"].sum())
-                    n_trades = len(subset)
+                    n_trades = int(len(subset))
+
+                    if n_trades < min_trades_local:
+                        continue
 
                     if total_profit > best_profit:
                         best_profit = total_profit
                         best_subset = subset
                         best_n_trades = n_trades
-                        best_params = StrategyParams(
-                            min_home_win_rate=float(hw_cut),
-                            min_odds=float(o_min),
-                            max_odds=float(o_max),
-                            min_iso_proba=float(p_min),
-                        )
+                        best_params_local = {
+                            "home_win_rate_threshold": round(float(hw_cut), 2),
+                            "odds_min": round(float(o_min), 2),
+                            "odds_max": round(float(o_max), 2),
+                            "prob_threshold": round(float(p_min), 2),
+                            "n_trades": n_trades,
+                            "win_rate_%": round(float(subset[RESULT_COL].mean() * 100.0), 2),
+                            "avg_EV_€_per_100": round(float(subset["EV_€_per_100"].mean()), 2),
+                        }
 
-    if best_params is None:
-        logging.info("Local params: no robust params found (min 10 trades).")
-        return None, pd.DataFrame(), None
+    if best_params_local is None:
+        return None, None, None, None, hist_window
 
-    total_stake = best_n_trades * FLAT_STAKE
+    total_stake = best_n_trades * float(flat_stake_backtest)
     roi_local = (best_profit / total_stake * 100.0) if total_stake > 0 else 0.0
+    return best_params_local, best_subset, float(roi_local), float(best_profit), hist_window
 
-    logging.info(
-        "Local params (last 100): hwr>=%.2f odds[%.2f,%.2f] iso>=%.2f | trades=%d | ROI=%.2f%%",
-        best_params.min_home_win_rate,
-        best_params.min_odds,
-        best_params.max_odds,
-        best_params.min_iso_proba,
-        best_n_trades,
-        roi_local,
+
+def print_local_search_results(best_params_local, roi_local_search, window_n: int):
+    if best_params_local is None:
+        print(f"\nNo robust local params found on last {window_n} games (min 10 trades).")
+        return
+
+    print(f"\n=== LOCAL PARAMS (FOUND BY SEARCH, LAST {window_n} GAMES) ===")
+    print(f"home_win_rate_threshold : {best_params_local['home_win_rate_threshold']}")
+    print(f"odds_min                : {best_params_local['odds_min']}")
+    print(f"odds_max                : {best_params_local['odds_max']}")
+    print(f"prob_threshold (USED)   : {best_params_local['prob_threshold']}")
+    print(f"n_trades (last {window_n})     : {best_params_local['n_trades']}")
+    print(f"win_rate_%              : {best_params_local['win_rate_%']}")
+    print(f"avg EV €/100            : {best_params_local['avg_EV_€_per_100']}")
+    print(f"ROI % (search subset)   : {roi_local_search:.2f}%")
+
+
+def print_local_matched_games(best_subset_window, window_n: int):
+    print(f"\n=== LOCAL MATCHED GAMES (LAST {window_n} WINDOW) ===")
+    if best_subset_window is None or best_subset_window.empty:
+        print(f"n_trades (last {window_n} window) : 0")
+        return
+
+    df = best_subset_window.copy()
+    if "date" not in df.columns and DATE_COL in df.columns:
+        df["date"] = df[DATE_COL]
+    df["home_win_rate"] = df[HOMEWR_COL]
+    df["prob_iso"] = df[ISO_COL]
+    df["odds_1"] = df[HOME_ODDS_COL]
+    df["win"] = df[RESULT_COL].astype(int)
+
+    cols = [
+        "date", "home_team", "away_team", "home_win_rate", "prob_iso",
+        "prob_used", "odds_1", "EV_€_per_100", "win", "pnl",
+    ]
+    for c in cols:
+        if c not in df.columns:
+            df[c] = np.nan
+
+    print(f"n_trades (last {window_n} window) : {len(df)}")
+    print(
+        df[cols]
+        .sort_values("date")
+        .round({
+            "home_win_rate": 3,
+            "prob_iso": 3,
+            "prob_used": 3,
+            "odds_1": 3,
+            "EV_€_per_100": 2,
+            "pnl": 1,
+        })
+        .to_string(index=False)
     )
 
-    return best_params, best_subset, roi_local
+
+def choose_params_fair_lastN(
+    global_params: dict,
+    local_params: dict | None,
+    *,
+    hist_window: pd.DataFrame,
+    min_ev: float,
+    flat_stake_backtest: float,
+    prob_clip_lo: float,
+    prob_clip_hi: float,
+    min_trades: int = 10,
+    roi_edge_min_pp: float = 0.0,
+):
+    _validate_params(global_params, name="best_params (GLOBAL)")
+
+    metrics_g, subset_g = evaluate_params_on_hist_window(
+        hist_window, global_params,
+        min_ev=min_ev,
+        flat_stake_backtest=flat_stake_backtest,
+        prob_clip_lo=prob_clip_lo,
+        prob_clip_hi=prob_clip_hi,
+    )
+
+    if local_params is None:
+        return False, global_params.copy(), metrics_g, None, subset_g, None
+
+    _validate_params(local_params, name="best_params_local (LOCAL)")
+
+    metrics_l, subset_l = evaluate_params_on_hist_window(
+        hist_window, local_params,
+        min_ev=min_ev,
+        flat_stake_backtest=flat_stake_backtest,
+        prob_clip_lo=prob_clip_lo,
+        prob_clip_hi=prob_clip_hi,
+    )
+
+    use_local = (
+        metrics_l["n_trades"] >= int(min_trades) and
+        metrics_l["profit_€"] > 0 and
+        metrics_l["roi_%"] >= (metrics_g["roi_%"] + float(roi_edge_min_pp))
+    )
+
+    return use_local, (local_params.copy() if use_local else global_params.copy()), metrics_g, metrics_l, subset_g, subset_l
 
 
-# -------------------------------------------------------------------------
-# LOCAL-STYLE SHORTLIST + BANKROLL
-# -------------------------------------------------------------------------
+def upcoming_filter_eval_and_reasons(
+    upcoming_df: pd.DataFrame,
+    params_used: dict,
+    *,
+    min_ev: float,
+    prob_clip_lo: float,
+    prob_clip_hi: float,
+):
+    if upcoming_df is None or upcoming_df.empty:
+        print("\n=== UPCOMING FILTER EVAL (UNIQUE GAMES) ===")
+        print("No upcoming games to evaluate.")
+        print("\n=== ALL UPCOMING GAMES & FILTER REASONS ===")
+        print("No upcoming games to evaluate.")
+        return
 
-def load_current_bankroll(pred_dir: str, start_bankroll: float = START_BANKROLL) -> float:
-    bet_log_path = os.path.join(pred_dir, "bet_log_live.csv")
-    if not os.path.exists(bet_log_path):
-        logging.info("No bet_log_live.csv found at %s – using start bankroll %.2f €.", bet_log_path, start_bankroll)
-        return float(start_bankroll)
+    _validate_params(params_used, name="params_used")
 
-    try:
-        df_log = pd.read_csv(bet_log_path, encoding="utf-8")
-    except Exception:
-        df_log = pd.read_csv(bet_log_path, encoding="utf-7")
-
-    cols_lower = {c.lower(): c for c in df_log.columns}
-    bankroll_col = None
-    for key in ["bankroll_after", "bankroll", "bankroll_after_bet"]:
-        if key in cols_lower:
-            bankroll_col = cols_lower[key]
-            break
-
-    if bankroll_col is None:
-        logging.info("No bankroll column found in bet_log_live.csv – using start bankroll %.2f €.", start_bankroll)
-        return float(start_bankroll)
-
-    last_val = pd.to_numeric(df_log[bankroll_col], errors="coerce").dropna().iloc[-1]
-    bankroll = float(last_val)
-    logging.info("Using bankroll from column '%s' in bet_log_live.csv: %.2f €", bankroll_col, bankroll)
-    return bankroll
-
-
-def build_shortlist_local_style(
-    df_future: pd.DataFrame,
-    bankroll: float,
-    params_used: StrategyParams,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Apply LOCAL filters (from params_used) and compute KELLY metrics.
-
-    Returns:
-      shortlist  – only QUALIFIES games with full EV/Kelly columns
-      explainer  – ALL upcoming games with 'why_not' reason string
-
-    Local-style:
-    - prob_used clipped to [0.50, 0.75]
-    - half Kelly is used (0.5 * kelly_full), then capped at 10%
-    - bets with small/negative EV or stake < 10€ are discarded (stake set to 0)
-    """
-    if df_future.empty:
-        explainer = pd.DataFrame(
-            columns=["date", "home_team", "away_team", "home_win_rate", "prob_iso", "odds_1", "why_not"]
-        )
-        return df_future.copy(), explainer
-
-    df = df_future.copy()
-
+    df = upcoming_df.copy()
+    date_col = "date" if "date" in df.columns else DATE_COL
     if "date" not in df.columns and DATE_COL in df.columns:
         df["date"] = df[DATE_COL]
 
-    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    df = _ensure_datetime(df, date_col)
+    df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=ISO_COL, dst="prob_used")
+    df = _compute_ev_per_100(df, prob_col="prob_used", odds_col=HOME_ODDS_COL, stake_for_ev=100.0, dst="EV_€_per_100")
+    df = _make_game_key(df, date_col=date_col, home_col="home_team", away_col="away_team", dst="game_key")
 
-    df[HOMEWR_COL] = pd.to_numeric(df.get(HOMEWR_COL, np.nan), errors="coerce")
-    df[ISO_COL] = pd.to_numeric(df.get(ISO_COL, np.nan), errors="coerce")
-    df[HOME_ODDS_COL] = pd.to_numeric(df.get(HOME_ODDS_COL, np.nan), errors="coerce")
-
-    df["prob_used"] = np.clip(df[ISO_COL].astype(float), 0.50, LOCAL_PROB_CAP)
-    df["EV_€_per_100"] = (
-        df["prob_used"] * (df[HOME_ODDS_COL] - 1.0) - (1.0 - df["prob_used"])
-    ) * 100.0
-
-    reasons = []
-    qualifies_mask = []
-
-    for _, row in df.iterrows():
-        r_reasons = []
-
-        hwr = row.get(HOMEWR_COL, np.nan)
-        iso = row.get(ISO_COL, np.nan)
-        odds = row.get(HOME_ODDS_COL, np.nan)
-        ev100 = row.get("EV_€_per_100", np.nan)
-
-        if pd.isna(hwr) or hwr < params_used.min_home_win_rate:
-            r_reasons.append("home_win_rate missing" if pd.isna(hwr) else f"home_win_rate {hwr:.2f} < {params_used.min_home_win_rate}")
-
-        if pd.isna(iso) or iso < params_used.min_iso_proba:
-            r_reasons.append("prob_iso missing" if pd.isna(iso) else f"prob_iso {iso:.2f} < {params_used.min_iso_proba}")
-
-        if pd.isna(odds) or not (params_used.min_odds <= odds <= params_used.max_odds):
-            if pd.isna(odds):
-                r_reasons.append("odds missing")
-            else:
-                if odds < params_used.min_odds:
-                    r_reasons.append(f"odds {odds:.2f} < min {params_used.min_odds}")
-                else:
-                    r_reasons.append(f"odds {odds:.2f} > max {params_used.max_odds}")
-
-        if pd.isna(ev100) or ev100 <= 0:
-            r_reasons.append("EV_€_per_100 missing" if pd.isna(ev100) else f"EV_€_per_100 {ev100:.2f} <= 0")
-
-        if not r_reasons:
-            reasons.append("QUALIFIES")
-            qualifies_mask.append(True)
-        else:
-            reasons.append("; ".join(r_reasons))
-            qualifies_mask.append(False)
-
-    df["why_not"] = reasons
-    qualifies_mask = np.array(qualifies_mask, dtype=bool)
-
-    explainer = df[
-        ["date", "home_team", "away_team", HOMEWR_COL, ISO_COL, HOME_ODDS_COL, "EV_€_per_100", "why_not"]
-    ].copy()
-    explainer.rename(
-        columns={HOMEWR_COL: "home_win_rate", ISO_COL: "prob_iso", HOME_ODDS_COL: "odds_1"},
-        inplace=True,
+    df = (
+        df.sort_values("EV_€_per_100", ascending=False)
+          .drop_duplicates(subset="game_key", keep="first")
+          .reset_index(drop=True)
     )
 
-    shortlist = df[qualifies_mask].copy()
-    if shortlist.empty:
-        return shortlist, explainer
+    prob_thr_eff = max(float(params_used["prob_threshold"]), float(prob_clip_lo))
 
-    prob_iso = shortlist[ISO_COL].astype(float)
-    prob_used = shortlist["prob_used"].astype(float)
-    odds = shortlist[HOME_ODDS_COL].astype(float)
+    m_hwr = (df[HOMEWR_COL] >= float(params_used["home_win_rate_threshold"]))
+    m_odmin = m_hwr & (df[HOME_ODDS_COL] >= float(params_used["odds_min"]))
+    m_odmax = m_odmin & (df[HOME_ODDS_COL] <= float(params_used["odds_max"]))
+    m_prob = m_odmax & (df["prob_used"] >= prob_thr_eff)
+    m_ev = m_prob & (df["EV_€_per_100"] > float(min_ev))
 
-    ev_per_unit = prob_used * (odds - 1.0) - (1.0 - prob_used)
-    ev_per_100 = ev_per_unit * 100.0
+    print("\n=== UPCOMING FILTER EVAL (UNIQUE GAMES) ===")
+    print(f"All upcoming unique games                         : {len(df)}")
+    print(f"+ home_win_rate >= {params_used['home_win_rate_threshold']}                 : {int(m_hwr.sum())}")
+    print(f"+ odds_1 >= {params_used['odds_min']}                           : {int(m_odmin.sum())}")
+    print(f"+ odds_1 <= {params_used['odds_max']}                           : {int(m_odmax.sum())}")
+    print(f"+ prob_used >= {prob_thr_eff} (eff threshold)           : {int(m_prob.sum())}")
+    print(f"+ EV_€_per_100 > {min_ev}                             : {int(m_ev.sum())}")
 
-    kelly_full = (prob_used * odds - 1.0) / (odds - 1.0)
-    kelly_fraction_used = np.clip(kelly_full * 0.5, 0.0, LOCAL_MAX_KELLY_FRACTION)
+    why = []
+    for _, r in df.iterrows():
+        if r[HOMEWR_COL] < float(params_used["home_win_rate_threshold"]):
+            why.append(f"home_win_rate {r[HOMEWR_COL]:.2f} < threshold")
+        elif r[HOME_ODDS_COL] < float(params_used["odds_min"]):
+            why.append(f"odds {r[HOME_ODDS_COL]:.2f} < min {params_used['odds_min']}")
+        elif r[HOME_ODDS_COL] > float(params_used["odds_max"]):
+            why.append(f"odds {r[HOME_ODDS_COL]:.2f} > max {params_used['odds_max']}")
+        elif r["prob_used"] < float(prob_thr_eff):
+            why.append(f"prob_used {r['prob_used']:.2f} < prob_thr_eff")
+        elif r["EV_€_per_100"] <= float(min_ev):
+            why.append(f"EV {r['EV_€_per_100']:.2f} <= min_EV {min_ev}")
+        else:
+            why.append("QUALIFIES")
 
-    stake_eur = bankroll * kelly_fraction_used
-    exp_profit_eur = stake_eur * ev_per_unit
-    fair_odds = 1.0 / prob_used
-    edge_pct = (odds / fair_odds - 1.0) * 100.0
+    df["why_not"] = why
 
-    shortlist["prob_iso"] = prob_iso
-    shortlist["prob_used"] = prob_used
-    shortlist["EV_€_per_100"] = ev_per_100
-    shortlist["kelly_full"] = kelly_full
-    shortlist["kelly_fraction_used"] = kelly_fraction_used
-    shortlist["stake_eur"] = stake_eur
-    shortlist["exp_profit_eur"] = exp_profit_eur
-    shortlist["fair_odds"] = fair_odds
-    shortlist["edge_pct"] = edge_pct
+    print("\n=== ALL UPCOMING GAMES & FILTER REASONS ===")
+    print(f"n_trades (upcoming window) : {len(df)}")
+    print(
+        df[["date", "home_team", "away_team", HOMEWR_COL, ISO_COL, HOME_ODDS_COL, "why_not"]]
+        .rename(columns={HOMEWR_COL: "home_win_rate", ISO_COL: "prob_iso", HOME_ODDS_COL: "odds_1"})
+        .sort_values(["date", "home_team"])
+        .round({"home_win_rate": 3, "prob_iso": 3, "odds_1": 3})
+        .to_string(index=False)
+    )
 
-    MIN_STAKE_ABS = 10.0
-    shortlist.loc[shortlist[HOME_ODDS_COL].isna(), "stake_eur"] = 0.0
-    shortlist.loc[shortlist["stake_eur"] < MIN_STAKE_ABS, "stake_eur"] = 0.0
-    shortlist.loc[shortlist["exp_profit_eur"] <= 0, "stake_eur"] = 0.0
-    shortlist.loc[shortlist["EV_€_per_100"] < 0, "stake_eur"] = 0.0
-    shortlist.loc[shortlist["stake_eur"] == 0.0, "kelly_fraction_used"] = 0.0
 
-    # Rename odds column for display to match local (avoid duplicate 'odds_1')
-    if HOME_ODDS_COL != "odds_1" and "odds_1" in shortlist.columns:
-        shortlist.drop(columns=["odds_1"], inplace=True)
-    shortlist.rename(columns={HOME_ODDS_COL: "odds_1"}, inplace=True)
-    shortlist = shortlist.loc[:, ~shortlist.columns.duplicated()]
+def build_flat_shortlist_today(
+    upcoming_df: pd.DataFrame,
+    params_used: dict,
+    *,
+    min_ev: float,
+    flat_stake_live: float,
+    prob_clip_lo: float,
+    prob_clip_hi: float,
+):
+    if upcoming_df is None or upcoming_df.empty:
+        return pd.DataFrame()
 
-    cols_order = [
-        "date", "home_team", "away_team",
-        HOMEWR_COL,
-        "prob_iso", "prob_used",
-        "odds_1",
-        "EV_€_per_100",
-        "kelly_full", "kelly_fraction_used",
-        "stake_eur", "exp_profit_eur",
-        "fair_odds", "edge_pct",
-    ]
-    cols_order = [c for c in cols_order if c in shortlist.columns]
-    shortlist = shortlist[cols_order]
+    _validate_params(params_used, name="params_used")
 
-    if "date" in shortlist.columns:
-        shortlist = shortlist.sort_values(by=["date", "EV_€_per_100"], ascending=[True, False])
+    df = upcoming_df.copy()
+    date_col = "date" if "date" in df.columns else DATE_COL
+    if "date" not in df.columns and DATE_COL in df.columns:
+        df["date"] = df[DATE_COL]
 
-    return shortlist, explainer
+    df = _ensure_datetime(df, date_col)
+    df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=ISO_COL, dst="prob_used")
+    df = _compute_ev_per_100(df, prob_col="prob_used", odds_col=HOME_ODDS_COL, stake_for_ev=100.0, dst="EV_€_per_100")
+    df = _make_game_key(df, date_col=date_col, home_col="home_team", away_col="away_team", dst="game_key")
+
+    df = (
+        df.sort_values("EV_€_per_100", ascending=False)
+          .drop_duplicates(subset="game_key", keep="first")
+          .reset_index(drop=True)
+    )
+
+    prob_thr_eff = max(float(params_used["prob_threshold"]), float(prob_clip_lo))
+
+    mask = (
+        (df[HOMEWR_COL]    >= float(params_used["home_win_rate_threshold"])) &
+        (df[HOME_ODDS_COL] >= float(params_used["odds_min"])) &
+        (df[HOME_ODDS_COL] <= float(params_used["odds_max"])) &
+        (df["prob_used"]   >= prob_thr_eff) &
+        (df["EV_€_per_100"] >  float(min_ev))
+    )
+
+    picks = df.loc[mask].copy()
+    if picks.empty:
+        return pd.DataFrame()
+
+    picks["stake_flat"] = float(flat_stake_live)
+    picks["potential_profit_if_win"] = (picks["stake_flat"] * (picks[HOME_ODDS_COL] - 1.0)).round(2)
+    picks["fair_odds"] = (1.0 / picks["prob_used"]).round(3)
+    picks["edge_pct"] = ((picks[HOME_ODDS_COL] / picks["fair_odds"] - 1.0) * 100.0).round(2)
+    picks["EV_€"] = ((picks["prob_used"] * (picks[HOME_ODDS_COL] - 1.0) - (1.0 - picks["prob_used"])) * picks["stake_flat"]).round(2)
+
+    picks["home_win_rate"] = picks[HOMEWR_COL]
+    picks["prob_iso"] = picks[ISO_COL]
+    picks["odds_1"] = picks[HOME_ODDS_COL]
+
+    return picks.sort_values("date").reset_index(drop=True)
 
 
 # -------------------------------------------------------------------------
@@ -991,44 +1167,117 @@ def main() -> None:
     df_all.to_csv(iso_path, index=False, encoding="utf-8")
     logging.info("Saved full dataframe with %s to %s", ISO_COL, iso_path)
 
-    # 7b) LOCAL PARAMETER SEARCH (LAST 100 GAMES)
-    best_params_local, _, roi_local = find_local_params_last_100(df_past)
-    params_used = best_params
-    params_source = "GLOBAL"
-    if best_params_local is not None and roi_local is not None and roi_local >= 0:
-        params_used = best_params_local
-        params_source = "LOCAL"
-    logging.info("Params used for shortlist: %s", params_source)
+    min_EV = MIN_EV_DEFAULT
+    print("\nMin EV applied =", int(min_EV) if min_EV == int(min_EV) else min_EV)
 
-    # 8) BUILD SHORTLIST FOR FUTURE GAMES (TODAY / TOMORROW) – LOCAL STYLE
-    if df_future.empty:
-        logging.info("No future games found in file – nothing to bet on today.")
-        print("=== Script 5 finished ===")
-        return
+    best_params_dict = _params_to_dict(best_params)
 
-    bankroll = load_current_bankroll(pred_dir, start_bankroll=START_BANKROLL)
-    print(f"\n💰 Current bankroll for sizing bets: {bankroll:.2f} €\n")
+    best_params_local, _, roi_local_search, _, _ = find_best_local_params_lastN(
+        df_past,
+        homewr_grid=HOMEWR_MIN_GRID,
+        odds_min_grid=ODDS_MIN_GRID,
+        odds_max_grid=ODDS_MAX_GRID,
+        prob_min_grid=PROB_MIN_GRID,
+        flat_stake_backtest=FLAT_STAKE,
+        min_ev=min_EV,
+        min_trades_local=10,
+        prob_clip_lo=PROB_CLIP_LO,
+        prob_clip_hi=PROB_CLIP_HI,
+        window_n=LOCAL_SEARCH_N,
+    )
 
-    shortlist, explainer = build_shortlist_local_style(df_future, bankroll, params_used)
+    print_local_search_results(best_params_local, roi_local_search, window_n=LOCAL_SEARCH_N)
 
-    if shortlist.empty:
-        logging.info("Future games found but no bets passed filters – empty shortlist for today.")
+    hist_window_fair = _ensure_datetime(df_past, DATE_COL).sort_values(DATE_COL).tail(int(FAIR_COMPARE_N)).copy()
+    if hist_window_fair is None or hist_window_fair.empty:
+        USE_LOCAL = False
+        params_used = best_params_dict.copy()
+        metrics_global_N = None
+        metrics_local_N = None
+        subset_local_N = None
+        print("\nNo hist window available for fair GLOBAL vs LOCAL comparison; using GLOBAL.")
     else:
-        logging.info("Shortlist contains %d games.", len(shortlist))
+        USE_LOCAL, params_used, metrics_global_N, metrics_local_N, _, subset_local_N = choose_params_fair_lastN(
+            best_params_dict,
+            best_params_local,
+            hist_window=hist_window_fair,
+            min_ev=min_EV,
+            flat_stake_backtest=FLAT_STAKE,
+            prob_clip_lo=PROB_CLIP_LO,
+            prob_clip_hi=PROB_CLIP_HI,
+            min_trades=10,
+            roi_edge_min_pp=0.0,
+        )
 
-        print("=== TONIGHT'S SHORTLIST (ISOTONIC + KELLY) ===")
-        print(shortlist.to_string(index=False))
+        print(f"\n=== FAIR COMPARISON ON LAST {FAIR_COMPARE_N} (GLOBAL vs LOCAL) ===")
+        print("GLOBAL lastN:", metrics_global_N)
+        if metrics_local_N is not None:
+            print("LOCAL  lastN:", metrics_local_N)
+        else:
+            print("LOCAL  lastN: None (no local params)")
+
+    print_local_matched_games(subset_local_N, window_n=FAIR_COMPARE_N)
+
+    upcoming_filter_eval_and_reasons(
+        upcoming_df=df_future,
+        params_used=params_used,
+        min_ev=min_EV,
+        prob_clip_lo=PROB_CLIP_LO,
+        prob_clip_hi=PROB_CLIP_HI,
+    )
+
+    print("\n=== TODAY'S FLAT-STAKE SHORTLIST (GLOBAL/LOCAL PARAMS + EV>min_EV) ===")
+
+    flat_today = build_flat_shortlist_today(
+        upcoming_df=df_future,
+        params_used=params_used,
+        min_ev=min_EV,
+        flat_stake_live=FLAT_STAKE,
+        prob_clip_lo=PROB_CLIP_LO,
+        prob_clip_hi=PROB_CLIP_HI,
+    )
+
+    if flat_today.empty:
+        print("No games meet the combined strategy + EV>min_EV for flat staking today.")
+    else:
+        cols_out = [
+            "date", "home_team", "away_team", "home_win_rate",
+            "prob_iso", "prob_used", "odds_1", "EV_€_per_100",
+            "stake_flat", "EV_€", "potential_profit_if_win", "fair_odds", "edge_pct",
+        ]
+        for c in cols_out:
+            if c not in flat_today.columns:
+                flat_today[c] = np.nan
+
+        print(
+            flat_today[cols_out]
+            .sort_values("date")
+            .round({
+                "home_win_rate": 3,
+                "prob_iso": 3,
+                "prob_used": 3,
+                "odds_1": 3,
+                "EV_€_per_100": 2,
+                "stake_flat": 2,
+                "EV_€": 2,
+                "potential_profit_if_win": 2,
+                "fair_odds": 3,
+                "edge_pct": 1,
+            })
+            .to_string(index=False)
+        )
 
         shortlist_path = os.path.join(pred_dir, f"bet_shortlist_{target_ymd}.csv")
-        shortlist.to_csv(shortlist_path, index=False, encoding="utf-8")
-        logging.info("Saved bet shortlist (%d rows) to %s", len(shortlist), shortlist_path)
+        flat_today.to_csv(shortlist_path, index=False, encoding="utf-8")
+        logging.info("Saved bet shortlist (%d rows) to %s", len(flat_today), shortlist_path)
 
-        print("\n=== TONIGHT'S SHORTLIST (SAVE SNAPSHOT) ===")
-        print(f"💾 Saved shortlist to {shortlist_path}\n")
+        n_games = len(flat_today)
+        tot_stake = n_games * float(FLAT_STAKE)
 
-    if not explainer.empty:
-        print("=== ALL UPCOMING GAMES & FILTER REASONS ===")
-        print(explainer.to_string(index=False))
+        print(f"\nGames selected      : {n_games}")
+        print(f"Flat stake / game   : {float(FLAT_STAKE):.2f} €")
+        print(f"Total stake today   : {tot_stake:.2f} €")
+        print(f"Total EV today (€)  : {flat_today['EV_€'].sum():.2f} €")
 
     print("=== Script 5 finished ===")
 
