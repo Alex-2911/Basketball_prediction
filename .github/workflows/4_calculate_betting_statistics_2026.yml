@@ -36,6 +36,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install jupyter nbconvert
 
       # -----------------------
       # Script 4
@@ -61,7 +62,7 @@ jobs:
       - name: Run Isotonic shortlist + bet log engine (Script 5)
         run: |
           echo "=== Running isotonic shortlist + bet log update (Script 5) ==="
-          python 2026/src/5_Isotonic_based_betting_strategy_2026.py
+          SOURCE_ROOT=$GITHUB_WORKSPACE/2026 python scripts/run_script5.py
           echo "=== Script 5 finished ==="
 
       - name: Upload Script 5 outputs
