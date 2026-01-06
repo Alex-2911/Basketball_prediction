@@ -49,10 +49,12 @@ If there are no upcoming games OR no suitable bets, script still succeeds.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional, Tuple
 
 import numpy as np
@@ -909,28 +911,203 @@ def export_local_matched_games(
         logging.info("No local matched games to export for last %s window.", window_n)
         return
 
+    df_export = prepare_local_matched_export(best_subset_window, stake=FLAT_STAKE)
+    if df_export.empty:
+        logging.info("No settled local matched games to export for last %s window.", window_n)
+        return
+
+    export_path = os.path.join(output_dir, f"local_matched_games_{as_of_date}.csv")
+    df_export.to_csv(export_path, index=False, encoding="utf-8")
+    logging.info("Exported local matched games to %s (%d rows).", export_path, len(df_export))
+
+
+def resolve_output_dir(base_dir: str, prediction_dir: str) -> Path:
+    source_root = os.environ.get("SOURCE_ROOT")
+    if source_root:
+        source_path = Path(source_root)
+        if source_path.exists():
+            out_dir = source_path / "output" / "LightGBM"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            return out_dir
+
+    out_dir = Path(prediction_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return out_dir
+
+
+def _as_of_date_from_df(df: pd.DataFrame, fallback: str) -> str:
+    if df is None or df.empty:
+        return fallback
+    date_col = "date" if "date" in df.columns else DATE_COL
+    if date_col not in df.columns:
+        return fallback
+    date_vals = pd.to_datetime(df[date_col], errors="coerce")
+    if date_vals.notna().any():
+        return date_vals.max().strftime("%Y-%m-%d")
+    return fallback
+
+
+def prepare_local_matched_export(best_subset_window: pd.DataFrame, stake: float) -> pd.DataFrame:
     df = best_subset_window.copy()
     if "date" not in df.columns and DATE_COL in df.columns:
         df["date"] = df[DATE_COL]
     df = _ensure_datetime(df, "date")
     df["date"] = df["date"].dt.strftime("%Y-%m-%d")
-    df["home_win_rate"] = df[HOMEWR_COL]
-    df["prob_iso"] = df[ISO_COL]
-    df["odds_1"] = df[HOME_ODDS_COL]
-    df["win"] = df[RESULT_COL].astype(int)
+
+    if "home_win_rate" not in df.columns and HOMEWR_COL in df.columns:
+        df["home_win_rate"] = df[HOMEWR_COL]
+    if "prob_iso" not in df.columns and ISO_COL in df.columns:
+        df["prob_iso"] = df[ISO_COL]
+    if "odds_1" not in df.columns and HOME_ODDS_COL in df.columns:
+        df["odds_1"] = df[HOME_ODDS_COL]
+    if "win" not in df.columns and RESULT_COL in df.columns:
+        df["win"] = df[RESULT_COL]
+    if "pnl" not in df.columns and "pnl_flat" in df.columns:
+        df["pnl"] = df["pnl_flat"]
+
+    if "EV_€_per_100" not in df.columns:
+        if "EV_per_100" in df.columns:
+            df["EV_€_per_100"] = df["EV_per_100"]
+        elif "prob_used" in df.columns and HOME_ODDS_COL in df.columns:
+            df = _compute_ev_per_100(
+                df,
+                prob_col="prob_used",
+                odds_col=HOME_ODDS_COL,
+                stake_for_ev=100.0,
+                dst="EV_€_per_100",
+            )
+
+    df["home_win_rate"] = pd.to_numeric(df["home_win_rate"], errors="coerce")
+    df["prob_iso"] = pd.to_numeric(df["prob_iso"], errors="coerce")
+    df["prob_used"] = pd.to_numeric(df["prob_used"], errors="coerce")
+    df["odds_1"] = pd.to_numeric(df["odds_1"], errors="coerce")
+    df["EV_€_per_100"] = pd.to_numeric(df["EV_€_per_100"], errors="coerce")
+    df["win"] = pd.to_numeric(df["win"], errors="coerce")
+    if "pnl" not in df.columns and df["win"].notna().any() and df["odds_1"].notna().any():
+        df["pnl"] = np.where(
+            df["win"] == 1,
+            float(stake) * (df["odds_1"] - 1.0),
+            -float(stake),
+        )
+
+    df["pnl"] = pd.to_numeric(df["pnl"], errors="coerce")
+
+    df = df.dropna(subset=["win", "pnl"]).copy()
+    if df.empty:
+        return df
+
+    df["win"] = df["win"].clip(lower=0, upper=1).astype(int)
+    df["stake"] = float(stake)
 
     cols = [
-        "date", "home_team", "away_team", "home_win_rate", "prob_iso",
-        "prob_used", "odds_1", "EV_€_per_100", "win", "pnl",
+        "date",
+        "home_team",
+        "away_team",
+        "home_win_rate",
+        "prob_iso",
+        "prob_used",
+        "odds_1",
+        "EV_€_per_100",
+        "win",
+        "pnl",
+        "stake",
     ]
     for c in cols:
         if c not in df.columns:
             df[c] = np.nan
 
-    df_export = df[cols].dropna(subset=["win", "pnl"]).copy()
-    export_path = os.path.join(output_dir, f"local_matched_games_{as_of_date}.csv")
-    df_export.to_csv(export_path, index=False, encoding="utf-8")
-    logging.info("Exported local matched games to %s (%d rows).", export_path, len(df_export))
+    df = df[cols].sort_values("date").reset_index(drop=True)
+    return df
+
+
+def build_metrics_snapshot(
+    export_df: pd.DataFrame,
+    *,
+    params_used: dict,
+    min_ev: float,
+    as_of_date: str,
+    stake: float,
+) -> dict:
+    realized_count = int(len(export_df))
+    profit_sum = float(export_df["pnl"].sum()) if realized_count > 0 else 0.0
+    roi = profit_sum / (realized_count * float(stake)) if realized_count > 0 else 0.0
+    win_rate = float(export_df["win"].mean()) if realized_count > 0 else 0.0
+    ev_mean = float(export_df["EV_€_per_100"].mean()) if realized_count > 0 else 0.0
+    if np.isnan(ev_mean):
+        ev_mean = 0.0
+
+    sharpe_style = 0.0
+    if realized_count > 1:
+        pnl_std = float(export_df["pnl"].std(ddof=1))
+        pnl_mean = float(export_df["pnl"].mean())
+        if pnl_std > 0:
+            sharpe_style = pnl_mean / pnl_std
+
+    snapshot = {
+        "meta": {
+            "eval_base_date_max": as_of_date,
+        },
+        "realized": {
+            "count": realized_count,
+            "profit_sum": round(profit_sum, 2),
+            "roi": round(roi, 4),
+            "win_rate": round(win_rate, 4),
+            "sharpe_style": round(float(sharpe_style), 4),
+        },
+        "ev_stats": {
+            "mean": round(ev_mean, 2),
+        },
+        "filter_params": {
+            "home_win_rate_threshold": float(params_used["home_win_rate_threshold"]),
+            "odds_min": float(params_used["odds_min"]),
+            "odds_max": float(params_used["odds_max"]),
+            "prob_threshold": float(params_used["prob_threshold"]),
+            "min_EV": float(min_ev),
+        },
+    }
+    return snapshot
+
+
+def write_metrics_snapshot(snapshot: dict, output_dir: Path) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = output_dir / "metrics_snapshot.json"
+    with out_path.open("w", encoding="utf-8") as f:
+        json.dump(snapshot, f, indent=2)
+    logging.info("Saved metrics snapshot to %s", out_path)
+    return out_path
+
+
+def export_local_matched_games_settled(
+    export_df: pd.DataFrame,
+    *,
+    output_dir: Path,
+    as_of_date: str,
+    expected_count: Optional[int],
+    expected_profit: Optional[float],
+) -> Path | None:
+    if export_df is None or export_df.empty:
+        logging.info("No settled local matched games to export.")
+        return None
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    export_path = output_dir / f"local_matched_games_{as_of_date}.csv"
+    export_df.to_csv(export_path, index=False, encoding="utf-8")
+
+    if expected_count is not None and len(export_df) != expected_count:
+        print(
+            "WARN: local_matched_games rows mismatch "
+            f"(expected {expected_count}, got {len(export_df)})."
+        )
+    if expected_profit is not None:
+        pnl_sum = float(export_df["pnl"].sum())
+        if abs(pnl_sum - float(expected_profit)) > 0.01:
+            print(
+                "WARN: local_matched_games pnl sum mismatch "
+                f"(expected {expected_profit:.2f}, got {pnl_sum:.2f})."
+            )
+
+    logging.info("Exported settled local matched games to %s (%d rows).", export_path, len(export_df))
+    return export_path
 
 
 def choose_params_fair_lastN(
@@ -1142,6 +1319,7 @@ def main() -> None:
 
     paths = get_directory_paths()
     pred_dir = paths["PREDICTION_DIR"]
+    out_dir = resolve_output_dir(paths["BASE_DIR"], pred_dir)
     kelly_dir = os.path.join(pred_dir, "Kelly")
     os.makedirs(kelly_dir, exist_ok=True)
 
@@ -1228,10 +1406,11 @@ def main() -> None:
         params_used = best_params_dict.copy()
         metrics_global_N = None
         metrics_local_N = None
+        subset_global_N = None
         subset_local_N = None
         print("\nNo hist window available for fair GLOBAL vs LOCAL comparison; using GLOBAL.")
     else:
-        USE_LOCAL, params_used, metrics_global_N, metrics_local_N, _, subset_local_N = choose_params_fair_lastN(
+        USE_LOCAL, params_used, metrics_global_N, metrics_local_N, subset_global_N, subset_local_N = choose_params_fair_lastN(
             best_params_dict,
             best_params_local,
             hist_window=hist_window_fair,
@@ -1250,12 +1429,28 @@ def main() -> None:
         else:
             print("LOCAL  lastN: None (no local params)")
 
-    print_local_matched_games(subset_local_N, window_n=FAIR_COMPARE_N)
-    export_local_matched_games(
-        subset_local_N,
-        window_n=FAIR_COMPARE_N,
-        output_dir=pred_dir,
-        as_of_date=target_ymd,
+    matched_window_df = subset_local_N if USE_LOCAL else subset_global_N
+    print_local_matched_games(matched_window_df, window_n=FAIR_COMPARE_N)
+
+    if matched_window_df is None or matched_window_df.empty:
+        matched_export_df = pd.DataFrame()
+    else:
+        matched_export_df = prepare_local_matched_export(matched_window_df, stake=FLAT_STAKE)
+    as_of_date = _as_of_date_from_df(matched_window_df, fallback=target_ymd)
+    snapshot = build_metrics_snapshot(
+        matched_export_df,
+        params_used=params_used,
+        min_ev=min_EV,
+        as_of_date=as_of_date,
+        stake=FLAT_STAKE,
+    )
+    write_metrics_snapshot(snapshot, out_dir)
+    export_local_matched_games_settled(
+        matched_export_df,
+        output_dir=out_dir,
+        as_of_date=as_of_date,
+        expected_count=snapshot["realized"]["count"],
+        expected_profit=snapshot["realized"]["profit_sum"],
     )
 
     upcoming_filter_eval_and_reasons(
