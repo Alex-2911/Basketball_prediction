@@ -958,6 +958,8 @@ def prepare_local_matched_export(best_subset_window: pd.DataFrame, stake: float)
         df["home_win_rate"] = df[HOMEWR_COL]
     if "prob_iso" not in df.columns and ISO_COL in df.columns:
         df["prob_iso"] = df[ISO_COL]
+    if "prob_used" not in df.columns and "prob_iso" in df.columns:
+        df["prob_used"] = df["prob_iso"]
     if "odds_1" not in df.columns and HOME_ODDS_COL in df.columns:
         df["odds_1"] = df[HOME_ODDS_COL]
     if "win" not in df.columns and RESULT_COL in df.columns:
@@ -982,6 +984,7 @@ def prepare_local_matched_export(best_subset_window: pd.DataFrame, stake: float)
     df["prob_used"] = pd.to_numeric(df["prob_used"], errors="coerce")
     df["odds_1"] = pd.to_numeric(df["odds_1"], errors="coerce")
     df["EV_€_per_100"] = pd.to_numeric(df["EV_€_per_100"], errors="coerce")
+    df["ev_per_100"] = df["EV_€_per_100"]
     df["win"] = pd.to_numeric(df["win"], errors="coerce")
     if "pnl" not in df.columns and df["win"].notna().any() and df["odds_1"].notna().any():
         df["pnl"] = np.where(
@@ -1007,7 +1010,7 @@ def prepare_local_matched_export(best_subset_window: pd.DataFrame, stake: float)
         "prob_iso",
         "prob_used",
         "odds_1",
-        "EV_€_per_100",
+        "ev_per_100",
         "win",
         "pnl",
         "stake",
@@ -1032,7 +1035,8 @@ def build_metrics_snapshot(
     profit_sum = float(export_df["pnl"].sum()) if realized_count > 0 else 0.0
     roi = profit_sum / (realized_count * float(stake)) if realized_count > 0 else 0.0
     win_rate = float(export_df["win"].mean()) if realized_count > 0 else 0.0
-    ev_mean = float(export_df["EV_€_per_100"].mean()) if realized_count > 0 else 0.0
+    ev_col = "ev_per_100" if "ev_per_100" in export_df.columns else "EV_€_per_100"
+    ev_mean = float(export_df[ev_col].mean()) if realized_count > 0 else 0.0
     if np.isnan(ev_mean):
         ev_mean = 0.0
 
@@ -1074,6 +1078,28 @@ def write_metrics_snapshot(snapshot: dict, output_dir: Path) -> Path:
     with out_path.open("w", encoding="utf-8") as f:
         json.dump(snapshot, f, indent=2)
     logging.info("Saved metrics snapshot to %s", out_path)
+    return out_path
+
+
+def write_strategy_params(
+    params_used: dict,
+    *,
+    min_ev: float,
+    as_of_date: str,
+    stake: float,
+    output_dir: Path,
+) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = output_dir / "strategy_params.txt"
+    lines = [
+        f"as_of_date: {as_of_date}",
+        f"min_ev: {float(min_ev)}",
+        f"stake: {float(stake)}",
+    ]
+    for key in sorted(params_used.keys()):
+        lines.append(f"{key}: {params_used[key]}")
+    out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    logging.info("Saved strategy params to %s", out_path)
     return out_path
 
 
@@ -1445,6 +1471,13 @@ def main() -> None:
         stake=FLAT_STAKE,
     )
     write_metrics_snapshot(snapshot, out_dir)
+    write_strategy_params(
+        params_used,
+        min_ev=min_EV,
+        as_of_date=as_of_date,
+        stake=FLAT_STAKE,
+        output_dir=out_dir,
+    )
     export_local_matched_games_settled(
         matched_export_df,
         output_dir=out_dir,
