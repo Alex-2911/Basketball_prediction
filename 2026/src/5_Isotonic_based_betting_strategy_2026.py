@@ -899,6 +899,40 @@ def print_local_matched_games(best_subset_window, window_n: int):
     )
 
 
+def export_local_matched_games(
+    best_subset_window,
+    window_n: int,
+    output_dir: str,
+    as_of_date: str,
+) -> None:
+    if best_subset_window is None or best_subset_window.empty:
+        logging.info("No local matched games to export for last %s window.", window_n)
+        return
+
+    df = best_subset_window.copy()
+    if "date" not in df.columns and DATE_COL in df.columns:
+        df["date"] = df[DATE_COL]
+    df = _ensure_datetime(df, "date")
+    df["date"] = df["date"].dt.strftime("%Y-%m-%d")
+    df["home_win_rate"] = df[HOMEWR_COL]
+    df["prob_iso"] = df[ISO_COL]
+    df["odds_1"] = df[HOME_ODDS_COL]
+    df["win"] = df[RESULT_COL].astype(int)
+
+    cols = [
+        "date", "home_team", "away_team", "home_win_rate", "prob_iso",
+        "prob_used", "odds_1", "EV_€_per_100", "win", "pnl",
+    ]
+    for c in cols:
+        if c not in df.columns:
+            df[c] = np.nan
+
+    df_export = df[cols].dropna(subset=["win", "pnl"]).copy()
+    export_path = os.path.join(output_dir, f"local_matched_games_{as_of_date}.csv")
+    df_export.to_csv(export_path, index=False, encoding="utf-8")
+    logging.info("Exported local matched games to %s (%d rows).", export_path, len(df_export))
+
+
 def choose_params_fair_lastN(
     global_params: dict,
     local_params: dict | None,
@@ -1217,6 +1251,12 @@ def main() -> None:
             print("LOCAL  lastN: None (no local params)")
 
     print_local_matched_games(subset_local_N, window_n=FAIR_COMPARE_N)
+    export_local_matched_games(
+        subset_local_N,
+        window_n=FAIR_COMPARE_N,
+        output_dir=pred_dir,
+        as_of_date=target_ymd,
+    )
 
     upcoming_filter_eval_and_reasons(
         upcoming_df=df_future,
