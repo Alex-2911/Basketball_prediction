@@ -876,15 +876,15 @@ def print_local_matched_games(best_subset_window, window_n: int):
     df["prob_iso"] = df[ISO_COL]
     df["odds_1"] = df[HOME_ODDS_COL]
     df["win"] = df[RESULT_COL].astype(int)
-    if "ev_per_100" not in df.columns:
-        if "EV_€_per_100" in df.columns:
-            df["ev_per_100"] = df["EV_€_per_100"]
+    if "EV_€_per_100" not in df.columns:
+        if "ev_per_100" in df.columns:
+            df["EV_€_per_100"] = df["ev_per_100"]
         elif "EV_per_100" in df.columns:
-            df["ev_per_100"] = df["EV_per_100"]
+            df["EV_€_per_100"] = df["EV_per_100"]
 
     cols = [
         "date", "home_team", "away_team", "home_win_rate", "prob_iso",
-        "prob_used", "odds_1", "ev_per_100", "win", "pnl",
+        "prob_used", "odds_1", "EV_€_per_100", "win", "pnl",
     ]
     for c in cols:
         if c not in df.columns:
@@ -899,7 +899,7 @@ def print_local_matched_games(best_subset_window, window_n: int):
             "prob_iso": 3,
             "prob_used": 3,
             "odds_1": 3,
-            "ev_per_100": 2,
+            "EV_€_per_100": 2,
             "pnl": 1,
         })
         .to_string(index=False)
@@ -978,25 +978,25 @@ def prepare_local_matched_export(best_subset_window: pd.DataFrame, stake: float)
     if "pnl" not in df.columns and "pnl_flat" in df.columns:
         df["pnl"] = df["pnl_flat"]
 
-    if "ev_per_100" not in df.columns:
-        if "EV_€_per_100" in df.columns:
-            df["ev_per_100"] = df["EV_€_per_100"]
+    if "EV_€_per_100" not in df.columns:
+        if "ev_per_100" in df.columns:
+            df["EV_€_per_100"] = df["ev_per_100"]
         elif "EV_per_100" in df.columns:
-            df["ev_per_100"] = df["EV_per_100"]
+            df["EV_€_per_100"] = df["EV_per_100"]
         elif "prob_used" in df.columns and HOME_ODDS_COL in df.columns:
             df = _compute_ev_per_100(
                 df,
                 prob_col="prob_used",
                 odds_col=HOME_ODDS_COL,
                 stake_for_ev=100.0,
-                dst="ev_per_100",
+                dst="EV_€_per_100",
             )
 
     df["home_win_rate"] = pd.to_numeric(df["home_win_rate"], errors="coerce")
     df["prob_iso"] = pd.to_numeric(df["prob_iso"], errors="coerce")
     df["prob_used"] = pd.to_numeric(df["prob_used"], errors="coerce")
     df["odds_1"] = pd.to_numeric(df["odds_1"], errors="coerce")
-    df["ev_per_100"] = pd.to_numeric(df["ev_per_100"], errors="coerce")
+    df["EV_€_per_100"] = pd.to_numeric(df["EV_€_per_100"], errors="coerce")
     df["win"] = pd.to_numeric(df["win"], errors="coerce")
     if "pnl" not in df.columns and df["win"].notna().any() and df["odds_1"].notna().any():
         df["pnl"] = np.where(
@@ -1022,7 +1022,7 @@ def prepare_local_matched_export(best_subset_window: pd.DataFrame, stake: float)
         "prob_iso",
         "prob_used",
         "odds_1",
-        "ev_per_100",
+        "EV_€_per_100",
         "win",
         "pnl",
         "stake",
@@ -1047,7 +1047,7 @@ def build_metrics_snapshot(
     profit_sum = float(export_df["pnl"].sum()) if realized_count > 0 else 0.0
     roi = profit_sum / (realized_count * float(stake)) if realized_count > 0 else 0.0
     win_rate = float(export_df["win"].mean()) if realized_count > 0 else 0.0
-    ev_col = "ev_per_100" if "ev_per_100" in export_df.columns else "EV_€_per_100"
+    ev_col = "EV_€_per_100" if "EV_€_per_100" in export_df.columns else "ev_per_100"
     ev_mean = float(export_df[ev_col].mean()) if realized_count > 0 else 0.0
     if np.isnan(ev_mean):
         ev_mean = 0.0
@@ -1149,17 +1149,67 @@ def check_metrics_snapshot_consistency(export_df: pd.DataFrame, output_dir: Path
     expected_profit = realized.get("profit_sum")
 
     if expected_count is not None and len(export_df) != int(expected_count):
-        print(
-            "WARNING: local_matched_games row count mismatch "
-            f"(expected {expected_count}, got {len(export_df)})."
+        logging.warning(
+            "local_matched_games row count mismatch (expected %s, got %s).",
+            expected_count,
+            len(export_df),
         )
     if expected_profit is not None:
         pnl_sum = float(export_df["pnl"].sum())
         if abs(pnl_sum - float(expected_profit)) > 0.01:
-            print(
-                "WARNING: local_matched_games pnl sum mismatch "
-                f"(expected {float(expected_profit):.2f}, got {pnl_sum:.2f})."
+            logging.warning(
+                "local_matched_games pnl sum mismatch (expected %.2f, got %.2f).",
+                float(expected_profit),
+                pnl_sum,
             )
+
+
+def update_last_run_trace(
+    export_df: pd.DataFrame,
+    export_path: Path | None,
+    snapshot: dict,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    trace_path = repo_root / "public" / "data" / "last_run.json"
+    trace_path.parent.mkdir(parents=True, exist_ok=True)
+
+    trace_data: dict = {}
+    if trace_path.exists():
+        try:
+            trace_data = json.loads(trace_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            logging.warning("Unable to parse existing last_run.json; overwriting.")
+
+    resolved_path = str(export_path.resolve()) if export_path is not None else ""
+    expected_rows = snapshot.get("realized", {}).get("count")
+    settled_rows = int(len(export_df)) if export_df is not None else 0
+    profit_sum = float(export_df["pnl"].sum()) if export_df is not None and not export_df.empty else 0.0
+
+    ytd_df = export_df.copy() if export_df is not None else pd.DataFrame()
+    if not ytd_df.empty and "date" in ytd_df.columns:
+        ytd_df["date"] = pd.to_datetime(ytd_df["date"], errors="coerce")
+        ytd_df = ytd_df[ytd_df["date"].dt.year == 2026]
+    net_pl = float(ytd_df["pnl"].sum()) if not ytd_df.empty else 0.0
+
+    bankroll_start = 1000.0
+    bankroll_end = bankroll_start + net_pl
+
+    trace_data.update(
+        {
+            "local_matched_games_source": resolved_path,
+            "local_matched_games_rows_expected": int(expected_rows)
+            if expected_rows is not None
+            else settled_rows,
+            "local_matched_games_rows_settled": settled_rows,
+            "local_matched_games_profit_sum_table": round(profit_sum, 2),
+            "bankroll_2026_start": round(bankroll_start, 2),
+            "bankroll_2026_net_pl": round(net_pl, 2),
+            "bankroll_2026_end": round(bankroll_end, 2),
+        }
+    )
+
+    trace_path.write_text(json.dumps(trace_data, indent=2), encoding="utf-8")
+    logging.info("Updated trace info at %s", trace_path)
 
 
 def choose_params_fair_lastN(
@@ -1504,13 +1554,14 @@ def main() -> None:
         stake=FLAT_STAKE,
         output_dir=out_dir,
     )
-    export_local_matched_games_settled(
+    export_path = export_local_matched_games_settled(
         local_matched_df,
         output_dir=out_dir,
         as_of_date=as_of_date,
     )
     if local_matched_df is not None and not local_matched_df.empty:
         check_metrics_snapshot_consistency(local_matched_df, out_dir)
+    update_last_run_trace(local_matched_df, export_path, snapshot)
 
     upcoming_filter_eval_and_reasons(
         upcoming_df=df_future,
