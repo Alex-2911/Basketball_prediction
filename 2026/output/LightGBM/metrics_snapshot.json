@@ -1,0 +1,22 @@
+{
+  "meta": {
+    "eval_base_date_max": "2026-01-05"
+  },
+  "realized": {
+    "count": 11,
+    "profit_sum": 142.0,
+    "roi": 0.1291,
+    "win_rate": 0.5455,
+    "sharpe_style": 0.113
+  },
+  "ev_stats": {
+    "mean": 32.33
+  },
+  "filter_params": {
+    "home_win_rate_threshold": 0.6,
+    "odds_min": 1.1,
+    "odds_max": 3.0,
+    "prob_threshold": 0.55,
+    "min_EV": -5.0
+  }
+}
