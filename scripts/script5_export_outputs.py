@@ -17,7 +17,7 @@ REQUIRED_COLUMNS = [
     "prob_iso",
     "prob_used",
     "odds_1",
-    "ev_per_100",
+    "EV_€_per_100",
     "win",
     "pnl",
     "stake",
@@ -83,9 +83,14 @@ def prepare_export_df(raw_df: pd.DataFrame, default_stake: float) -> pd.DataFram
     df["pnl"] = pd.to_numeric(df.get("pnl"), errors="coerce")
     df["stake"] = pd.to_numeric(df.get("stake"), errors="coerce")
 
-    if "ev_per_100" not in df.columns:
-        df["ev_per_100"] = compute_ev_per_100(df["prob_used"], df["odds_1"])
-    df["ev_per_100"] = pd.to_numeric(df["ev_per_100"], errors="coerce")
+    if "EV_€_per_100" not in df.columns:
+        if "ev_per_100" in df.columns:
+            df["EV_€_per_100"] = df["ev_per_100"]
+        elif "EV_per_100" in df.columns:
+            df["EV_€_per_100"] = df["EV_per_100"]
+        else:
+            df["EV_€_per_100"] = compute_ev_per_100(df["prob_used"], df["odds_1"])
+    df["EV_€_per_100"] = pd.to_numeric(df["EV_€_per_100"], errors="coerce")
 
     df = df.dropna(subset=["win", "pnl"]).copy()
     if df.empty:
@@ -113,7 +118,7 @@ def build_metrics_snapshot(
     profit_sum = float(export_df["pnl"].sum()) if realized_count > 0 else 0.0
     roi = profit_sum / (realized_count * float(stake)) if realized_count > 0 else 0.0
     win_rate = float(export_df["win"].mean()) if realized_count > 0 else 0.0
-    ev_mean = float(export_df["ev_per_100"].mean()) if realized_count > 0 else 0.0
+    ev_mean = float(export_df["EV_€_per_100"].mean()) if realized_count > 0 else 0.0
 
     sharpe_style = 0.0
     if realized_count > 1:

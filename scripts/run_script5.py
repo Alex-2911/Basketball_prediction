@@ -7,7 +7,33 @@ import sys
 from pathlib import Path
 
 
-NOTEBOOK_NAME = "_5. isotonic_calibrated_betting_engine_daily_driver.ipynb"
+SCRIPT5_NAME = "5_Isotonic_based_betting_strategy_2026.py"
+
+
+def resolve_script5_path() -> Path:
+    explicit = os.getenv("SCRIPT5_PATH")
+    if explicit:
+        path = Path(explicit)
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        if path.exists():
+            return path
+        raise FileNotFoundError(f"SCRIPT5_PATH gesetzt aber nicht gefunden: {path}")
+
+    locations = [
+        Path.cwd() / SCRIPT5_NAME,
+        Path.cwd() / "src" / SCRIPT5_NAME,
+        Path.cwd() / "scripts" / SCRIPT5_NAME,
+        Path.cwd() / "2026" / "src" / SCRIPT5_NAME,
+    ]
+    for path in locations:
+        if path.exists():
+            return path
+
+    matches = sorted(Path.cwd().rglob("*.py"))
+    raise FileNotFoundError(
+        f"Script 5 nicht gefunden. cwd={Path.cwd()} Kandidaten={matches[:20]}"
+    )
 
 
 def resolve_source_root() -> Path:
@@ -18,33 +44,6 @@ def resolve_source_root() -> Path:
     if workspace:
         return Path(workspace) / "2026"
     return Path("2026")
-
-
-def resolve_notebook_path() -> Path:
-    notebook_path = Path(NOTEBOOK_NAME)
-    if notebook_path.exists():
-        return notebook_path
-    repo_root = Path(__file__).resolve().parents[1]
-    fallback = repo_root / NOTEBOOK_NAME
-    if fallback.exists():
-        return fallback
-    raise FileNotFoundError(f"Notebook not found: {NOTEBOOK_NAME}")
-
-
-def run_notebook(notebook_path: Path) -> None:
-    cmd = [
-        sys.executable,
-        "-m",
-        "jupyter",
-        "nbconvert",
-        "--to",
-        "notebook",
-        "--execute",
-        "--inplace",
-        "--ExecutePreprocessor.timeout=1800",
-        str(notebook_path),
-    ]
-    subprocess.run(cmd, check=True)
 
 
 def assert_outputs(source_root: Path) -> None:
@@ -70,8 +69,9 @@ def main() -> int:
     os.environ.setdefault("SOURCE_ROOT", str(source_root))
     os.environ.setdefault("N_WINDOW", "200")
 
-    notebook_path = resolve_notebook_path()
-    run_notebook(notebook_path)
+    script_path = resolve_script5_path()
+    print(f"Using Script 5: {script_path}")
+    subprocess.run([sys.executable, str(script_path)], check=True)
     assert_outputs(source_root)
     return 0
 
