@@ -876,10 +876,15 @@ def print_local_matched_games(best_subset_window, window_n: int):
     df["prob_iso"] = df[ISO_COL]
     df["odds_1"] = df[HOME_ODDS_COL]
     df["win"] = df[RESULT_COL].astype(int)
+    if "ev_per_100" not in df.columns:
+        if "EV_€_per_100" in df.columns:
+            df["ev_per_100"] = df["EV_€_per_100"]
+        elif "EV_per_100" in df.columns:
+            df["ev_per_100"] = df["EV_per_100"]
 
     cols = [
         "date", "home_team", "away_team", "home_win_rate", "prob_iso",
-        "prob_used", "odds_1", "EV_€_per_100", "win", "pnl",
+        "prob_used", "odds_1", "ev_per_100", "win", "pnl",
     ]
     for c in cols:
         if c not in df.columns:
@@ -894,7 +899,7 @@ def print_local_matched_games(best_subset_window, window_n: int):
             "prob_iso": 3,
             "prob_used": 3,
             "odds_1": 3,
-            "EV_€_per_100": 2,
+            "ev_per_100": 2,
             "pnl": 1,
         })
         .to_string(index=False)
@@ -973,24 +978,25 @@ def prepare_local_matched_export(best_subset_window: pd.DataFrame, stake: float)
     if "pnl" not in df.columns and "pnl_flat" in df.columns:
         df["pnl"] = df["pnl_flat"]
 
-    if "EV_€_per_100" not in df.columns:
-        if "EV_per_100" in df.columns:
-            df["EV_€_per_100"] = df["EV_per_100"]
+    if "ev_per_100" not in df.columns:
+        if "EV_€_per_100" in df.columns:
+            df["ev_per_100"] = df["EV_€_per_100"]
+        elif "EV_per_100" in df.columns:
+            df["ev_per_100"] = df["EV_per_100"]
         elif "prob_used" in df.columns and HOME_ODDS_COL in df.columns:
             df = _compute_ev_per_100(
                 df,
                 prob_col="prob_used",
                 odds_col=HOME_ODDS_COL,
                 stake_for_ev=100.0,
-                dst="EV_€_per_100",
+                dst="ev_per_100",
             )
 
     df["home_win_rate"] = pd.to_numeric(df["home_win_rate"], errors="coerce")
     df["prob_iso"] = pd.to_numeric(df["prob_iso"], errors="coerce")
     df["prob_used"] = pd.to_numeric(df["prob_used"], errors="coerce")
     df["odds_1"] = pd.to_numeric(df["odds_1"], errors="coerce")
-    df["EV_€_per_100"] = pd.to_numeric(df["EV_€_per_100"], errors="coerce")
-    df["ev_per_100"] = df["EV_€_per_100"]
+    df["ev_per_100"] = pd.to_numeric(df["ev_per_100"], errors="coerce")
     df["win"] = pd.to_numeric(df["win"], errors="coerce")
     if "pnl" not in df.columns and df["win"].notna().any() and df["odds_1"].notna().any():
         df["pnl"] = np.where(
@@ -1479,12 +1485,12 @@ def main() -> None:
     print_local_matched_games(matched_window_df, window_n=FAIR_COMPARE_N)
 
     if matched_window_df is None or matched_window_df.empty:
-        matched_export_df = pd.DataFrame()
+        local_matched_df = pd.DataFrame()
     else:
-        matched_export_df = prepare_local_matched_export(matched_window_df, stake=FLAT_STAKE)
+        local_matched_df = prepare_local_matched_export(matched_window_df, stake=FLAT_STAKE)
     as_of_date = _as_of_date_from_df(matched_window_df, fallback=target_ymd)
     snapshot = build_metrics_snapshot(
-        matched_export_df,
+        local_matched_df,
         params_used=params_used,
         min_ev=min_EV,
         as_of_date=as_of_date,
@@ -1499,12 +1505,12 @@ def main() -> None:
         output_dir=out_dir,
     )
     export_local_matched_games_settled(
-        matched_export_df,
+        local_matched_df,
         output_dir=out_dir,
         as_of_date=as_of_date,
     )
-    if matched_export_df is not None and not matched_export_df.empty:
-        check_metrics_snapshot_consistency(matched_export_df, out_dir)
+    if local_matched_df is not None and not local_matched_df.empty:
+        check_metrics_snapshot_consistency(local_matched_df, out_dir)
 
     upcoming_filter_eval_and_reasons(
         upcoming_df=df_future,
