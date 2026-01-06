@@ -930,6 +930,12 @@ def resolve_output_dir(base_dir: str, prediction_dir: str) -> Path:
             out_dir.mkdir(parents=True, exist_ok=True)
             return out_dir
 
+    base_path = Path(base_dir)
+    out_dir = base_path / "2026" / "output" / "LightGBM"
+    if out_dir.exists() or base_path.exists():
+        out_dir.mkdir(parents=True, exist_ok=True)
+        return out_dir
+
     out_dir = Path(prediction_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     return out_dir
@@ -1092,12 +1098,12 @@ def write_strategy_params(
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / "strategy_params.txt"
     lines = [
-        f"as_of_date: {as_of_date}",
-        f"min_ev: {float(min_ev)}",
-        f"stake: {float(stake)}",
+        f"as_of_date={as_of_date}",
+        f"min_ev={float(min_ev)}",
+        f"stake={float(stake)}",
     ]
     for key in sorted(params_used.keys()):
-        lines.append(f"{key}: {params_used[key]}")
+        lines.append(f"{key}={params_used[key]}")
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     logging.info("Saved strategy params to %s", out_path)
     return out_path
@@ -1108,8 +1114,6 @@ def export_local_matched_games_settled(
     *,
     output_dir: Path,
     as_of_date: str,
-    expected_count: Optional[int],
-    expected_profit: Optional[float],
 ) -> Path | None:
     if export_df is None or export_df.empty:
         logging.info("No settled local matched games to export.")
@@ -1119,21 +1123,37 @@ def export_local_matched_games_settled(
     export_path = output_dir / f"local_matched_games_{as_of_date}.csv"
     export_df.to_csv(export_path, index=False, encoding="utf-8")
 
-    if expected_count is not None and len(export_df) != expected_count:
+    logging.info("Exported settled local matched games to %s (%d rows).", export_path, len(export_df))
+    return export_path
+
+
+def check_metrics_snapshot_consistency(export_df: pd.DataFrame, output_dir: Path) -> None:
+    snapshot_path = output_dir / "metrics_snapshot.json"
+    if not snapshot_path.exists():
+        return
+
+    try:
+        snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        print("WARNING: metrics_snapshot.json could not be parsed for consistency checks.")
+        return
+
+    realized = snapshot.get("realized", {})
+    expected_count = realized.get("count")
+    expected_profit = realized.get("profit_sum")
+
+    if expected_count is not None and len(export_df) != int(expected_count):
         print(
-            "WARN: local_matched_games rows mismatch "
+            "WARNING: local_matched_games row count mismatch "
             f"(expected {expected_count}, got {len(export_df)})."
         )
     if expected_profit is not None:
         pnl_sum = float(export_df["pnl"].sum())
         if abs(pnl_sum - float(expected_profit)) > 0.01:
             print(
-                "WARN: local_matched_games pnl sum mismatch "
-                f"(expected {expected_profit:.2f}, got {pnl_sum:.2f})."
+                "WARNING: local_matched_games pnl sum mismatch "
+                f"(expected {float(expected_profit):.2f}, got {pnl_sum:.2f})."
             )
-
-    logging.info("Exported settled local matched games to %s (%d rows).", export_path, len(export_df))
-    return export_path
 
 
 def choose_params_fair_lastN(
@@ -1482,9 +1502,9 @@ def main() -> None:
         matched_export_df,
         output_dir=out_dir,
         as_of_date=as_of_date,
-        expected_count=snapshot["realized"]["count"],
-        expected_profit=snapshot["realized"]["profit_sum"],
     )
+    if matched_export_df is not None and not matched_export_df.empty:
+        check_metrics_snapshot_consistency(matched_export_df, out_dir)
 
     upcoming_filter_eval_and_reasons(
         upcoming_df=df_future,

@@ -75,6 +75,9 @@ jobs:
             2026/output/LightGBM/bet_shortlist_*.csv
             2026/output/LightGBM/home_win_rates_sorted_*.csv
             2026/output/LightGBM/betting_summary_*.xlsx
+            2026/output/LightGBM/local_matched_games_*.csv
+            2026/output/LightGBM/metrics_snapshot.json
+            2026/output/LightGBM/strategy_params.txt
             2026/output/LightGBM/Kelly/*.csv
           if-no-files-found: warn
 
