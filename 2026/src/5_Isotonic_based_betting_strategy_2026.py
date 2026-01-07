@@ -1536,24 +1536,50 @@ def main() -> None:
 
     matched_df = matched_window_df.copy() if matched_window_df is not None else pd.DataFrame()
 
+    # --- COLUMN RESOLVER (robust for matched_df/local_matched_df schemas) ---
+    DATE_COL = "date" if "date" in matched_df.columns else ("game_date" if "game_date" in matched_df.columns else None)
+    PROB_COL = (
+        "prob_iso"
+        if "prob_iso" in matched_df.columns
+        else ("iso_proba_home_win" if "iso_proba_home_win" in matched_df.columns else ("prob_used" if "prob_used" in matched_df.columns else None))
+    )
+    ODDS_COL = "odds_1" if "odds_1" in matched_df.columns else ("closing_home_odds" if "closing_home_odds" in matched_df.columns else None)
+
+    missing = [name for name, col in [("DATE_COL", DATE_COL), ("PROB_COL", PROB_COL), ("ODDS_COL", ODDS_COL)] if col is None]
+    if missing:
+        raise KeyError(
+            "Missing required columns for bankroll calc. "
+            f"Could not resolve: {missing}. Available columns: {list(matched_df.columns)}"
+        )
+
+    result_candidates = ["win", "home_team_won", "result", "pnl"]
+    resolved_result_col = next((col for col in result_candidates if col in matched_df.columns), None)
+    if resolved_result_col:
+        historical_df = matched_df[matched_df[resolved_result_col].notna()].copy()
+    else:
+        historical_df = matched_df.copy()
+
     # --- BANKROLL SECTION 1: Last 200 games ---
-    last_200_df = matched_df.tail(200).copy()
+    last_200_df = historical_df.tail(200).copy()
     bankroll_window = 1000  # 1000€ Deposit
     flat_stake = 100        # 100€ flat stake
 
     for _, row in last_200_df.iterrows():
-        prob = row["prob_iso"]
-        odds = row["odds_1"]
+        prob = row[PROB_COL]
+        odds = row[ODDS_COL]
         bankroll_window += flat_stake * (prob * (odds - 1) - (1 - prob))
 
     # --- BANKROLL SECTION 2: 2026 YTD ONLY ---
-    ytd_2026_df = matched_df[matched_df["date"].astype(str).str.startswith("2026")].copy()
+    if pd.api.types.is_datetime64_any_dtype(historical_df[DATE_COL]):
+        ytd_2026_df = historical_df[historical_df[DATE_COL].dt.year == 2026].copy()
+    else:
+        ytd_2026_df = historical_df[historical_df[DATE_COL].astype(str).str.startswith("2026")].copy()
     bankroll_2026 = 1000  # 1000€ Deposit
     flat_stake_2026 = 100  # 100€ flat stake
 
     for _, row in ytd_2026_df.iterrows():
-        prob = row["prob_iso"]
-        odds = row["odds_1"]
+        prob = row[PROB_COL]
+        odds = row[ODDS_COL]
         bankroll_2026 += flat_stake_2026 * (prob * (odds - 1) - (1 - prob))
 
     # Force result adjustment (per requirement)
@@ -1569,9 +1595,11 @@ def main() -> None:
         local_matched_df = pd.DataFrame()
     else:
         local_matched_df = prepare_local_matched_export(matched_window_df, stake=FLAT_STAKE)
-    local_export_path = (
-        "2026/output/LightGBM/"
-        f"local_matched_df_export_{datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
+    export_dir = "2026/output/LightGBM"
+    os.makedirs(export_dir, exist_ok=True)
+    local_export_path = os.path.join(
+        export_dir,
+        f"local_matched_df_export_{datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')}.csv",
     )
     local_matched_df.to_csv(local_export_path, index=False)
     print(f"\nCSV Export saved: {local_export_path}")
