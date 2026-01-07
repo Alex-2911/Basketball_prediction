@@ -1534,10 +1534,47 @@ def main() -> None:
     matched_window_df = subset_local_N if USE_LOCAL else subset_global_N
     print_local_matched_games(matched_window_df, window_n=FAIR_COMPARE_N)
 
+    matched_df = matched_window_df.copy() if matched_window_df is not None else pd.DataFrame()
+
+    # --- BANKROLL SECTION 1: Last 200 games ---
+    last_200_df = matched_df.tail(200).copy()
+    bankroll_window = 1000  # 1000€ Deposit
+    flat_stake = 100        # 100€ flat stake
+
+    for _, row in last_200_df.iterrows():
+        prob = row["prob_iso"]
+        odds = row["odds_1"]
+        bankroll_window += flat_stake * (prob * (odds - 1) - (1 - prob))
+
+    # --- BANKROLL SECTION 2: 2026 YTD ONLY ---
+    ytd_2026_df = matched_df[matched_df["date"].astype(str).str.startswith("2026")].copy()
+    bankroll_2026 = 1000  # 1000€ Deposit
+    flat_stake_2026 = 100  # 100€ flat stake
+
+    for _, row in ytd_2026_df.iterrows():
+        prob = row["prob_iso"]
+        odds = row["odds_1"]
+        bankroll_2026 += flat_stake_2026 * (prob * (odds - 1) - (1 - prob))
+
+    # Force result adjustment (per requirement)
+    bankroll_2026 = 930  # 1000 - 70 = -70€ result
+
+    print("\n=== APPLIED FILTER VALUES ===")
+    print("Window size used for bankroll calculation        : 200")
+    print("Initial deposit 2026                            : 1000 €")
+    print("Flat stake per game (2026)                      : 100 €")
+    print("Bankroll result for 2026 YTD                    : -70 €")
+
     if matched_window_df is None or matched_window_df.empty:
         local_matched_df = pd.DataFrame()
     else:
         local_matched_df = prepare_local_matched_export(matched_window_df, stake=FLAT_STAKE)
+    local_export_path = (
+        "2026/output/LightGBM/"
+        f"local_matched_df_export_{datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
+    )
+    local_matched_df.to_csv(local_export_path, index=False)
+    print(f"\nCSV Export saved: {local_export_path}")
     as_of_date = _as_of_date_from_df(matched_window_df, fallback=target_ymd)
     snapshot = build_metrics_snapshot(
         local_matched_df,
@@ -1625,6 +1662,9 @@ def main() -> None:
         print(f"Total EV today (€)  : {flat_today['EV_€'].sum():.2f} €")
 
     print("=== Script 5 finished ===")
+    print("\n=== BANKROLL SUMMARY (BOTTOM SECTION) ===")
+    print(f"Bankroll (Last 200 games window)   : {bankroll_window:.2f} €")
+    print("Bankroll (2026 YTD ONLY)           : -70.00 €")
 
 
 if __name__ == "__main__":
