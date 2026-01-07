@@ -65,11 +65,16 @@ jobs:
           SOURCE_ROOT=$GITHUB_WORKSPACE/2026 python scripts/run_script5.py
           echo "=== Script 5 finished ==="
 
+      - name: Verify metrics snapshot output
+        run: |
+          ls -la 2026/output/LightGBM | head -n 50
+          test -f 2026/output/LightGBM/metrics_snapshot.json
+
       - name: Upload metrics snapshot
         uses: actions/upload-artifact@v4
         with:
           name: metrics-snapshot
-          path: Basketball_prediction/2026/output/LightGBM/metrics_snapshot.json
+          path: 2026/output/LightGBM/metrics_snapshot.json
           if-no-files-found: error
 
       - name: Upload Script 5 outputs
