@@ -1428,6 +1428,15 @@ def main() -> None:
     # 1) LOAD COMBINED
     df_all = load_combined_df(pred_dir, target_ymd)
 
+    DATE_COL = "game_date"
+    if DATE_COL not in df_all.columns:
+        if "date" in df_all.columns:
+            df_all[DATE_COL] = df_all["date"]
+        else:
+            raise KeyError(f"Neither '{DATE_COL}' nor 'date' exists. Columns: {list(df_all.columns)}")
+
+    df_all = _ensure_datetime(df_all, DATE_COL)
+
     # 1b) COMPUTE HOME WIN RATES (before we merge future games)
     hwr_path = compute_home_win_rates(df_all, target_ymd, pred_dir)
 
@@ -1537,15 +1546,15 @@ def main() -> None:
     matched_df = matched_window_df.copy() if matched_window_df is not None else pd.DataFrame()
 
     # --- COLUMN RESOLVER (robust for matched_df/local_matched_df schemas) ---
-    DATE_COL = "date" if "date" in matched_df.columns else ("game_date" if "game_date" in matched_df.columns else None)
-    PROB_COL = (
+    BR_DATE_COL = "date" if "date" in matched_df.columns else ("game_date" if "game_date" in matched_df.columns else None)
+    BR_PROB_COL = (
         "prob_iso"
         if "prob_iso" in matched_df.columns
         else ("iso_proba_home_win" if "iso_proba_home_win" in matched_df.columns else ("prob_used" if "prob_used" in matched_df.columns else None))
     )
-    ODDS_COL = "odds_1" if "odds_1" in matched_df.columns else ("closing_home_odds" if "closing_home_odds" in matched_df.columns else None)
+    BR_ODDS_COL = "odds_1" if "odds_1" in matched_df.columns else ("closing_home_odds" if "closing_home_odds" in matched_df.columns else None)
 
-    missing = [name for name, col in [("DATE_COL", DATE_COL), ("PROB_COL", PROB_COL), ("ODDS_COL", ODDS_COL)] if col is None]
+    missing = [name for name, col in [("BR_DATE_COL", BR_DATE_COL), ("BR_PROB_COL", BR_PROB_COL), ("BR_ODDS_COL", BR_ODDS_COL)] if col is None]
     if missing:
         raise KeyError(
             "Missing required columns for bankroll calc. "
@@ -1565,21 +1574,21 @@ def main() -> None:
     flat_stake = 100        # 100€ flat stake
 
     for _, row in last_200_df.iterrows():
-        prob = row[PROB_COL]
-        odds = row[ODDS_COL]
+        prob = row[BR_PROB_COL]
+        odds = row[BR_ODDS_COL]
         bankroll_window += flat_stake * (prob * (odds - 1) - (1 - prob))
 
     # --- BANKROLL SECTION 2: 2026 YTD ONLY ---
-    if pd.api.types.is_datetime64_any_dtype(historical_df[DATE_COL]):
-        ytd_2026_df = historical_df[historical_df[DATE_COL].dt.year == 2026].copy()
+    if pd.api.types.is_datetime64_any_dtype(historical_df[BR_DATE_COL]):
+        ytd_2026_df = historical_df[historical_df[BR_DATE_COL].dt.year == 2026].copy()
     else:
-        ytd_2026_df = historical_df[historical_df[DATE_COL].astype(str).str.startswith("2026")].copy()
+        ytd_2026_df = historical_df[historical_df[BR_DATE_COL].astype(str).str.startswith("2026")].copy()
     bankroll_2026 = 1000  # 1000€ Deposit
     flat_stake_2026 = 100  # 100€ flat stake
 
     for _, row in ytd_2026_df.iterrows():
-        prob = row[PROB_COL]
-        odds = row[ODDS_COL]
+        prob = row[BR_PROB_COL]
+        odds = row[BR_ODDS_COL]
         bankroll_2026 += flat_stake_2026 * (prob * (odds - 1) - (1 - prob))
 
     # Force result adjustment (per requirement)
