@@ -1,10 +1,10 @@
-as_of_date=2026-01-05
+as_of_date=2026-01-06
 min_ev=-5.0
 stake=100.0
-avg_EV_€_per_100=32.33
-home_win_rate_threshold=0.6
-n_trades=11
+avg_EV_€_per_100=43.02
+home_win_rate_threshold=0.5
+n_trades=14
 odds_max=3.0
-odds_min=1.1
+odds_min=1.6
 prob_threshold=0.55
-win_rate_%=54.55
+win_rate_%=50.0
