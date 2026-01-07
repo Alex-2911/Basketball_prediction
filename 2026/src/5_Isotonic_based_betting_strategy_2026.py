@@ -1698,6 +1698,73 @@ def main() -> None:
         print(f"Total stake today   : {tot_stake:.2f} €")
         print(f"Total EV today (€)  : {flat_today['EV_€'].sum():.2f} €")
 
+    metrics_path = os.path.join("2026", "output", "LightGBM", "metrics_snapshot.json")
+    try:
+        os.makedirs(os.path.dirname(metrics_path), exist_ok=True)
+
+        def _safe_float(value):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        def _safe_int(value):
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+
+        def _format_last150(metrics: dict | None) -> dict:
+            if not metrics:
+                return {
+                    "n_trades": None,
+                    "win_rate_pct": None,
+                    "profit_eur": None,
+                    "roi_pct": None,
+                    "avg_ev_eur_per_100": None,
+                }
+            return {
+                "n_trades": _safe_int(metrics.get("n_trades")),
+                "win_rate_pct": _safe_float(metrics.get("win_rate_%")),
+                "profit_eur": _safe_float(metrics.get("profit_€")),
+                "roi_pct": _safe_float(metrics.get("roi_%")),
+                "avg_ev_eur_per_100": _safe_float(metrics.get("avg_EV_€_per_100")),
+            }
+
+        prob_threshold_value = None
+        if isinstance(params_used, dict):
+            prob_threshold_value = params_used.get("prob_threshold")
+
+        metrics = {
+            "generated_utc": f"{datetime.utcnow().isoformat()}Z",
+            "n_window": 200,
+            "deposit_eur": 1000,
+            "flat_stake_eur": 100,
+            "bankroll_last_200_eur": _safe_float(bankroll_window),
+            "bankroll_2026_ytd_eur": _safe_float(bankroll_2026),
+            "profit_2026_ytd_eur": _safe_float(-70.0),
+            "filters": {
+                "home_win_rate_threshold": _safe_float(
+                    params_used.get("home_win_rate_threshold") if isinstance(params_used, dict) else None
+                ),
+                "odds_min": _safe_float(params_used.get("odds_min") if isinstance(params_used, dict) else None),
+                "odds_max": _safe_float(params_used.get("odds_max") if isinstance(params_used, dict) else None),
+                "prob_threshold_used": _safe_float(
+                    max(float(prob_threshold_value), float(PROB_CLIP_LO))
+                    if prob_threshold_value is not None
+                    else None
+                ),
+            },
+            "local_last150": _format_last150(metrics_local_N),
+            "global_last150": _format_last150(metrics_global_N),
+        }
+
+        with open(metrics_path, "w", encoding="utf-8") as f:
+            json.dump(metrics, f, indent=2, ensure_ascii=False)
+        print(f"OK: metrics_snapshot.json saved: {metrics_path}")
+    except Exception as exc:
+        logging.warning("Unable to write metrics_snapshot.json: %s", exc)
+
     print("=== Script 5 finished ===")
     print("\n=== BANKROLL SUMMARY (BOTTOM SECTION) ===")
     print(f"Bankroll (Last 200 games window)   : {bankroll_window:.2f} €")
