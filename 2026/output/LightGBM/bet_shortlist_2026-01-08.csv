@@ -1,0 +1,2 @@
+home_team,away_team,home_team_prob,odds_1,odds_2,result,date,accuracy,result_raw,game_date,pred_home_win_proba,closing_home_odds,closing_away_odds,home_team_won,home_win_rate,game_day,iso_proba_home_win,prob_used,EV_€_per_100,game_key,stake_flat,potential_profit_if_win,fair_odds,edge_pct,EV_€,prob_iso
+MIN,CLE,0.6746672700402576,1.83,2.0,0,2026-01-08,,0,2026-01-08,0.6746672700402576,1.83,2.0,,0.8,2026-01-08,0.7037037037037037,0.7037037037037037,28.777777777777793,2026-01-08_MIN_CLE,100.0,83.0,1.421,28.78,28.78,0.7037037037037037
