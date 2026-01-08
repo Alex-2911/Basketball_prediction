@@ -21,6 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: 2026
+          fetch-depth: 1
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -29,10 +30,9 @@ jobs:
           cache: "pip"
 
       - name: Install Google Chrome
-        uses: browser-actions/setup-chrome@v1
-
-      - name: Ensure WebDriverManager cache dir exists
-        run: mkdir -p ~/.wdm
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
 
       - name: Cache WebDriverManager
         uses: actions/cache@v3
@@ -52,26 +52,20 @@ jobs:
           CURRENT_SEASON: "2026"
         run: |
           echo "=== Starting scrape for PREVIOUS game day ==="
-          timeout 1200s python 2026/src/1_get_data_previous_game_day_2026.py
+          python Basketball_prediction/2026/src/5_Isotonic_based_betting_strategy_2026.py
 
       - name: Commit updated scraped game data
-        env:
-          CURRENT_SEASON: "2026"
         run: |
-          echo "Configuring git user"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # stage ONLY the folders we want to version
           git add 2026/output/Gathering_Data/Whole_Statistic \
-                  2026/output/Gathering_Data/data/${CURRENT_SEASON}_scores \
-                  2026/output/Gathering_Data/data/${CURRENT_SEASON}_standings || true
+                  2026/output/Gathering_Data/data/2026_scores \
+                  2026/output/Gathering_Data/data/2026_standings || true
 
-          # if there's nothing new, bail quietly
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else
-            commit_msg="auto-update scraped game data ($(date -u +%Y-%m-%dT%H:%MZ))"
-            git commit -m "$commit_msg"
+            git commit -m "auto-update scraped game data ($(date -u +%Y-%m-%dT%H:%MZ))"
             git push origin 2026
           fi
