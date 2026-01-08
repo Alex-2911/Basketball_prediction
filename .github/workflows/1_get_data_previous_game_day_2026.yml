@@ -52,7 +52,7 @@ jobs:
           CURRENT_SEASON: "2026"
         run: |
           echo "=== Starting scrape for PREVIOUS game day ==="
-          python Basketball_prediction/2026/src/5_Isotonic_based_betting_strategy_2026.py
+          python 2026/src/1_get_data_previous_game_day_2026.py
 
       - name: Commit updated scraped game data
         run: |
