@@ -1,3 +1,4 @@
-home_team,away_team,home_team_prob,odds_1,odds_2,result,date,accuracy,result_raw,game_date,pred_home_win_proba,closing_home_odds,closing_away_odds,home_team_won,home_win_rate,game_day,iso_proba_home_win,prob_used,EV_€_per_100,game_key,stake_flat,potential_profit_if_win,fair_odds,edge_pct,EV_€,prob_iso
-ORL,PHI,0.6188785510615936,2.2,1.7,0,2026-01-09,,0,2026-01-09,0.6188785510615936,2.2,1.7,,0.62,2026-01-09,0.6190476190476191,0.6190476190476191,36.190476190476204,2026-01-09_ORL_PHI,100.0,120.0,1.615,36.22,36.19,0.6190476190476191
-DEN,ATL,0.5910895662284186,1.8,2.05,0,2026-01-09,,0,2026-01-09,0.5910895662284186,1.8,2.05,,0.57,2026-01-09,0.576271186440678,0.576271186440678,3.7288135593220417,2026-01-09_DEN_ATL,100.0,80.0,1.735,3.75,3.73,0.576271186440678
+date,home_team,away_team,home_win_rate,prob_iso,prob_used,odds_1,EV_€_per_100,kelly_full,kelly_fraction_used,stake_eur,exp_profit_eur,param_home_win_rate_threshold,param_odds_min,param_odds_max,param_prob_threshold,bankroll_at_bettime,fair_odds,edge_pct
+2026-01-09,BOS,TOR,0.78,0.714,0.714,1.23,-12.14,-0.528,0.0,0.0,-0.0,0.5,1.1,3.4,0.5,1317.23,1.4,-12.14
+2026-01-09,GSW,SAC,0.64,0.65,0.65,1.13,-26.55,-2.042,0.0,0.0,-0.0,0.5,1.1,3.4,0.5,1317.23,1.538,-26.53
+2026-01-09,PHO,NYK,0.67,0.705,0.705,1.98,39.62,0.404,0.05,65.86,26.09,0.5,1.1,3.4,0.5,1317.23,1.418,39.63
