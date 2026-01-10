@@ -1,9 +1,9 @@
 {
-  "generated_utc": "2026-01-10T06:23:55.672125Z",
+  "generated_utc": "2026-01-10T17:22:19.046896Z",
   "n_window": 200,
   "deposit_eur": 1000,
   "flat_stake_eur": 100,
-  "bankroll_last_200_eur": 1101.9142857142858,
+  "bankroll_last_200_eur": 1102.5171026156943,
   "bankroll_2026_ytd_eur": 930.0,
   "profit_2026_ytd_eur": -70.0,
   "filters": {
@@ -14,10 +14,10 @@
   },
   "local_last150": {
     "n_trades": 10,
-    "win_rate_pct": 60.0,
-    "profit_eur": 293.0,
-    "roi_pct": 29.3,
-    "avg_ev_eur_per_100": 35.94
+    "win_rate_pct": 70.0,
+    "profit_eur": 491.0,
+    "roi_pct": 49.1,
+    "avg_ev_eur_per_100": 40.86
   },
   "global_last150": {
     "n_trades": 2,
