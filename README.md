@@ -111,3 +111,44 @@ If no bets pass the filters, the shortlist may be empty.
         ├── predictions (combined_*.csv)
         ├── home_win_rates_sorted_*.csv)
         └── nba_games_predict_*.csv
+```
+
+---
+
+## 📊 KPI Definitions & Data Sources
+
+This repo separates **historical model performance**, **strategy simulations**, and **real placed bets** to avoid mixing simulated and real-world results.
+
+### ✅ Windowed Historical Results (Last 200 Games)
+**Source:** `combined_nba_predictions_*` (outputs under `2026/output/LightGBM/`)  
+**Used for:**
+- Overall accuracy
+- Calibration metrics (Brier, LogLoss, ECE, Slope)
+- Home win rates
+- Strategy filter coverage
+
+### ✅ Strategy / Local Params (Simulated, Windowed)
+**Source:** `local_matched_games_YYYY-MM-DD.csv` (last-200 window)  
+**Used for:**
+- Local Matched Games table
+- Simulated bankroll (Last 200 games)
+- Sharpe ratio and drawdown for the strategy
+
+### ✅ Placed & Settled Bets (Real, 2026 YTD)
+**Source:** `bet_log_flat_live.csv` (settled using `combined_*` results by date + home + away)  
+**Rules:**
+- Only settled rows (win + pnl available) are counted
+- Deduping is stable on `(date, home, away)`
+- Missing stake/odds rows are discarded
+
+**Used for:**
+- Bankroll (2026 YTD)
+- Settled bets overview and table
+
+### ✅ Active Filters & Params Used
+**Source:** `metrics_snapshot.json` (`params_used`, `params_used_type`)  
+**Notes:**
+- Active filters are rendered from **params_used** (LOCAL or GLOBAL)
+- `strategy_params.txt` is used only as a fallback
+
+This ensures **simulation ≠ reality**, while keeping both views consistent and auditable.

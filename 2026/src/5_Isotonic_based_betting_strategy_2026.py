@@ -98,7 +98,7 @@ MIN_EV_DEFAULT = -5.0
 PROB_CLIP_LO = 0.35
 PROB_CLIP_HI = 0.80
 LOCAL_SEARCH_N = 150
-FAIR_COMPARE_N = 150
+FAIR_COMPARE_N = 200
 
 START_BANKROLL = 1000.0
 
@@ -958,6 +958,115 @@ def _as_of_date_from_df(df: pd.DataFrame, fallback: str) -> str:
     return fallback
 
 
+def _resolve_first_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
+    for col in candidates:
+        if col in df.columns:
+            return col
+    return None
+
+
+def _normalize_text(series: pd.Series) -> pd.Series:
+    return series.astype(str).str.strip().str.lower()
+
+
+def _normalize_date(df: pd.DataFrame, col: str) -> pd.Series:
+    return pd.to_datetime(df[col], errors="coerce").dt.strftime("%Y-%m-%d")
+
+
+def find_bet_log_path(output_dir: Path) -> Path | None:
+    candidates = [
+        output_dir / "bet_log_flat_live.csv",
+        output_dir / "bet_log_live.csv",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    flat_candidates = sorted(output_dir.glob("bet_log_flat_live_*.csv"))
+    if flat_candidates:
+        return flat_candidates[-1]
+    live_candidates = sorted(output_dir.glob("bet_log_live_*.csv"))
+    if live_candidates:
+        return live_candidates[-1]
+    return None
+
+
+def build_settled_bets(
+    bet_log_df: pd.DataFrame,
+    results_df: pd.DataFrame,
+) -> pd.DataFrame:
+    if bet_log_df is None or bet_log_df.empty or results_df is None or results_df.empty:
+        return pd.DataFrame()
+
+    bet_df = bet_log_df.copy()
+    results = results_df.copy()
+
+    bet_date_col = _resolve_first_col(bet_df, ["date", "game_date"])
+    bet_home_col = _resolve_first_col(bet_df, ["home_team", "home", "team_home"])
+    bet_away_col = _resolve_first_col(bet_df, ["away_team", "away", "team_away"])
+    odds_col = _resolve_first_col(bet_df, ["odds_1", "odds", "home_odds", "closing_home_odds"])
+    stake_col = _resolve_first_col(bet_df, ["stake", "stake_eur", "stake_flat"])
+
+    if not bet_date_col or not bet_home_col or not bet_away_col:
+        return pd.DataFrame()
+
+    bet_df["date"] = _normalize_date(bet_df, bet_date_col)
+    bet_df["home_team"] = _normalize_text(bet_df[bet_home_col])
+    bet_df["away_team"] = _normalize_text(bet_df[bet_away_col])
+
+    if odds_col:
+        bet_df["odds_1"] = pd.to_numeric(bet_df[odds_col], errors="coerce")
+    else:
+        bet_df["odds_1"] = np.nan
+
+    if stake_col:
+        bet_df["stake"] = pd.to_numeric(bet_df[stake_col], errors="coerce")
+    else:
+        bet_df["stake"] = np.nan
+
+    results_date_col = _resolve_first_col(results, ["date", DATE_COL, "game_date"])
+    results_home_col = _resolve_first_col(results, ["home_team", "home"])
+    results_away_col = _resolve_first_col(results, ["away_team", "away"])
+    results_win_col = _resolve_first_col(results, ["home_team_won", "win", "result"])
+
+    if not results_date_col or not results_home_col or not results_away_col or not results_win_col:
+        return pd.DataFrame()
+
+    results["date"] = _normalize_date(results, results_date_col)
+    results["home_team"] = _normalize_text(results[results_home_col])
+    results["away_team"] = _normalize_text(results[results_away_col])
+    results["win"] = pd.to_numeric(results[results_win_col], errors="coerce")
+
+    merged = bet_df.merge(
+        results[["date", "home_team", "away_team", "win"]],
+        on=["date", "home_team", "away_team"],
+        how="left",
+    )
+
+    merged = merged.dropna(subset=["stake", "odds_1"]).copy()
+
+    pnl_col = _resolve_first_col(merged, ["pnl", "profit_eur", "profit"])
+    if pnl_col:
+        merged["pnl"] = pd.to_numeric(merged[pnl_col], errors="coerce")
+    else:
+        merged["pnl"] = np.nan
+
+    needs_pnl = merged["pnl"].isna() & merged["win"].notna()
+    merged.loc[needs_pnl, "pnl"] = np.where(
+        merged.loc[needs_pnl, "win"] == 1,
+        merged.loc[needs_pnl, "stake"] * (merged.loc[needs_pnl, "odds_1"] - 1.0),
+        -merged.loc[needs_pnl, "stake"],
+    )
+
+    merged = merged.dropna(subset=["win", "pnl"]).copy()
+    if merged.empty:
+        return merged
+
+    merged["win"] = merged["win"].clip(lower=0, upper=1).astype(int)
+    merged = merged.drop_duplicates(subset=["date", "home_team", "away_team"]).sort_values("date")
+
+    return merged.reset_index(drop=True)
+
+
 def prepare_local_matched_export(best_subset_window: pd.DataFrame, stake: float) -> pd.DataFrame:
     df = best_subset_window.copy()
     if "date" not in df.columns and DATE_COL in df.columns:
@@ -1039,9 +1148,14 @@ def build_metrics_snapshot(
     export_df: pd.DataFrame,
     *,
     params_used: dict,
+    params_used_type: str | None,
     min_ev: float,
     as_of_date: str,
     stake: float,
+    bankroll_window: float | None = None,
+    bankroll_2026: float | None = None,
+    profit_2026: float | None = None,
+    settled_summary: dict | None = None,
 ) -> dict:
     realized_count = int(len(export_df))
     profit_sum = float(export_df["pnl"].sum()) if realized_count > 0 else 0.0
@@ -1063,6 +1177,8 @@ def build_metrics_snapshot(
         "meta": {
             "eval_base_date_max": as_of_date,
         },
+        "params_used_type": params_used_type,
+        "params_used": params_used,
         "realized": {
             "count": realized_count,
             "profit_sum": round(profit_sum, 2),
@@ -1081,6 +1197,18 @@ def build_metrics_snapshot(
             "min_EV": float(min_ev),
         },
     }
+    if bankroll_window is not None or bankroll_2026 is not None or profit_2026 is not None:
+        snapshot["bankroll"] = {
+            "deposit_eur": round(float(START_BANKROLL), 2),
+            "bankroll_last_200_eur": round(float(bankroll_window), 2)
+            if bankroll_window is not None
+            else None,
+            "bankroll_2026_ytd_eur": round(float(bankroll_2026), 2) if bankroll_2026 is not None else None,
+            "profit_2026_ytd_eur": round(float(profit_2026), 2) if profit_2026 is not None else None,
+            "flat_stake_eur": round(float(stake), 2),
+        }
+    if settled_summary:
+        snapshot["settled_bets_2026"] = settled_summary
     return snapshot
 
 
@@ -1168,6 +1296,7 @@ def update_last_run_trace(
     export_df: pd.DataFrame,
     export_path: Path | None,
     snapshot: dict,
+    settled_bets_df: pd.DataFrame | None,
 ) -> None:
     repo_root = Path(__file__).resolve().parents[2]
     trace_path = repo_root / "public" / "data" / "last_run.json"
@@ -1185,13 +1314,18 @@ def update_last_run_trace(
     settled_rows = int(len(export_df)) if export_df is not None else 0
     profit_sum = float(export_df["pnl"].sum()) if export_df is not None and not export_df.empty else 0.0
 
-    ytd_df = export_df.copy() if export_df is not None else pd.DataFrame()
-    if not ytd_df.empty and "date" in ytd_df.columns:
-        ytd_df["date"] = pd.to_datetime(ytd_df["date"], errors="coerce")
-        ytd_df = ytd_df[ytd_df["date"].dt.year == 2026]
-    net_pl = float(ytd_df["pnl"].sum()) if not ytd_df.empty else 0.0
+    settled_2026 = settled_bets_df.copy() if settled_bets_df is not None else pd.DataFrame()
+    if not settled_2026.empty and "date" in settled_2026.columns:
+        settled_2026["date"] = pd.to_datetime(settled_2026["date"], errors="coerce")
+        settled_2026 = settled_2026[settled_2026["date"].dt.year == 2026]
 
-    bankroll_start = 1000.0
+    net_pl = float(settled_2026["pnl"].sum()) if not settled_2026.empty else 0.0
+    stake_sum = float(settled_2026["stake"].sum()) if not settled_2026.empty else 0.0
+    win_count = int(settled_2026["win"].sum()) if not settled_2026.empty else 0
+    settled_count = int(len(settled_2026))
+    avg_odds = float(settled_2026["odds_1"].mean()) if not settled_2026.empty else 0.0
+
+    bankroll_start = float(START_BANKROLL)
     bankroll_end = bankroll_start + net_pl
 
     trace_data.update(
@@ -1205,6 +1339,11 @@ def update_last_run_trace(
             "bankroll_2026_start": round(bankroll_start, 2),
             "bankroll_2026_net_pl": round(net_pl, 2),
             "bankroll_2026_end": round(bankroll_end, 2),
+            "settled_bets_2026_count": settled_count,
+            "settled_bets_2026_wins": win_count,
+            "settled_bets_2026_profit_sum": round(net_pl, 2),
+            "settled_bets_2026_roi": round(net_pl / stake_sum, 4) if stake_sum else 0.0,
+            "settled_bets_2026_avg_odds": round(avg_odds, 2) if settled_count else 0.0,
         }
     )
 
@@ -1540,6 +1679,7 @@ def main() -> None:
         else:
             print("LOCAL  lastN: None (no local params)")
 
+    # params_used becomes the single source of truth for active filters + dashboard stats.
     matched_window_df = subset_local_N if USE_LOCAL else subset_global_N
     print_local_matched_games(matched_window_df, window_n=FAIR_COMPARE_N)
 
@@ -1578,27 +1718,34 @@ def main() -> None:
         odds = row[BR_ODDS_COL]
         bankroll_window += flat_stake * (prob * (odds - 1) - (1 - prob))
 
-    # --- BANKROLL SECTION 2: 2026 YTD ONLY ---
-    if pd.api.types.is_datetime64_any_dtype(historical_df[BR_DATE_COL]):
-        ytd_2026_df = historical_df[historical_df[BR_DATE_COL].dt.year == 2026].copy()
+    bet_log_path = find_bet_log_path(out_dir)
+    settled_bets_df = pd.DataFrame()
+    if bet_log_path and bet_log_path.exists():
+        bet_log_df = pd.read_csv(bet_log_path)
+        settled_bets_df = build_settled_bets(bet_log_df, df_past)
+
+    if not settled_bets_df.empty:
+        settled_bets_df["date"] = pd.to_datetime(settled_bets_df["date"], errors="coerce")
+        settled_2026_df = settled_bets_df[settled_bets_df["date"].dt.year == 2026].copy()
     else:
-        ytd_2026_df = historical_df[historical_df[BR_DATE_COL].astype(str).str.startswith("2026")].copy()
-    bankroll_2026 = 1000  # 1000€ Deposit
-    flat_stake_2026 = 100  # 100€ flat stake
+        settled_2026_df = pd.DataFrame()
 
-    for _, row in ytd_2026_df.iterrows():
-        prob = row[BR_PROB_COL]
-        odds = row[BR_ODDS_COL]
-        bankroll_2026 += flat_stake_2026 * (prob * (odds - 1) - (1 - prob))
-
-    # Force result adjustment (per requirement)
-    bankroll_2026 = 930  # 1000 - 70 = -70€ result
+    profit_2026 = float(settled_2026_df["pnl"].sum()) if not settled_2026_df.empty else 0.0
+    bankroll_2026 = float(START_BANKROLL) + profit_2026
+    stake_sum_2026 = float(settled_2026_df["stake"].sum()) if not settled_2026_df.empty else 0.0
+    settled_summary = {
+        "count": int(len(settled_2026_df)),
+        "wins": int(settled_2026_df["win"].sum()) if not settled_2026_df.empty else 0,
+        "profit_sum": round(profit_2026, 2),
+        "roi": round(profit_2026 / stake_sum_2026, 4) if stake_sum_2026 else 0.0,
+        "avg_odds": round(float(settled_2026_df["odds_1"].mean()), 2) if not settled_2026_df.empty else 0.0,
+    }
 
     print("\n=== APPLIED FILTER VALUES ===")
     print("Window size used for bankroll calculation        : 200")
     print("Initial deposit 2026                            : 1000 €")
     print("Flat stake per game (2026)                      : 100 €")
-    print("Bankroll result for 2026 YTD                    : -70 €")
+    print(f"Bankroll result for 2026 YTD                    : {profit_2026:.2f} €")
 
     if matched_window_df is None or matched_window_df.empty:
         local_matched_df = pd.DataFrame()
@@ -1616,9 +1763,14 @@ def main() -> None:
     snapshot = build_metrics_snapshot(
         local_matched_df,
         params_used=params_used,
+        params_used_type="LOCAL" if USE_LOCAL else "GLOBAL",
         min_ev=min_EV,
         as_of_date=as_of_date,
         stake=FLAT_STAKE,
+        bankroll_window=bankroll_window,
+        bankroll_2026=bankroll_2026,
+        profit_2026=profit_2026,
+        settled_summary=settled_summary,
     )
     write_metrics_snapshot(snapshot, out_dir)
     write_strategy_params(
@@ -1635,7 +1787,7 @@ def main() -> None:
     )
     if local_matched_df is not None and not local_matched_df.empty:
         check_metrics_snapshot_consistency(local_matched_df, out_dir)
-    update_last_run_trace(local_matched_df, export_path, snapshot)
+    update_last_run_trace(local_matched_df, export_path, snapshot, settled_2026_df)
 
     upcoming_filter_eval_and_reasons(
         upcoming_df=df_future,
@@ -1698,77 +1850,10 @@ def main() -> None:
         print(f"Total stake today   : {tot_stake:.2f} €")
         print(f"Total EV today (€)  : {flat_today['EV_€'].sum():.2f} €")
 
-    metrics_path = os.path.join("2026", "output", "LightGBM", "metrics_snapshot.json")
-    try:
-        os.makedirs(os.path.dirname(metrics_path), exist_ok=True)
-
-        def _safe_float(value):
-            try:
-                return float(value)
-            except (TypeError, ValueError):
-                return None
-
-        def _safe_int(value):
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                return None
-
-        def _format_last150(metrics: dict | None) -> dict:
-            if not metrics:
-                return {
-                    "n_trades": None,
-                    "win_rate_pct": None,
-                    "profit_eur": None,
-                    "roi_pct": None,
-                    "avg_ev_eur_per_100": None,
-                }
-            return {
-                "n_trades": _safe_int(metrics.get("n_trades")),
-                "win_rate_pct": _safe_float(metrics.get("win_rate_%")),
-                "profit_eur": _safe_float(metrics.get("profit_€")),
-                "roi_pct": _safe_float(metrics.get("roi_%")),
-                "avg_ev_eur_per_100": _safe_float(metrics.get("avg_EV_€_per_100")),
-            }
-
-        prob_threshold_value = None
-        if isinstance(params_used, dict):
-            prob_threshold_value = params_used.get("prob_threshold")
-
-        metrics = {
-            "generated_utc": f"{datetime.utcnow().isoformat()}Z",
-            "n_window": 200,
-            "deposit_eur": 1000,
-            "flat_stake_eur": 100,
-            "bankroll_last_200_eur": _safe_float(bankroll_window),
-            "bankroll_2026_ytd_eur": _safe_float(bankroll_2026),
-            "profit_2026_ytd_eur": _safe_float(-70.0),
-            "filters": {
-                "home_win_rate_threshold": _safe_float(
-                    params_used.get("home_win_rate_threshold") if isinstance(params_used, dict) else None
-                ),
-                "odds_min": _safe_float(params_used.get("odds_min") if isinstance(params_used, dict) else None),
-                "odds_max": _safe_float(params_used.get("odds_max") if isinstance(params_used, dict) else None),
-                "prob_threshold_used": _safe_float(
-                    max(float(prob_threshold_value), float(PROB_CLIP_LO))
-                    if prob_threshold_value is not None
-                    else None
-                ),
-            },
-            "local_last150": _format_last150(metrics_local_N),
-            "global_last150": _format_last150(metrics_global_N),
-        }
-
-        with open(metrics_path, "w", encoding="utf-8") as f:
-            json.dump(metrics, f, indent=2, ensure_ascii=False)
-        print(f"OK: metrics_snapshot.json saved: {metrics_path}")
-    except Exception as exc:
-        logging.warning("Unable to write metrics_snapshot.json: %s", exc)
-
     print("=== Script 5 finished ===")
     print("\n=== BANKROLL SUMMARY (BOTTOM SECTION) ===")
     print(f"Bankroll (Last 200 games window)   : {bankroll_window:.2f} €")
-    print("Bankroll (2026 YTD ONLY)           : -70.00 €")
+    print(f"Bankroll (2026 YTD ONLY)           : {bankroll_2026:.2f} €")
 
 
 if __name__ == "__main__":

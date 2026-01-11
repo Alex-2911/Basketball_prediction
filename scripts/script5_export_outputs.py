@@ -37,11 +37,101 @@ def resolve_source_root(base_dir: Path) -> Path:
 
 
 def find_bet_log(lightgbm_dir: Path) -> Path | None:
+    primary_flat = lightgbm_dir / "bet_log_flat_live.csv"
+    if primary_flat.exists():
+        return primary_flat
     primary = lightgbm_dir / "bet_log_live.csv"
     if primary.exists():
         return primary
+    flat_candidates = sorted(lightgbm_dir.glob("bet_log_flat_live_*.csv"))
+    if flat_candidates:
+        return flat_candidates[-1]
     candidates = sorted(lightgbm_dir.glob("bet_log_live_*.csv"))
     return candidates[-1] if candidates else None
+
+
+def find_combined_results(lightgbm_dir: Path) -> Path | None:
+    candidates = sorted(lightgbm_dir.glob("combined_nba_predictions_acc_*.csv"))
+    if candidates:
+        return candidates[-1]
+    candidates = sorted(lightgbm_dir.glob("combined_nba_predictions_*.csv"))
+    return candidates[-1] if candidates else None
+
+
+def _resolve_first_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
+    for col in candidates:
+        if col in df.columns:
+            return col
+    return None
+
+
+def _normalize_text(series: pd.Series) -> pd.Series:
+    return series.astype(str).str.strip().str.lower()
+
+
+def _normalize_date(df: pd.DataFrame, col: str) -> pd.Series:
+    return pd.to_datetime(df[col], errors="coerce").dt.strftime("%Y-%m-%d")
+
+
+def build_settled_bets(bet_log_df: pd.DataFrame, results_df: pd.DataFrame) -> pd.DataFrame:
+    if bet_log_df is None or bet_log_df.empty or results_df is None or results_df.empty:
+        return pd.DataFrame()
+
+    bet_df = bet_log_df.copy()
+    results = results_df.copy()
+
+    bet_date_col = _resolve_first_col(bet_df, ["date", "game_date"])
+    bet_home_col = _resolve_first_col(bet_df, ["home_team", "home", "team_home"])
+    bet_away_col = _resolve_first_col(bet_df, ["away_team", "away", "team_away"])
+    odds_col = _resolve_first_col(bet_df, ["odds_1", "odds", "home_odds", "closing_home_odds"])
+    stake_col = _resolve_first_col(bet_df, ["stake", "stake_eur", "stake_flat"])
+
+    if not bet_date_col or not bet_home_col or not bet_away_col:
+        return pd.DataFrame()
+
+    bet_df["date"] = _normalize_date(bet_df, bet_date_col)
+    bet_df["home_team"] = _normalize_text(bet_df[bet_home_col])
+    bet_df["away_team"] = _normalize_text(bet_df[bet_away_col])
+    bet_df["odds_1"] = pd.to_numeric(bet_df[odds_col], errors="coerce") if odds_col else pd.NA
+    bet_df["stake"] = pd.to_numeric(bet_df[stake_col], errors="coerce") if stake_col else pd.NA
+
+    results_date_col = _resolve_first_col(results, ["date", "game_date"])
+    results_home_col = _resolve_first_col(results, ["home_team", "home"])
+    results_away_col = _resolve_first_col(results, ["away_team", "away"])
+    results_win_col = _resolve_first_col(results, ["home_team_won", "win", "result"])
+
+    if not results_date_col or not results_home_col or not results_away_col or not results_win_col:
+        return pd.DataFrame()
+
+    results["date"] = _normalize_date(results, results_date_col)
+    results["home_team"] = _normalize_text(results[results_home_col])
+    results["away_team"] = _normalize_text(results[results_away_col])
+    results["win"] = pd.to_numeric(results[results_win_col], errors="coerce")
+
+    merged = bet_df.merge(
+        results[["date", "home_team", "away_team", "win"]],
+        on=["date", "home_team", "away_team"],
+        how="left",
+    )
+    merged = merged.dropna(subset=["stake", "odds_1"]).copy()
+
+    pnl_col = _resolve_first_col(merged, ["pnl", "profit_eur", "profit"])
+    if pnl_col:
+        merged["pnl"] = pd.to_numeric(merged[pnl_col], errors="coerce")
+    else:
+        merged["pnl"] = pd.NA
+
+    needs_pnl = merged["pnl"].isna() & merged["win"].notna()
+    merged.loc[needs_pnl, "pnl"] = pd.Series(
+        (merged.loc[needs_pnl, "stake"] * (merged.loc[needs_pnl, "odds_1"] - 1.0))
+        .where(merged.loc[needs_pnl, "win"] == 1, -merged.loc[needs_pnl, "stake"])
+    )
+
+    merged = merged.dropna(subset=["win", "pnl"]).copy()
+    merged["win"] = merged["win"].clip(lower=0, upper=1).astype(int)
+    merged = merged.drop_duplicates(subset=["date", "home_team", "away_team"])
+
+    return merged.sort_values("date").reset_index(drop=True)
 
 
 def compute_ev_per_100(prob_used: pd.Series, odds_1: pd.Series) -> pd.Series:
@@ -129,6 +219,8 @@ def build_metrics_snapshot(
 
     return {
         "meta": {"eval_base_date_max": as_of_date},
+        "params_used_type": os.environ.get("PARAMS_USED_TYPE", "LOCAL"),
+        "params_used": params,
         "realized": {
             "count": realized_count,
             "profit_sum": round(profit_sum, 2),
@@ -176,8 +268,18 @@ def main() -> int:
     else:
         raw_df = pd.read_csv(bet_log_path)
 
+    combined_path = find_combined_results(output_dir)
+    if combined_path is None:
+        combined_df = pd.DataFrame()
+    else:
+        combined_df = pd.read_csv(combined_path)
+
     default_stake = float(os.environ.get("STAKE", 100.0))
-    export_df = prepare_export_df(raw_df, default_stake)
+    if not raw_df.empty and not combined_df.empty:
+        settled_df = build_settled_bets(raw_df, combined_df)
+        export_df = prepare_export_df(settled_df, default_stake)
+    else:
+        export_df = prepare_export_df(raw_df, default_stake)
 
     env_as_of = os.environ.get("AS_OF_DATE")
     if env_as_of:
