@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-01-11T06:24:50.803900Z",
+  "generated_utc": "2026-01-11T17:22:34.338792Z",
   "n_window": 200,
   "deposit_eur": 1000,
   "flat_stake_eur": 100,
@@ -17,7 +17,7 @@
     "win_rate_pct": 70.0,
     "profit_eur": 491.0,
     "roi_pct": 49.1,
-    "avg_ev_eur_per_100": 40.86
+    "avg_ev_eur_per_100": 41.22
   },
   "global_last150": {
     "n_trades": 2,
