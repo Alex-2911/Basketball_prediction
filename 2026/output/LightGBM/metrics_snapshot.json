@@ -17,7 +17,7 @@
     "sharpe_style": 4.4935
   },
   "ev_stats": {
-    "mean": 51.86
+    "mean": 51.57
   },
   "filter_params": {
     "home_win_rate_threshold": 0.65,
@@ -28,7 +28,7 @@
   },
   "bankroll": {
     "deposit_eur": 1000.0,
-    "bankroll_last_200_eur": 1104.91,
+    "bankroll_last_200_eur": 1103.14,
     "bankroll_2026_ytd_eur": 1000.0,
     "profit_2026_ytd_eur": 0.0,
     "flat_stake_eur": 100.0
