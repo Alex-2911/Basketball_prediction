@@ -52,6 +52,7 @@ DATA_DIR = paths['DATA_DIR']
 STAT_DIR = paths['STAT_DIR']
 target_folder = paths['NEXT_GAME_DIR']
 directory_path = paths['PREDICTION_DIR']
+prediction_dirs = paths['PREDICTION_DIRS']
 
 
 def find_most_recent_prediction_file():
@@ -66,17 +67,16 @@ def find_most_recent_prediction_file():
 
         logging.info(f"Checking prediction file for date: {date_str}")
         filename = f"nba_games_predict_{date_str}.csv"
-        file_path = os.path.join(directory_path, filename)
-
-        if os.path.isfile(file_path):
-            file_found = True
-            logging.info(f"Found prediction file for {date_str}: {file_path}")
-            return [file_path], date_str
-        else:
-            days_back += 1
+        for prediction_dir in prediction_dirs:
+            file_path = os.path.join(prediction_dir, filename)
+            if os.path.isfile(file_path):
+                file_found = True
+                logging.info(f"Found prediction file for {date_str}: {file_path}")
+                return file_path, date_str, prediction_dir
+        days_back += 1
 
     logging.warning("No prediction file found in the last %d days.", MAX_DAYS_BACK)
-    return None, None
+    return None, None, None
 
 
 def find_most_recent_statistics_file():
@@ -94,7 +94,7 @@ def find_most_recent_statistics_file():
         return None
 
 
-def process_prediction_file(predict_file, last_prediction):
+def process_prediction_file(predict_file, last_prediction, prediction_dir):
     """
     Process the prediction file and update the combined predictions.
 
@@ -110,14 +110,14 @@ def process_prediction_file(predict_file, last_prediction):
         return None
 
     # Read prediction file; use default encoding and convert decimal comma to period
-    predict_df = pd.read_csv(predict_file[0])
+    predict_df = pd.read_csv(predict_file)
     # Normalize decimal columns in odds
     for col in ['odds 1', 'odds 2']:
         if col in predict_df.columns:
             predict_df[col] = predict_df[col].astype(str).str.replace(',', '.').astype(float)
 
     # Path for combined data (one file per prediction date)
-    combined_file_path = os.path.join(directory_path, f'combined_nba_predictions_acc_{last_prediction}.csv')
+    combined_file_path = os.path.join(prediction_dir, f'combined_nba_predictions_acc_{last_prediction}.csv')
     # Load existing combined file or create new
     try:
         combined_df = pd.read_csv(combined_file_path)
@@ -134,7 +134,7 @@ def process_prediction_file(predict_file, last_prediction):
     return combined_df
 
 
-def update_betting_statistics(combined_df, most_recent_date):
+def update_betting_statistics(combined_df, most_recent_date, prediction_dir):
     """
     Update betting statistics with actual game results.
 
@@ -188,7 +188,7 @@ def update_betting_statistics(combined_df, most_recent_date):
     logging.info(f"Accuracy for home_team_prob <= 0.40: {low_conf_home:.2%}")
 
     # Save updated DataFrame with today's date
-    save_path = os.path.join(directory_path, f'combined_nba_predictions_acc_{today_str_format}.csv')
+    save_path = os.path.join(prediction_dir, f'combined_nba_predictions_acc_{today_str_format}.csv')
     # Drop unnamed columns and NaNs
     season_df.drop(columns=['Unnamed: 8'], errors='ignore', inplace=True)
     season_df.dropna(inplace=True)
@@ -200,13 +200,13 @@ def update_betting_statistics(combined_df, most_recent_date):
 def main():
     """Main execution function for updating betting statistics."""
     # Find most recent prediction file
-    predict_file, last_prediction = find_most_recent_prediction_file()
+    predict_file, last_prediction, prediction_dir = find_most_recent_prediction_file()
     if not predict_file:
         print("No recent prediction file found.")
         return
 
     # Process prediction file
-    combined_df = process_prediction_file(predict_file, last_prediction)
+    combined_df = process_prediction_file(predict_file, last_prediction, prediction_dir)
     if combined_df is None:
         print("Failed to process prediction file.")
         return
@@ -218,7 +218,7 @@ def main():
         return
 
     # Update betting statistics
-    updated_df = update_betting_statistics(combined_df, most_recent_date)
+    updated_df = update_betting_statistics(combined_df, most_recent_date, prediction_dir)
     if updated_df is not None:
         print("Betting statistics updated successfully.")
     else:

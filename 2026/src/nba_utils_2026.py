@@ -163,11 +163,18 @@ def get_directory_paths() -> Dict[str, str]:
     base_dir = os.getcwd()  # repo root during Actions
     data_dir = os.path.join(base_dir, "2026", "output", "Gathering_Data")
     lgbm_dir = os.environ.get("LGBM_DIR")
-    prediction_dir = (
-        os.path.abspath(lgbm_dir)
-        if lgbm_dir
-        else os.path.join(base_dir, "2026", "LightGBM")
-    )
+    if lgbm_dir:
+        prediction_dir = os.path.abspath(lgbm_dir)
+        prediction_dirs = [prediction_dir]
+    else:
+        prediction_dirs = [
+            os.path.join(base_dir, "2026", "LightGBM"),
+            os.path.join(base_dir, "2026", "output", "LightGBM"),
+        ]
+        prediction_dir = next(
+            (path for path in prediction_dirs if os.path.exists(path)),
+            prediction_dirs[0],
+        )
 
     paths = {
         "BASE_DIR": base_dir,
@@ -181,10 +188,15 @@ def get_directory_paths() -> Dict[str, str]:
         ),
         "NEXT_GAME_DIR": os.path.join(data_dir, "Next_Game"),
         "PREDICTION_DIR": prediction_dir,
+        "PREDICTION_DIRS": prediction_dirs,
     }
 
     for p in paths.values():
-        os.makedirs(p, exist_ok=True)
+        if isinstance(p, str):
+            os.makedirs(p, exist_ok=True)
+
+    for pred_path in prediction_dirs:
+        os.makedirs(pred_path, exist_ok=True)
 
     return paths
 
