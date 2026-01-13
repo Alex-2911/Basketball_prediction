@@ -23,6 +23,8 @@ REQUIRED_COLUMNS = [
     "stake",
 ]
 
+STRATEGY_VARIANTS = {"acc", "iso"}
+
 
 def resolve_source_root(base_dir: Path) -> Path:
     source_root = os.environ.get("SOURCE_ROOT")
@@ -51,6 +53,11 @@ def find_bet_log(lightgbm_dir: Path) -> Path | None:
 
 
 def find_combined_results(lightgbm_dir: Path) -> Path | None:
+    strategy_variant = resolve_strategy_variant()
+    if strategy_variant == "iso":
+        kelly_dir = lightgbm_dir / "Kelly"
+        candidates = sorted(kelly_dir.glob("combined_nba_predictions_iso_*.csv"))
+        return candidates[-1] if candidates else None
     candidates = sorted(lightgbm_dir.glob("combined_nba_predictions_acc_*.csv"))
     if candidates:
         return candidates[-1]
@@ -61,6 +68,34 @@ def find_combined_results(lightgbm_dir: Path) -> Path | None:
 def find_local_matched(lightgbm_dir: Path) -> Path | None:
     candidates = sorted(lightgbm_dir.glob("local_matched_games_*.csv"))
     return candidates[-1] if candidates else None
+
+
+def resolve_strategy_variant() -> str:
+    raw = os.environ.get("STRATEGY_VARIANT")
+    if raw:
+        variant = raw.strip().lower()
+    else:
+        variant = "iso" if os.environ.get("CI") else "acc"
+    if variant not in STRATEGY_VARIANTS:
+        print(f"WARN: Unknown STRATEGY_VARIANT={raw}; defaulting to acc.")
+        return "acc"
+    return variant
+
+
+def resolve_strategy_variant_label(variant: str) -> str:
+    return "ISO/KELLY" if variant == "iso" else "ACC"
+
+
+def resolve_params_source(output_dir: Path, variant: str) -> Path:
+    env_path = os.environ.get("STRATEGY_PARAMS_PATH")
+    if env_path:
+        return Path(env_path)
+    if variant == "iso":
+        repo_root = Path(__file__).resolve().parents[1]
+        candidate = repo_root / "public" / "data" / "strategy_params.json"
+        if candidate.exists():
+            return candidate
+    return output_dir / "strategy_params.txt"
 
 
 def _resolve_first_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
@@ -208,6 +243,13 @@ def build_metrics_snapshot(
     stake: float,
     params: dict,
     min_ev: float,
+    strategy_variant: str,
+    strategy_variant_label: str,
+    params_source: str,
+    combined_file_path: str | None,
+    local_matched_games_source: str | None,
+    real_bets_available: bool,
+    real_bets_note: str,
 ) -> dict:
     realized_count = int(len(export_df))
     profit_sum = float(export_df["pnl"].sum()) if realized_count > 0 else 0.0
@@ -231,6 +273,13 @@ def build_metrics_snapshot(
                 "simulated_window_games": 200,
                 "live_bets_window": "2026 YTD",
             },
+            "strategy_variant": strategy_variant,
+            "strategy_variant_label": strategy_variant_label,
+            "params_source": params_source,
+            "combined_file_path": combined_file_path,
+            "local_matched_games_source": local_matched_games_source,
+            "real_bets_available": real_bets_available,
+            "real_bets_note": real_bets_note,
         },
         "params_used_type": os.environ.get("PARAMS_USED_TYPE", "LOCAL"),
         "params_used": params,
@@ -293,6 +342,11 @@ def main() -> int:
         output_dir = source_root / "LightGBM"
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    strategy_variant = resolve_strategy_variant()
+    strategy_variant_label = resolve_strategy_variant_label(strategy_variant)
+    params_source_path = resolve_params_source(output_dir, strategy_variant)
+    params_source = str(params_source_path)
+
     local_matched_path = find_local_matched(output_dir)
     if local_matched_path is None:
         local_df = pd.DataFrame()
@@ -312,16 +366,18 @@ def main() -> int:
         export_df = pd.DataFrame(columns=REQUIRED_COLUMNS)
 
     env_as_of = os.environ.get("AS_OF_DATE")
-    if env_as_of:
+    completed_date = _as_of_date_from_results(combined_df)
+    if completed_date:
+        as_of_date = completed_date
+        as_of_date_source = "combined_results"
+    elif env_as_of:
         as_of_date = env_as_of
+        as_of_date_source = "env_override"
+        print("WARN: Using AS_OF_DATE override; combined results unavailable.")
     else:
-        completed_date = _as_of_date_from_results(combined_df)
-        if completed_date:
-            as_of_date = completed_date
-        elif not export_df.empty and export_df["date"].notna().any():
-            as_of_date = str(export_df["date"].max())
-        else:
-            as_of_date = date.today().strftime("%Y-%m-%d")
+        as_of_date = date.today().strftime("%Y-%m-%d")
+        as_of_date_source = "fallback_today"
+        print("WARN: Using today's date; combined results unavailable.")
 
     params = {
         "home_win_rate_threshold": os.environ.get("HOME_WIN_RATE_THRESHOLD", 0.0),
@@ -331,12 +387,28 @@ def main() -> int:
     }
     min_ev = float(os.environ.get("MIN_EV", 0.0))
 
+    bet_log_path = find_bet_log(output_dir)
+    real_bets_available = bool(bet_log_path and bet_log_path.exists())
+    if not real_bets_available and os.environ.get("CI"):
+        real_bets_note = "not available in CI"
+    elif not real_bets_available:
+        real_bets_note = "not available"
+    else:
+        real_bets_note = "available"
+
     snapshot = build_metrics_snapshot(
         export_df,
         as_of_date=as_of_date,
         stake=default_stake,
         params=params,
         min_ev=min_ev,
+        strategy_variant=strategy_variant,
+        strategy_variant_label=strategy_variant_label,
+        params_source=params_source,
+        combined_file_path=str(combined_path) if combined_path else None,
+        local_matched_games_source=str(local_matched_path) if local_matched_path else None,
+        real_bets_available=real_bets_available,
+        real_bets_note=real_bets_note,
     )
 
     metrics_path = output_dir / "metrics_snapshot.json"
@@ -353,6 +425,20 @@ def main() -> int:
         min_ev=min_ev,
         params=params,
     )
+
+    summary_payload = {
+        "as_of_date": as_of_date,
+        "as_of_date_source": as_of_date_source,
+        "strategy_variant": strategy_variant,
+        "strategy_variant_label": strategy_variant_label,
+        "params_source": params_source,
+        "combined_file_path": str(combined_path) if combined_path else None,
+        "local_matched_games_source": str(local_matched_path) if local_matched_path else None,
+        "real_bets_available": real_bets_available,
+        "real_bets_note": real_bets_note,
+    }
+    summary_path = output_dir / "summary.json"
+    summary_path.write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
 
     realized = snapshot["realized"]
     if len(export_df) != realized["count"]:

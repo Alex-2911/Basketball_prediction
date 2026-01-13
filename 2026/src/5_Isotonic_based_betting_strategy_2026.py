@@ -101,6 +101,7 @@ LOCAL_SEARCH_N = 150
 FAIR_COMPARE_N = 200
 
 START_BANKROLL = 1000.0
+STRATEGY_VARIANTS = {"acc", "iso"}
 
 
 @dataclass
@@ -155,6 +156,8 @@ def resolve_dated_file(
     pred_dirs: list[str],
     prefix: str,
     target_ymd: str,
+    *,
+    latest_on_or_before: Optional[datetime] = None,
 ) -> Tuple[Optional[Path], Optional[str]]:
     for pred_dir in pred_dirs:
         candidate = Path(pred_dir) / f"{prefix}{target_ymd}.csv"
@@ -167,14 +170,57 @@ def resolve_dated_file(
             date_str = _extract_date_from_filename(candidate.name, prefix)
             if not date_str:
                 continue
-            dated_candidates.append((datetime.strptime(date_str, "%Y-%m-%d"), candidate, date_str))
+            candidate_date = datetime.strptime(date_str, "%Y-%m-%d")
+            if latest_on_or_before and candidate_date > latest_on_or_before:
+                continue
+            dated_candidates.append((candidate_date, candidate, date_str))
 
     if not dated_candidates:
         return None, None
 
     latest_date, latest_path, latest_str = max(dated_candidates, key=lambda item: item[0])
-    logging.info("Falling back to latest %s file (%s).", prefix.rstrip("_"), latest_date.date())
+    logging.info(
+        "Falling back to latest %s file (%s).",
+        prefix.rstrip("_"),
+        latest_date.date(),
+    )
     return latest_path, latest_str
+
+
+def resolve_strategy_variant() -> str:
+    raw = os.environ.get("STRATEGY_VARIANT")
+    if raw:
+        variant = raw.strip().lower()
+    else:
+        variant = "iso" if os.environ.get("CI") else "acc"
+    if variant not in STRATEGY_VARIANTS:
+        logging.warning("Unknown STRATEGY_VARIANT=%s; defaulting to acc.", raw)
+        return "acc"
+    return variant
+
+
+def resolve_strategy_variant_label(variant: str) -> str:
+    return "ISO/KELLY" if variant == "iso" else "ACC"
+
+
+def resolve_params_source(output_dir: Path, variant: str) -> Path:
+    env_path = os.environ.get("STRATEGY_PARAMS_PATH")
+    if env_path:
+        return Path(env_path)
+    if variant == "iso":
+        repo_root = Path(__file__).resolve().parents[2]
+        candidate = repo_root / "public" / "data" / "strategy_params.json"
+        if candidate.exists():
+            return candidate
+    return output_dir / "strategy_params.txt"
+
+
+def write_summary(output_dir: Path, payload: dict) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = output_dir / "summary.json"
+    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    logging.info("Saved summary to %s", out_path)
+    return out_path
 
 
 def load_combined_df(pred_dir: str, ymd_str: str) -> pd.DataFrame:
@@ -1209,6 +1255,13 @@ def build_metrics_snapshot(
     min_ev: float,
     as_of_date: str,
     stake: float,
+    strategy_variant: str,
+    strategy_variant_label: str,
+    params_source: str,
+    combined_file_path: str,
+    local_matched_games_source: str | None,
+    real_bets_available: bool,
+    real_bets_note: str,
     bankroll_window: float | None = None,
     bankroll_2026: float | None = None,
     profit_2026: float | None = None,
@@ -1239,6 +1292,13 @@ def build_metrics_snapshot(
                 "simulated_window_games": FAIR_COMPARE_N,
                 "live_bets_window": "2026 YTD",
             },
+            "strategy_variant": strategy_variant,
+            "strategy_variant_label": strategy_variant_label,
+            "params_source": params_source,
+            "combined_file_path": combined_file_path,
+            "local_matched_games_source": local_matched_games_source,
+            "real_bets_available": real_bets_available,
+            "real_bets_note": real_bets_note,
         },
         "params_used_type": params_used_type,
         "params_used": params_used,
@@ -1360,6 +1420,8 @@ def update_last_run_trace(
     export_path: Path | None,
     snapshot: dict,
     settled_bets_df: pd.DataFrame | None,
+    real_bets_available: bool,
+    real_bets_note: str,
 ) -> None:
     repo_root = Path(__file__).resolve().parents[2]
     trace_path = repo_root / "public" / "data" / "last_run.json"
@@ -1382,14 +1444,21 @@ def update_last_run_trace(
         settled_2026["date"] = pd.to_datetime(settled_2026["date"], errors="coerce")
         settled_2026 = settled_2026[settled_2026["date"].dt.year == 2026]
 
-    net_pl = float(settled_2026["pnl"].sum()) if not settled_2026.empty else 0.0
-    stake_sum = float(settled_2026["stake"].sum()) if not settled_2026.empty else 0.0
-    win_count = int(settled_2026["win"].sum()) if not settled_2026.empty else 0
-    settled_count = int(len(settled_2026))
-    avg_odds = float(settled_2026["odds_1"].mean()) if not settled_2026.empty else 0.0
+    if real_bets_available and not settled_2026.empty:
+        net_pl = float(settled_2026["pnl"].sum())
+        stake_sum = float(settled_2026["stake"].sum())
+        win_count = int(settled_2026["win"].sum())
+        settled_count = int(len(settled_2026))
+        avg_odds = float(settled_2026["odds_1"].mean())
+    else:
+        net_pl = None
+        stake_sum = 0.0
+        win_count = 0
+        settled_count = 0
+        avg_odds = None
 
-    bankroll_start = float(START_BANKROLL)
-    bankroll_end = bankroll_start + net_pl
+    bankroll_start = float(START_BANKROLL) if real_bets_available else None
+    bankroll_end = (bankroll_start + net_pl) if bankroll_start is not None and net_pl is not None else None
 
     trace_data.update(
         {
@@ -1399,14 +1468,16 @@ def update_last_run_trace(
             else settled_rows,
             "local_matched_games_rows_settled": settled_rows,
             "local_matched_games_profit_sum_table": round(profit_sum, 2),
-            "bankroll_2026_start": round(bankroll_start, 2),
-            "bankroll_2026_net_pl": round(net_pl, 2),
-            "bankroll_2026_end": round(bankroll_end, 2),
+            "bankroll_2026_start": round(bankroll_start, 2) if bankroll_start is not None else None,
+            "bankroll_2026_net_pl": round(net_pl, 2) if net_pl is not None else None,
+            "bankroll_2026_end": round(bankroll_end, 2) if bankroll_end is not None else None,
             "settled_bets_2026_count": settled_count,
             "settled_bets_2026_wins": win_count,
-            "settled_bets_2026_profit_sum": round(net_pl, 2),
-            "settled_bets_2026_roi": round(net_pl / stake_sum, 4) if stake_sum else 0.0,
-            "settled_bets_2026_avg_odds": round(avg_odds, 2) if settled_count else 0.0,
+            "settled_bets_2026_profit_sum": round(net_pl, 2) if net_pl is not None else None,
+            "settled_bets_2026_roi": round(net_pl / stake_sum, 4) if net_pl is not None and stake_sum else None,
+            "settled_bets_2026_avg_odds": round(avg_odds, 2) if avg_odds is not None else None,
+            "real_bets_available": real_bets_available,
+            "real_bets_note": real_bets_note,
         }
     )
 
@@ -1623,11 +1694,15 @@ def main() -> None:
 
     paths = get_directory_paths()
     pred_dirs = paths["PREDICTION_DIRS"]
+    strategy_variant = resolve_strategy_variant()
+    strategy_variant_label = resolve_strategy_variant_label(strategy_variant)
+    logging.info("Strategy variant: %s", strategy_variant_label)
 
     combined_path, combined_date = resolve_dated_file(
         pred_dirs,
         "combined_nba_predictions_acc_",
         target_ymd,
+        latest_on_or_before=target_dt,
     )
     if not combined_path or not combined_date:
         raise FileNotFoundError("No combined_nba_predictions_acc_*.csv files found in prediction dirs.")
@@ -1643,6 +1718,8 @@ def main() -> None:
     out_dir = resolve_output_dir(paths["BASE_DIR"], pred_dir)
     kelly_dir = os.path.join(pred_dir, "Kelly")
     os.makedirs(kelly_dir, exist_ok=True)
+    params_source_path = resolve_params_source(out_dir, strategy_variant)
+    params_source = str(params_source_path)
 
     # 1) LOAD COMBINED
     df_all = load_combined_df(pred_dir, target_ymd)
@@ -1664,6 +1741,7 @@ def main() -> None:
         pred_dirs,
         "nba_games_predict_",
         target_ymd,
+        latest_on_or_before=target_dt,
     )
     if today_pred_path and today_pred_date and today_pred_date != target_ymd:
         logging.info(
@@ -1723,6 +1801,11 @@ def main() -> None:
     iso_path = os.path.join(kelly_dir, f"combined_nba_predictions_iso_{target_ymd}.csv")
     df_all.to_csv(iso_path, index=False, encoding="utf-8")
     logging.info("Saved full dataframe with %s to %s", ISO_COL, iso_path)
+    combined_source_path = (
+        Path(iso_path).resolve()
+        if strategy_variant == "iso"
+        else combined_path.resolve()
+    )
 
     min_EV = MIN_EV_DEFAULT
     print("\nMin EV applied =", int(min_EV) if min_EV == int(min_EV) else min_EV)
@@ -1819,28 +1902,45 @@ def main() -> None:
         bet_log_df = pd.read_csv(bet_log_path)
         settled_bets_df = build_settled_bets(bet_log_df, df_past)
 
+    is_ci = bool(os.environ.get("CI"))
+    real_bets_available = bool(bet_log_path and bet_log_path.exists())
+    if not real_bets_available and is_ci:
+        real_bets_note = "not available in CI"
+    elif not real_bets_available:
+        real_bets_note = "not available"
+    else:
+        real_bets_note = "available"
+
     if not settled_bets_df.empty:
         settled_bets_df["date"] = pd.to_datetime(settled_bets_df["date"], errors="coerce")
         settled_2026_df = settled_bets_df[settled_bets_df["date"].dt.year == 2026].copy()
     else:
         settled_2026_df = pd.DataFrame()
 
-    profit_2026 = float(settled_2026_df["pnl"].sum()) if not settled_2026_df.empty else 0.0
-    bankroll_2026 = float(START_BANKROLL) + profit_2026
-    stake_sum_2026 = float(settled_2026_df["stake"].sum()) if not settled_2026_df.empty else 0.0
-    settled_summary = {
-        "count": int(len(settled_2026_df)),
-        "wins": int(settled_2026_df["win"].sum()) if not settled_2026_df.empty else 0,
-        "profit_sum": round(profit_2026, 2),
-        "roi": round(profit_2026 / stake_sum_2026, 4) if stake_sum_2026 else 0.0,
-        "avg_odds": round(float(settled_2026_df["odds_1"].mean()), 2) if not settled_2026_df.empty else 0.0,
-    }
+    if real_bets_available:
+        profit_2026 = float(settled_2026_df["pnl"].sum()) if not settled_2026_df.empty else 0.0
+        bankroll_2026 = float(START_BANKROLL) + profit_2026
+        stake_sum_2026 = float(settled_2026_df["stake"].sum()) if not settled_2026_df.empty else 0.0
+        settled_summary = {
+            "count": int(len(settled_2026_df)),
+            "wins": int(settled_2026_df["win"].sum()) if not settled_2026_df.empty else 0,
+            "profit_sum": round(profit_2026, 2),
+            "roi": round(profit_2026 / stake_sum_2026, 4) if stake_sum_2026 else 0.0,
+            "avg_odds": round(float(settled_2026_df["odds_1"].mean()), 2) if not settled_2026_df.empty else 0.0,
+        }
+    else:
+        profit_2026 = None
+        bankroll_2026 = None
+        settled_summary = None
 
     print("\n=== APPLIED FILTER VALUES ===")
     print("Window size used for bankroll calculation        : 200")
     print("Initial deposit 2026                            : 1000 €")
     print("Flat stake per game (2026)                      : 100 €")
-    print(f"Bankroll result for 2026 YTD                    : {profit_2026:.2f} €")
+    if real_bets_available:
+        print(f"Bankroll result for 2026 YTD                    : {profit_2026:.2f} €")
+    else:
+        print("Bankroll result for 2026 YTD                    : not available")
 
     if matched_window_df is None or matched_window_df.empty:
         local_matched_df = pd.DataFrame()
@@ -1852,6 +1952,11 @@ def main() -> None:
     local_matched_df.to_csv(local_export_path, index=False)
     print(f"\nCSV Export saved: {local_export_path}")
     as_of_date = _as_of_date_from_df(df_past, fallback=target_ymd)
+    export_path = export_local_matched_games_settled(
+        local_matched_df,
+        output_dir=out_dir,
+        as_of_date=as_of_date,
+    )
     snapshot = build_metrics_snapshot(
         local_matched_df,
         params_used=params_used,
@@ -1859,6 +1964,13 @@ def main() -> None:
         min_ev=min_EV,
         as_of_date=as_of_date,
         stake=FLAT_STAKE,
+        strategy_variant=strategy_variant,
+        strategy_variant_label=strategy_variant_label,
+        params_source=params_source,
+        combined_file_path=str(combined_source_path),
+        local_matched_games_source=str(export_path) if export_path else None,
+        real_bets_available=real_bets_available,
+        real_bets_note=real_bets_note,
         bankroll_window=bankroll_window,
         bankroll_2026=bankroll_2026,
         profit_2026=profit_2026,
@@ -1872,14 +1984,29 @@ def main() -> None:
         stake=FLAT_STAKE,
         output_dir=out_dir,
     )
-    export_path = export_local_matched_games_settled(
-        local_matched_df,
-        output_dir=out_dir,
-        as_of_date=as_of_date,
-    )
     if local_matched_df is not None and not local_matched_df.empty:
         check_metrics_snapshot_consistency(local_matched_df, out_dir)
-    update_last_run_trace(local_matched_df, export_path, snapshot, settled_2026_df)
+    update_last_run_trace(
+        local_matched_df,
+        export_path,
+        snapshot,
+        settled_2026_df,
+        real_bets_available,
+        real_bets_note,
+    )
+
+    summary_payload = {
+        "as_of_date": as_of_date,
+        "as_of_date_source": "combined_results",
+        "strategy_variant": strategy_variant,
+        "strategy_variant_label": strategy_variant_label,
+        "params_source": params_source,
+        "combined_file_path": str(combined_source_path),
+        "local_matched_games_source": str(export_path) if export_path else None,
+        "real_bets_available": real_bets_available,
+        "real_bets_note": real_bets_note,
+    }
+    write_summary(out_dir, summary_payload)
 
     upcoming_filter_eval_and_reasons(
         upcoming_df=df_future,
@@ -1945,7 +2072,10 @@ def main() -> None:
     print("=== Script 5 finished ===")
     print("\n=== BANKROLL SUMMARY (BOTTOM SECTION) ===")
     print(f"Bankroll (Last 200 games window)   : {bankroll_window:.2f} €")
-    print(f"Bankroll (2026 YTD ONLY)           : {bankroll_2026:.2f} €")
+    if bankroll_2026 is None:
+        print("Bankroll (2026 YTD ONLY)           : not available")
+    else:
+        print(f"Bankroll (2026 YTD ONLY)           : {bankroll_2026:.2f} €")
 
 
 if __name__ == "__main__":
