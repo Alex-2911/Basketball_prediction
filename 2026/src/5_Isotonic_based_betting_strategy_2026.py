@@ -140,6 +140,43 @@ def to_float_series(s: pd.Series) -> pd.Series:
     )
 
 
+def _extract_date_from_filename(filename: str, prefix: str) -> Optional[str]:
+    if not filename.startswith(prefix) or not filename.endswith(".csv"):
+        return None
+    date_str = filename[len(prefix):-4]
+    try:
+        datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        return None
+    return date_str
+
+
+def resolve_dated_file(
+    pred_dirs: list[str],
+    prefix: str,
+    target_ymd: str,
+) -> Tuple[Optional[Path], Optional[str]]:
+    for pred_dir in pred_dirs:
+        candidate = Path(pred_dir) / f"{prefix}{target_ymd}.csv"
+        if candidate.exists():
+            return candidate, target_ymd
+
+    dated_candidates: list[tuple[datetime, Path, str]] = []
+    for pred_dir in pred_dirs:
+        for candidate in Path(pred_dir).glob(f"{prefix}*.csv"):
+            date_str = _extract_date_from_filename(candidate.name, prefix)
+            if not date_str:
+                continue
+            dated_candidates.append((datetime.strptime(date_str, "%Y-%m-%d"), candidate, date_str))
+
+    if not dated_candidates:
+        return None, None
+
+    latest_date, latest_path, latest_str = max(dated_candidates, key=lambda item: item[0])
+    logging.info("Falling back to latest %s file (%s).", prefix.rstrip("_"), latest_date.date())
+    return latest_path, latest_str
+
+
 def load_combined_df(pred_dir: str, ymd_str: str) -> pd.DataFrame:
     """
     Load combined_nba_predictions_acc_YYYY-MM-DD.csv and guarantee that
@@ -240,17 +277,15 @@ def load_combined_df(pred_dir: str, ymd_str: str) -> pd.DataFrame:
 
 def merge_today_predictions(
     df_all: pd.DataFrame,
-    pred_dir: str,
-    ymd_str: str,
+    today_pred_path: Optional[Path],
     today_date,
 ) -> pd.DataFrame:
     """
     Merge in upcoming games from nba_games_predict_YYYY-MM-DD.csv
     if they are not already present in df_all.
     """
-    today_pred_path = os.path.join(pred_dir, f"nba_games_predict_{ymd_str}.csv")
-    if not os.path.exists(today_pred_path):
-        logging.info("No TODAY_PRED file found (%s) – skipping merge of upcoming games.", today_pred_path)
+    if not today_pred_path or not today_pred_path.exists():
+        logging.info("No TODAY_PRED file found – skipping merge of upcoming games.")
         return df_all
 
     logging.info("Merging upcoming games from %s", today_pred_path)
@@ -942,10 +977,19 @@ def resolve_output_dir(base_dir: str, prediction_dir: str) -> Path:
             return out_dir
 
     base_path = Path(base_dir)
-    out_dir = base_path / "2026" / "LightGBM"
-    if out_dir.exists() or base_path.exists():
-        out_dir.mkdir(parents=True, exist_ok=True)
-        return out_dir
+    primary_out_dir = base_path / "2026" / "LightGBM"
+    if primary_out_dir.exists():
+        primary_out_dir.mkdir(parents=True, exist_ok=True)
+        return primary_out_dir
+
+    fallback_out_dir = base_path / "2026" / "output" / "LightGBM"
+    if fallback_out_dir.exists():
+        fallback_out_dir.mkdir(parents=True, exist_ok=True)
+        return fallback_out_dir
+
+    if base_path.exists():
+        primary_out_dir.mkdir(parents=True, exist_ok=True)
+        return primary_out_dir
 
     out_dir = Path(prediction_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1578,7 +1622,24 @@ def main() -> None:
     tomorrow_date = (target_dt + timedelta(days=1)).date()
 
     paths = get_directory_paths()
-    pred_dir = paths["PREDICTION_DIR"]
+    pred_dirs = paths["PREDICTION_DIRS"]
+
+    combined_path, combined_date = resolve_dated_file(
+        pred_dirs,
+        "combined_nba_predictions_acc_",
+        target_ymd,
+    )
+    if not combined_path or not combined_date:
+        raise FileNotFoundError("No combined_nba_predictions_acc_*.csv files found in prediction dirs.")
+
+    if combined_date != target_ymd:
+        logging.info("No combined file for %s; using latest available %s.", target_ymd, combined_date)
+        target_ymd = combined_date
+        target_dt = datetime.strptime(target_ymd, "%Y-%m-%d")
+        today_date = target_dt.date()
+        tomorrow_date = (target_dt + timedelta(days=1)).date()
+
+    pred_dir = str(combined_path.parent)
     out_dir = resolve_output_dir(paths["BASE_DIR"], pred_dir)
     kelly_dir = os.path.join(pred_dir, "Kelly")
     os.makedirs(kelly_dir, exist_ok=True)
@@ -1599,7 +1660,22 @@ def main() -> None:
     hwr_path = compute_home_win_rates(df_all, target_ymd, pred_dir)
 
     # 2) MERGE TODAY'S PREDICTIONS (if any) TO GET FUTURE GAMES INTO df_all
-    df_all = merge_today_predictions(df_all, pred_dir, target_ymd, today_date)
+    today_pred_path, today_pred_date = resolve_dated_file(
+        pred_dirs,
+        "nba_games_predict_",
+        target_ymd,
+    )
+    if today_pred_path and today_pred_date and today_pred_date != target_ymd:
+        logging.info(
+            "No nba_games_predict file for %s; using latest available %s.",
+            target_ymd,
+            today_pred_date,
+        )
+        pred_date = datetime.strptime(today_pred_date, "%Y-%m-%d").date()
+    else:
+        pred_date = today_date
+
+    df_all = merge_today_predictions(df_all, today_pred_path, pred_date)
 
     # 3) ATTACH HOME WIN RATE (file exists for sure)
     df_all = attach_home_win_rate(df_all, hwr_path)
