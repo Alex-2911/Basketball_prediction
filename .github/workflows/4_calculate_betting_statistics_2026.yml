@@ -18,6 +18,8 @@ jobs:
   update_betting_stats_and_shortlist:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    env:
+      STRATEGY_VARIANT: iso
 
     steps:
       - name: Checkout repository (branch 2026)
