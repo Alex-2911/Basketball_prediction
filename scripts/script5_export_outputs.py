@@ -58,6 +58,11 @@ def find_combined_results(lightgbm_dir: Path) -> Path | None:
     return candidates[-1] if candidates else None
 
 
+def find_local_matched(lightgbm_dir: Path) -> Path | None:
+    candidates = sorted(lightgbm_dir.glob("local_matched_games_*.csv"))
+    return candidates[-1] if candidates else None
+
+
 def _resolve_first_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
     for col in candidates:
         if col in df.columns:
@@ -218,7 +223,15 @@ def build_metrics_snapshot(
             sharpe_style = pnl_mean / pnl_std
 
     return {
-        "meta": {"eval_base_date_max": as_of_date},
+        "meta": {
+            "eval_base_date_max": as_of_date,
+            "strategy_results_label": "Simulated (last 200 games window)",
+            "live_bets_label": "Live bets (2026 YTD, unfiltered)",
+            "data_scopes": {
+                "simulated_window_games": 200,
+                "live_bets_window": "2026 YTD",
+            },
+        },
         "params_used_type": os.environ.get("PARAMS_USED_TYPE", "LOCAL"),
         "params_used": params,
         "realized": {
@@ -237,6 +250,20 @@ def build_metrics_snapshot(
             "min_EV": float(min_ev),
         },
     }
+
+
+def _as_of_date_from_results(df: pd.DataFrame) -> str | None:
+    if df is None or df.empty:
+        return None
+    date_col = _resolve_first_col(df, ["date", "game_date"])
+    result_col = _resolve_first_col(df, ["home_team_won", "win", "result"])
+    if not date_col or not result_col:
+        return None
+    date_vals = pd.to_datetime(df[date_col], errors="coerce")
+    mask = df[result_col].notna()
+    if mask.any():
+        return date_vals[mask].max().strftime("%Y-%m-%d")
+    return None
 
 
 def write_strategy_params(output_dir: Path, *, as_of_date: str, stake: float, min_ev: float, params: dict) -> Path:
@@ -258,15 +285,19 @@ def write_strategy_params(output_dir: Path, *, as_of_date: str, stake: float, mi
 
 def main() -> int:
     base_dir = Path(__file__).resolve().parents[1]
-    source_root = resolve_source_root(base_dir)
-    output_dir = source_root / "output" / "LightGBM"
+    lgbm_dir = os.environ.get("LGBM_DIR")
+    if lgbm_dir:
+        output_dir = Path(lgbm_dir)
+    else:
+        source_root = resolve_source_root(base_dir)
+        output_dir = source_root / "LightGBM"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    bet_log_path = find_bet_log(output_dir)
-    if bet_log_path is None:
-        raw_df = pd.DataFrame()
+    local_matched_path = find_local_matched(output_dir)
+    if local_matched_path is None:
+        local_df = pd.DataFrame()
     else:
-        raw_df = pd.read_csv(bet_log_path)
+        local_df = pd.read_csv(local_matched_path)
 
     combined_path = find_combined_results(output_dir)
     if combined_path is None:
@@ -275,19 +306,22 @@ def main() -> int:
         combined_df = pd.read_csv(combined_path)
 
     default_stake = float(os.environ.get("STAKE", 100.0))
-    if not raw_df.empty and not combined_df.empty:
-        settled_df = build_settled_bets(raw_df, combined_df)
-        export_df = prepare_export_df(settled_df, default_stake)
+    if not local_df.empty:
+        export_df = prepare_export_df(local_df, default_stake)
     else:
-        export_df = prepare_export_df(raw_df, default_stake)
+        export_df = pd.DataFrame(columns=REQUIRED_COLUMNS)
 
     env_as_of = os.environ.get("AS_OF_DATE")
     if env_as_of:
         as_of_date = env_as_of
-    elif not export_df.empty and export_df["date"].notna().any():
-        as_of_date = str(export_df["date"].max())
     else:
-        as_of_date = date.today().strftime("%Y-%m-%d")
+        completed_date = _as_of_date_from_results(combined_df)
+        if completed_date:
+            as_of_date = completed_date
+        elif not export_df.empty and export_df["date"].notna().any():
+            as_of_date = str(export_df["date"].max())
+        else:
+            as_of_date = date.today().strftime("%Y-%m-%d")
 
     params = {
         "home_win_rate_threshold": os.environ.get("HOME_WIN_RATE_THRESHOLD", 0.0),
@@ -308,8 +342,9 @@ def main() -> int:
     metrics_path = output_dir / "metrics_snapshot.json"
     metrics_path.write_text(json.dumps(snapshot, indent=2), encoding="utf-8")
 
-    export_path = output_dir / f"local_matched_games_{as_of_date}.csv"
-    export_df.to_csv(export_path, index=False, encoding="utf-8")
+    if not export_df.empty:
+        export_path = output_dir / f"local_matched_games_{as_of_date}.csv"
+        export_df.to_csv(export_path, index=False, encoding="utf-8")
 
     write_strategy_params(
         output_dir,

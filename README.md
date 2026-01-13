@@ -10,7 +10,7 @@ This repository automates the complete **end-to-end NBA prediction pipeline**, i
 - Fully automated via **GitHub Actions**
 
 All outputs are saved under:  
-`2026/output/LightGBM/`
+`2026/LightGBM/`
 
 ---
 
@@ -103,7 +103,6 @@ If no bets pass the filters, the shortlist may be empty.
 │   ├── 5_isotonic_based_betting_strategy_2026.py
 │   └── nba_utils_2026.py
 │
-└── output/
     └── LightGBM/
         ├── Kelly/
         ├── bet logs (bet_log_YYYY-MM-DD.csv)
@@ -120,7 +119,7 @@ If no bets pass the filters, the shortlist may be empty.
 This repo separates **historical model performance**, **strategy simulations**, and **real placed bets** to avoid mixing simulated and real-world results.
 
 ### ✅ Windowed Historical Results (Last 200 Games)
-**Source:** `combined_nba_predictions_*` (outputs under `2026/output/LightGBM/`)  
+**Source:** `combined_nba_predictions_*` (outputs under `2026/LightGBM/`)  
 **Used for:**
 - Overall accuracy
 - Calibration metrics (Brier, LogLoss, ECE, Slope)

@@ -162,6 +162,12 @@ def get_directory_paths() -> Dict[str, str]:
     """
     base_dir = os.getcwd()  # repo root during Actions
     data_dir = os.path.join(base_dir, "2026", "output", "Gathering_Data")
+    lgbm_dir = os.environ.get("LGBM_DIR")
+    prediction_dir = (
+        os.path.abspath(lgbm_dir)
+        if lgbm_dir
+        else os.path.join(base_dir, "2026", "LightGBM")
+    )
 
     paths = {
         "BASE_DIR": base_dir,
@@ -174,9 +180,7 @@ def get_directory_paths() -> Dict[str, str]:
             data_dir, "data", f"{CURRENT_SEASON}_scores"
         ),
         "NEXT_GAME_DIR": os.path.join(data_dir, "Next_Game"),
-        "PREDICTION_DIR": os.path.join(
-            base_dir, "2026", "output", "LightGBM"
-        ),
+        "PREDICTION_DIR": prediction_dir,
     }
 
     for p in paths.values():
