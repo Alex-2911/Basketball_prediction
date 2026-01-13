@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SOURCE_ROOT="${SOURCE_ROOT:-$(pwd)/2026}"
+LGBM_DIR="${LGBM_DIR:-${SOURCE_ROOT}/LightGBM}"
 N_WINDOW="${N_WINDOW:-200}"
 
 if [[ ! -d "${SOURCE_ROOT}" ]]; then
@@ -10,14 +11,13 @@ if [[ ! -d "${SOURCE_ROOT}" ]]; then
 fi
 
 export SOURCE_ROOT
+export LGBM_DIR
 export N_WINDOW
 
-mkdir -p "${SOURCE_ROOT}/output/LightGBM"
+mkdir -p "${LGBM_DIR}"
 
-python scripts/script5_export_outputs.py
-
-metrics_path="${SOURCE_ROOT}/output/LightGBM/metrics_snapshot.json"
-strategy_path="${SOURCE_ROOT}/output/LightGBM/strategy_params.txt"
+metrics_path="${LGBM_DIR}/metrics_snapshot.json"
+strategy_path="${LGBM_DIR}/strategy_params.txt"
 
 if [[ ! -f "${metrics_path}" ]]; then
   echo "ERROR: metrics_snapshot.json missing at ${metrics_path}" >&2
@@ -34,8 +34,7 @@ as_of_date="$(
 import json
 from pathlib import Path
 import os
-source_root = os.environ.get("SOURCE_ROOT", ".")
-path = Path(source_root) / "output" / "LightGBM" / "metrics_snapshot.json"
+path = Path(os.environ.get("LGBM_DIR", "."))
 data = json.loads(path.read_text(encoding="utf-8"))
 print(data.get("meta", {}).get("eval_base_date_max", ""))
 PY
@@ -46,10 +45,14 @@ if [[ -z "${as_of_date}" ]]; then
   exit 1
 fi
 
-matched_path="${SOURCE_ROOT}/output/LightGBM/local_matched_games_${as_of_date}.csv"
+matched_path="${LGBM_DIR}/local_matched_games_${as_of_date}.csv"
 if [[ ! -f "${matched_path}" ]]; then
   echo "ERROR: local_matched_games output missing at ${matched_path}" >&2
   exit 1
 fi
+if [[ "$(wc -l < "${matched_path}")" -le 1 ]]; then
+  echo "ERROR: local_matched_games output is empty at ${matched_path}" >&2
+  exit 1
+fi
 
-echo "Pipeline outputs ready in ${SOURCE_ROOT}/output/LightGBM"
+echo "Pipeline outputs ready in ${LGBM_DIR}"

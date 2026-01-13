@@ -8,7 +8,7 @@ Step 5 of the 2026 pipeline (GitHub version, aligned with local notebook):
 
 1) Load combined historical predictions:
        combined_nba_predictions_acc_YYYY-MM-DD.csv
-   from 2026/output/LightGBM
+   from 2026/LightGBM
 
 2) Make sure the following columns exist (creating them if necessary):
    - game_date           (from 'date')
@@ -927,16 +927,22 @@ def export_local_matched_games(
 
 
 def resolve_output_dir(base_dir: str, prediction_dir: str) -> Path:
+    lgbm_dir = os.environ.get("LGBM_DIR")
+    if lgbm_dir:
+        out_dir = Path(lgbm_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        return out_dir
+
     source_root = os.environ.get("SOURCE_ROOT")
     if source_root:
         source_path = Path(source_root)
         if source_path.exists():
-            out_dir = source_path / "output" / "LightGBM"
+            out_dir = source_path / "LightGBM"
             out_dir.mkdir(parents=True, exist_ok=True)
             return out_dir
 
     base_path = Path(base_dir)
-    out_dir = base_path / "2026" / "output" / "LightGBM"
+    out_dir = base_path / "2026" / "LightGBM"
     if out_dir.exists() or base_path.exists():
         out_dir.mkdir(parents=True, exist_ok=True)
         return out_dir
@@ -953,6 +959,13 @@ def _as_of_date_from_df(df: pd.DataFrame, fallback: str) -> str:
     if date_col not in df.columns:
         return fallback
     date_vals = pd.to_datetime(df[date_col], errors="coerce")
+    result_col = None
+    for candidate in (RESULT_COL, "win", "home_team_won", "result"):
+        if candidate in df.columns:
+            result_col = candidate
+            break
+    if result_col:
+        date_vals = date_vals[df[result_col].notna()]
     if date_vals.notna().any():
         return date_vals.max().strftime("%Y-%m-%d")
     return fallback
@@ -1176,6 +1189,12 @@ def build_metrics_snapshot(
     snapshot = {
         "meta": {
             "eval_base_date_max": as_of_date,
+            "strategy_results_label": f"Simulated (last {FAIR_COMPARE_N} games window)",
+            "live_bets_label": "Live bets (2026 YTD, unfiltered)",
+            "data_scopes": {
+                "simulated_window_games": FAIR_COMPARE_N,
+                "live_bets_window": "2026 YTD",
+            },
         },
         "params_used_type": params_used_type,
         "params_used": params_used,
@@ -1751,15 +1770,12 @@ def main() -> None:
         local_matched_df = pd.DataFrame()
     else:
         local_matched_df = prepare_local_matched_export(matched_window_df, stake=FLAT_STAKE)
-    export_dir = "2026/output/LightGBM"
-    os.makedirs(export_dir, exist_ok=True)
-    local_export_path = os.path.join(
-        export_dir,
-        f"local_matched_df_export_{datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')}.csv",
-    )
+    export_dir = out_dir
+    export_dir.mkdir(parents=True, exist_ok=True)
+    local_export_path = export_dir / f"local_matched_df_export_{datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
     local_matched_df.to_csv(local_export_path, index=False)
     print(f"\nCSV Export saved: {local_export_path}")
-    as_of_date = _as_of_date_from_df(matched_window_df, fallback=target_ymd)
+    as_of_date = _as_of_date_from_df(df_past, fallback=target_ymd)
     snapshot = build_metrics_snapshot(
         local_matched_df,
         params_used=params_used,

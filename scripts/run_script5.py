@@ -47,7 +47,8 @@ def resolve_source_root() -> Path:
 
 
 def assert_outputs(source_root: Path) -> None:
-    output_dir = source_root / "output" / "LightGBM"
+    lgbm_dir = os.environ.get("LGBM_DIR")
+    output_dir = Path(lgbm_dir) if lgbm_dir else source_root / "LightGBM"
     required_files = [
         output_dir / "metrics_snapshot.json",
         output_dir / "strategy_params.txt",
