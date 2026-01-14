@@ -1076,6 +1076,66 @@ def _normalize_date(df: pd.DataFrame, col: str) -> pd.Series:
     return pd.to_datetime(df[col], errors="coerce").dt.strftime("%Y-%m-%d")
 
 
+def _derive_home_won(results: pd.DataFrame) -> pd.Series:
+    home_won = pd.Series(np.nan, index=results.index, dtype="float")
+
+    for col in ("home_team_won", "home_win", "home_result"):
+        if col in results.columns:
+            return pd.to_numeric(results[col], errors="coerce")
+
+    if "home_score" in results.columns and "away_score" in results.columns:
+        home_score = pd.to_numeric(results["home_score"], errors="coerce")
+        away_score = pd.to_numeric(results["away_score"], errors="coerce")
+        return (home_score > away_score).astype(float)
+
+    if "home_points" in results.columns and "away_points" in results.columns:
+        home_score = pd.to_numeric(results["home_points"], errors="coerce")
+        away_score = pd.to_numeric(results["away_points"], errors="coerce")
+        return (home_score > away_score).astype(float)
+
+    if "result" in results.columns:
+        result_str = results["result"].astype(str).str.strip().str.lower()
+        home_str = results["home_team"].astype(str).str.strip().str.lower()
+        away_str = results["away_team"].astype(str).str.strip().str.lower()
+        match_mask = result_str.eq(home_str) | result_str.eq(away_str)
+        if match_mask.any():
+            home_won.loc[match_mask] = (result_str[match_mask] == home_str[match_mask]).astype(float)
+            return home_won
+        result_numeric = pd.to_numeric(results["result"], errors="coerce")
+        if result_numeric.notna().any():
+            return result_numeric
+
+    if "win" in results.columns:
+        return pd.to_numeric(results["win"], errors="coerce")
+
+    return home_won
+
+
+def _assert_known_fixtures(results: pd.DataFrame) -> None:
+    fixtures = [
+        ("2026-01-05", "DET", "NYK", 1),
+        ("2026-01-04", "SAC", "MIL", 0),
+        ("2026-01-04", "LAL", "MEM", 1),
+    ]
+    if results.empty or "home_won" not in results.columns:
+        return
+    for date_str, home, away, expected in fixtures:
+        mask = (
+            (results["date"] == date_str)
+            & (results["home_team"] == home.lower())
+            & (results["away_team"] == away.lower())
+        )
+        if not mask.any():
+            continue
+        actual = results.loc[mask, "home_won"].iloc[0]
+        if pd.isna(actual):
+            raise AssertionError(f"Fixture {date_str} {home}-{away} missing home_won.")
+        if int(actual) != expected:
+            raise AssertionError(
+                f"Fixture {date_str} {home}-{away} expected home_won={expected} got {int(actual)}."
+            )
+
+
 def find_bet_log_path(output_dir: Path) -> Path | None:
     candidates = [
         output_dir / "bet_log_flat_live.csv",
@@ -1144,25 +1204,38 @@ def build_settled_bets(
         results_date_col = _resolve_first_col(results, ["date", DATE_COL, "game_date"])
         results_home_col = _resolve_first_col(results, ["home_team", "home"])
         results_away_col = _resolve_first_col(results, ["away_team", "away"])
-        results_win_col = _resolve_first_col(results, ["home_team_won", "win", "result"])
 
-        if not results_date_col or not results_home_col or not results_away_col or not results_win_col:
+        if not results_date_col or not results_home_col or not results_away_col:
             return pd.DataFrame()
 
         results["date"] = _normalize_date(results, results_date_col)
         results["home_team"] = _normalize_text(results[results_home_col])
         results["away_team"] = _normalize_text(results[results_away_col])
-        results["win"] = pd.to_numeric(results[results_win_col], errors="coerce")
+        results["home_won"] = _derive_home_won(results)
+
+        _assert_known_fixtures(results)
+
+        fixture_mask = (
+            (results["date"] == "2026-01-05")
+            & (results["home_team"] == "det")
+            & (results["away_team"] == "nyk")
+        )
+        if fixture_mask.any():
+            fixture_row = results.loc[fixture_mask].iloc[0]
+            logging.info(
+                "DEBUG fixture 2026-01-05 DET-NYK: result=%s home_won=%s",
+                fixture_row.get("result", np.nan),
+                fixture_row.get("home_won", np.nan),
+            )
 
         merged = bet_df.merge(
-            results[["date", "home_team", "away_team", "win"]],
+            results[["date", "home_team", "away_team", "home_won"]],
             on=["date", "home_team", "away_team"],
             how="left",
             suffixes=("", "_result"),
         )
-        merged["win"] = merged["win"].fillna(merged.get("win_result"))
-        if "win_result" in merged.columns:
-            merged = merged.drop(columns=["win_result"])
+        merged["win"] = merged["win"].fillna(merged.get("home_won"))
+        merged = merged.drop(columns=[col for col in ["home_won"] if col in merged.columns])
 
     merged = merged.dropna(subset=["stake", "odds_1"]).copy()
 
