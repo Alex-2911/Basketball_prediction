@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -22,18 +23,17 @@ LEDGER_COLUMNS = [
     "date",
     "home_team",
     "away_team",
-    "home_win_rate",
-    "prob_iso",
-    "prob_used",
-    "odds_1",
-    "EV_€_per_100",
     "stake",
-    "potential_profit_if_win",
+    "odds",
+    "pick",
     "status",
-    "win",
+    "won",
     "pnl",
-    "settled_at",
-    "game_key",
+    "prob_used",
+    "ev_per_100",
+    "created_at_utc",
+    "settled_at_utc",
+    "source",
 ]
 
 
@@ -167,7 +167,7 @@ def _prepare_combined(df: pd.DataFrame) -> pd.DataFrame:
         combined["home_win_rate"] = np.nan
 
     combined["prob_used"] = combined["prob_iso"].clip(PROB_CLIP_LO, PROB_CLIP_HI)
-    combined["EV_€_per_100"] = (
+    combined["ev_per_100"] = (
         combined["prob_used"] * (combined["odds_1"] - 1)
         - (1 - combined["prob_used"])
     ) * 100
@@ -187,31 +187,67 @@ def _prepare_combined(df: pd.DataFrame) -> pd.DataFrame:
     return combined
 
 
+def _ensure_columns(df: pd.DataFrame) -> pd.DataFrame:
+    for column in LEDGER_COLUMNS:
+        if column not in df.columns:
+            df[column] = np.nan
+    return df
+
+
+def _normalize_status(series: pd.Series) -> pd.Series:
+    return series.astype(str).str.strip().str.upper()
+
+
 def _load_ledger(path: Path) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame(columns=LEDGER_COLUMNS)
 
     ledger = pd.read_csv(path)
 
-    if "win" not in ledger.columns and "won" in ledger.columns:
-        ledger["win"] = ledger["won"]
+    rename_map = {
+        "odds_1": "odds",
+        "stake_flat": "stake",
+        "EV_€_per_100": "ev_per_100",
+        "win": "won",
+        "settled_at": "settled_at_utc",
+    }
+    ledger = ledger.rename(columns={k: v for k, v in rename_map.items() if k in ledger.columns})
 
-    if "pnl" not in ledger.columns and "pnl_flat" in ledger.columns:
-        ledger["pnl"] = ledger["pnl_flat"]
+    if "odds" not in ledger.columns and "closing_home_odds" in ledger.columns:
+        ledger["odds"] = ledger["closing_home_odds"]
 
-    if "stake" not in ledger.columns:
-        if "stake_flat" in ledger.columns:
-            ledger["stake"] = ledger["stake_flat"]
-        else:
-            ledger["stake"] = STAKE
-
-    for column in LEDGER_COLUMNS:
-        if column not in ledger.columns:
-            ledger[column] = np.nan
+    ledger = _ensure_columns(ledger)
 
     ledger["date"] = _normalize_date(ledger["date"])
     ledger["home_team"] = _normalize_team(ledger["home_team"])
     ledger["away_team"] = _normalize_team(ledger["away_team"])
+
+    if ledger["stake"].isna().any():
+        ledger["stake"] = ledger["stake"].fillna(STAKE)
+
+    if ledger["pick"].isna().any():
+        ledger["pick"] = ledger["pick"].fillna("HOME")
+
+    ledger["won"] = _coerce_win(ledger["won"]).astype("float")
+
+    status = _normalize_status(ledger["status"].fillna(""))
+    needs_status = status.eq("")
+    status = status.mask(needs_status, np.where(ledger["won"].notna(), "SETTLED", "PENDING"))
+    ledger["status"] = status
+
+    needs_pnl = ledger["pnl"].isna() & ledger["won"].notna()
+    if needs_pnl.any():
+        odds = pd.to_numeric(ledger["odds"], errors="coerce")
+        stake = pd.to_numeric(ledger["stake"], errors="coerce").fillna(STAKE)
+        ledger.loc[needs_pnl, "pnl"] = np.where(
+            ledger.loc[needs_pnl, "won"] == 1,
+            stake.loc[needs_pnl] * (odds.loc[needs_pnl] - 1),
+            -stake.loc[needs_pnl],
+        )
+
+    ledger["settled_at_utc"] = ledger["settled_at_utc"].astype("string")
+    ledger["created_at_utc"] = ledger["created_at_utc"].astype("string")
+
     ledger["game_key"] = (
         ledger["date"].fillna("")
         + "_"
@@ -220,27 +256,29 @@ def _load_ledger(path: Path) -> pd.DataFrame:
         + ledger["away_team"].fillna("")
     )
 
-    if "status" in ledger.columns:
-        status_filled = ledger["status"].fillna("")
-    else:
-        status_filled = ""
+    return ledger
 
-    needs_status = status_filled.astype(str).str.strip().eq("")
-    if needs_status.any():
-        ledger.loc[needs_status, "status"] = np.where(
-            ledger.loc[needs_status, "win"].notna(), "SETTLED", "PENDING"
-        )
 
-    settled_mask = ledger["status"].astype(str).str.upper() == "SETTLED"
-    missing_settled_at = settled_mask & ledger["settled_at"].isna()
-    if missing_settled_at.any():
-        ledger.loc[missing_settled_at, "settled_at"] = ledger.loc[
-            missing_settled_at, "date"
-        ]
+def _dedupe_ledger(ledger: pd.DataFrame) -> pd.DataFrame:
+    if ledger.empty:
+        return ledger
 
-    ledger["settled_at"] = ledger["settled_at"].astype("string")
+    status_rank = _normalize_status(ledger["status"]).map({"PENDING": 0, "SETTLED": 1}).fillna(0)
+    settled_ts = pd.to_datetime(ledger["settled_at_utc"], errors="coerce")
+    created_ts = pd.to_datetime(ledger["created_at_utc"], errors="coerce")
 
-    return ledger[LEDGER_COLUMNS]
+    ledger = ledger.assign(
+        _status_rank=status_rank,
+        _settled_ts=settled_ts,
+        _created_ts=created_ts,
+    ).sort_values([
+        "_status_rank",
+        "_settled_ts",
+        "_created_ts",
+    ])
+
+    ledger = ledger.drop_duplicates(subset=["game_key"], keep="last")
+    return ledger.drop(columns=["_status_rank", "_settled_ts", "_created_ts"])
 
 
 def _append_new_bets(ledger: pd.DataFrame, combined: pd.DataFrame) -> pd.DataFrame:
@@ -252,31 +290,56 @@ def _append_new_bets(ledger: pd.DataFrame, combined: pd.DataFrame) -> pd.DataFra
         & (upcoming["odds_1"] >= ODDS_MIN)
         & (upcoming["odds_1"] <= ODDS_MAX)
         & (upcoming["prob_used"] >= PROB_MIN)
-        & (upcoming["EV_€_per_100"] > MIN_EV)
+        & (upcoming["ev_per_100"] > MIN_EV)
     ].copy()
 
     new_rows = qualifiers[~qualifiers["game_key"].isin(existing_keys)].copy()
     if new_rows.empty:
         return ledger
 
-    new_rows["stake"] = STAKE
-    new_rows["potential_profit_if_win"] = new_rows["stake"] * (
-        new_rows["odds_1"] - 1
-    )
-    new_rows["status"] = "PENDING"
-    new_rows["win"] = np.nan
-    new_rows["pnl"] = np.nan
-    new_rows["settled_at"] = np.nan
+    now_utc = datetime.now(timezone.utc).isoformat()
 
-    append_df = new_rows[LEDGER_COLUMNS]
-    return pd.concat([ledger, append_df], ignore_index=True)
+    new_rows["stake"] = STAKE
+    new_rows["odds"] = new_rows["odds_1"]
+    new_rows["pick"] = "HOME"
+    new_rows["status"] = "PENDING"
+    new_rows["won"] = np.nan
+    new_rows["pnl"] = np.nan
+    new_rows["created_at_utc"] = now_utc
+    new_rows["settled_at_utc"] = np.nan
+    new_rows["source"] = "auto"
+
+    append_df = new_rows[
+        [
+            "date",
+            "home_team",
+            "away_team",
+            "stake",
+            "odds",
+            "pick",
+            "status",
+            "won",
+            "pnl",
+            "prob_used",
+            "ev_per_100",
+            "created_at_utc",
+            "settled_at_utc",
+            "source",
+            "game_key",
+        ]
+    ]
+
+    combined_ledger = pd.concat([ledger, append_df], ignore_index=True)
+    return combined_ledger
 
 
 def _settle_pending_bets(ledger: pd.DataFrame, combined: pd.DataFrame) -> pd.DataFrame:
     results = combined[combined["win"].notna()].set_index("game_key")
-    pending_mask = ledger["status"].astype(str).str.upper() == "PENDING"
+    pending_mask = _normalize_status(ledger["status"]) == "PENDING"
     if not pending_mask.any():
         return ledger
+
+    now_utc = datetime.now(timezone.utc).isoformat()
 
     for idx in ledger[pending_mask].index:
         game_key = ledger.at[idx, "game_key"]
@@ -285,14 +348,14 @@ def _settle_pending_bets(ledger: pd.DataFrame, combined: pd.DataFrame) -> pd.Dat
 
         win = int(results.at[game_key, "win"])
         stake = float(ledger.at[idx, "stake"]) if pd.notna(ledger.at[idx, "stake"]) else STAKE
-        odds = float(ledger.at[idx, "odds_1"]) if pd.notna(ledger.at[idx, "odds_1"]) else np.nan
+        odds = float(ledger.at[idx, "odds"]) if pd.notna(ledger.at[idx, "odds"]) else np.nan
         if pd.isna(odds):
             continue
 
         ledger.at[idx, "status"] = "SETTLED"
-        ledger.at[idx, "win"] = win
+        ledger.at[idx, "won"] = win
         ledger.at[idx, "pnl"] = stake * (odds - 1) if win == 1 else -stake
-        ledger.at[idx, "settled_at"] = results.at[game_key, "date"]
+        ledger.at[idx, "settled_at_utc"] = now_utc
 
     return ledger
 
@@ -308,14 +371,16 @@ def main() -> None:
     ledger = _load_ledger(ledger_path)
     ledger = _settle_pending_bets(ledger, combined)
     ledger = _append_new_bets(ledger, combined)
+    ledger = _dedupe_ledger(ledger)
 
     ledger = ledger.sort_values(["date", "home_team", "away_team"], na_position="last")
 
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     export_path.parent.mkdir(parents=True, exist_ok=True)
 
-    ledger.to_csv(ledger_path, index=False, encoding="utf-8")
-    ledger.to_csv(export_path, index=False, encoding="utf-8")
+    ledger_output = _ensure_columns(ledger)[LEDGER_COLUMNS]
+    ledger_output.to_csv(ledger_path, index=False, encoding="utf-8")
+    ledger_output.to_csv(export_path, index=False, encoding="utf-8")
 
 
 if __name__ == "__main__":

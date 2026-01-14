@@ -1106,8 +1106,10 @@ def build_settled_bets(
     bet_date_col = _resolve_first_col(bet_df, ["date", "game_date"])
     bet_home_col = _resolve_first_col(bet_df, ["home_team", "home", "team_home"])
     bet_away_col = _resolve_first_col(bet_df, ["away_team", "away", "team_away"])
-    odds_col = _resolve_first_col(bet_df, ["odds_1", "odds", "home_odds", "closing_home_odds"])
+    odds_col = _resolve_first_col(bet_df, ["odds", "odds_1", "home_odds", "closing_home_odds"])
     stake_col = _resolve_first_col(bet_df, ["stake", "stake_eur", "stake_flat"])
+    status_col = _resolve_first_col(bet_df, ["status"])
+    won_col = _resolve_first_col(bet_df, ["won", "win"])
 
     if not bet_date_col or not bet_home_col or not bet_away_col:
         return pd.DataFrame()
@@ -1126,24 +1128,41 @@ def build_settled_bets(
     else:
         bet_df["stake"] = np.nan
 
-    results_date_col = _resolve_first_col(results, ["date", DATE_COL, "game_date"])
-    results_home_col = _resolve_first_col(results, ["home_team", "home"])
-    results_away_col = _resolve_first_col(results, ["away_team", "away"])
-    results_win_col = _resolve_first_col(results, ["home_team_won", "win", "result"])
+    if status_col:
+        bet_df["status"] = _normalize_text(bet_df[status_col]).str.upper()
+        bet_df = bet_df[bet_df["status"] == "SETTLED"].copy()
+        if bet_df.empty:
+            return pd.DataFrame()
 
-    if not results_date_col or not results_home_col or not results_away_col or not results_win_col:
-        return pd.DataFrame()
+    if won_col:
+        bet_df["win"] = pd.to_numeric(bet_df[won_col], errors="coerce")
+    else:
+        bet_df["win"] = np.nan
 
-    results["date"] = _normalize_date(results, results_date_col)
-    results["home_team"] = _normalize_text(results[results_home_col])
-    results["away_team"] = _normalize_text(results[results_away_col])
-    results["win"] = pd.to_numeric(results[results_win_col], errors="coerce")
+    merged = bet_df
+    if merged["win"].isna().any():
+        results_date_col = _resolve_first_col(results, ["date", DATE_COL, "game_date"])
+        results_home_col = _resolve_first_col(results, ["home_team", "home"])
+        results_away_col = _resolve_first_col(results, ["away_team", "away"])
+        results_win_col = _resolve_first_col(results, ["home_team_won", "win", "result"])
 
-    merged = bet_df.merge(
-        results[["date", "home_team", "away_team", "win"]],
-        on=["date", "home_team", "away_team"],
-        how="left",
-    )
+        if not results_date_col or not results_home_col or not results_away_col or not results_win_col:
+            return pd.DataFrame()
+
+        results["date"] = _normalize_date(results, results_date_col)
+        results["home_team"] = _normalize_text(results[results_home_col])
+        results["away_team"] = _normalize_text(results[results_away_col])
+        results["win"] = pd.to_numeric(results[results_win_col], errors="coerce")
+
+        merged = bet_df.merge(
+            results[["date", "home_team", "away_team", "win"]],
+            on=["date", "home_team", "away_team"],
+            how="left",
+            suffixes=("", "_result"),
+        )
+        merged["win"] = merged["win"].fillna(merged.get("win_result"))
+        if "win_result" in merged.columns:
+            merged = merged.drop(columns=["win_result"])
 
     merged = merged.dropna(subset=["stake", "odds_1"]).copy()
 
