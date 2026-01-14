@@ -1,2 +1,2 @@
 home_team,away_team,home_team_prob,odds_1,odds_2,result,date,accuracy,result_raw,game_date,pred_home_win_proba,closing_home_odds,closing_away_odds,home_team_won,home_win_rate,game_day,iso_proba_home_win,prob_used,EV_€_per_100,game_key,stake_flat,potential_profit_if_win,fair_odds,edge_pct,EV_€,prob_iso
-DAL,DEN,0.6973672665463161,1.91,1.91,0,2026-01-14,,0,2026-01-14,0.6973672665463161,1.91,1.91,,0.88,2026-01-14,0.7972972972972973,0.7972972972972973,52.28378378378377,2026-01-14_DAL_DEN,100.0,91.0,1.254,52.31,52.28,0.7972972972972973
+DAL,DEN,0.6973672665463161,1.91,1.91,0,2026-01-14,,0,2026-01-14,0.6973672665463161,1.91,1.91,,0.88,2026-01-14,0.8,0.8,52.800000000000004,2026-01-14_DAL_DEN,100.0,91.0,1.25,52.8,52.8,0.8
