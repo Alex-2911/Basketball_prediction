@@ -1,0 +1,43 @@
+{
+  "meta": {
+    "eval_base_date_max": "2026-01-08"
+  },
+  "params_used_type": "GLOBAL",
+  "params_used": {
+    "home_win_rate_threshold": 0.65,
+    "odds_min": 1.6,
+    "odds_max": 2.5,
+    "prob_threshold": 0.7
+  },
+  "realized": {
+    "count": 2,
+    "profit_sum": 197.0,
+    "roi": 0.985,
+    "win_rate": 1.0,
+    "sharpe_style": 4.4935
+  },
+  "ev_stats": {
+    "mean": 51.57
+  },
+  "filter_params": {
+    "home_win_rate_threshold": 0.65,
+    "odds_min": 1.6,
+    "odds_max": 2.5,
+    "prob_threshold": 0.7,
+    "min_EV": -5.0
+  },
+  "bankroll": {
+    "deposit_eur": 1000.0,
+    "bankroll_last_200_eur": 1103.14,
+    "bankroll_2026_ytd_eur": 1000.0,
+    "profit_2026_ytd_eur": 0.0,
+    "flat_stake_eur": 100.0
+  },
+  "settled_bets_2026": {
+    "count": 0,
+    "wins": 0,
+    "profit_sum": 0.0,
+    "roi": 0.0,
+    "avg_odds": 0.0
+  }
+}

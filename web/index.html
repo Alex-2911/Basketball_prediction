@@ -8,50 +8,382 @@
       :root {
         color-scheme: light dark;
         font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+        background-color: #0f172a;
+        color: #f8fafc;
       }
       body {
         margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
         background: linear-gradient(135deg, #0f172a, #1e293b);
-        color: #f8fafc;
+        min-height: 100vh;
       }
       main {
-        text-align: center;
-        padding: 2.5rem 3rem;
-        border-radius: 1.5rem;
-        background: rgba(15, 23, 42, 0.85);
-        box-shadow: 0 24px 60px rgba(15, 23, 42, 0.45);
-        max-width: 540px;
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 2.5rem 1.5rem 4rem;
       }
       h1 {
-        margin: 0 0 0.75rem;
-        font-size: 2rem;
+        margin-bottom: 0.5rem;
+        font-size: 2.4rem;
+      }
+      h2 {
+        margin-top: 2.5rem;
+        font-size: 1.5rem;
       }
       p {
-        margin: 0 0 1.5rem;
-        font-size: 1.05rem;
+        margin: 0.25rem 0 0;
         color: #cbd5f5;
       }
-      a {
-        color: #38bdf8;
-        font-weight: 600;
-        text-decoration: none;
-        border-bottom: 2px solid transparent;
-        transition: border-color 0.2s ease;
+      .card-grid {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        margin-top: 1.5rem;
       }
-      a:hover,
-      a:focus {
-        border-color: currentColor;
+      .card {
+        background: rgba(15, 23, 42, 0.85);
+        border-radius: 1rem;
+        padding: 1rem 1.25rem;
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.35);
+      }
+      .card h3 {
+        margin: 0 0 0.35rem;
+        font-size: 0.95rem;
+        color: #94a3b8;
+        font-weight: 500;
+      }
+      .card .value {
+        font-size: 1.3rem;
+        font-weight: 600;
+      }
+      .meta-grid {
+        display: grid;
+        gap: 0.75rem;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        margin-top: 1rem;
+      }
+      .meta {
+        background: rgba(15, 23, 42, 0.7);
+        padding: 0.75rem 1rem;
+        border-radius: 0.75rem;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 1rem;
+        background: rgba(15, 23, 42, 0.8);
+        border-radius: 0.75rem;
+        overflow: hidden;
+      }
+      th,
+      td {
+        padding: 0.65rem 0.75rem;
+        text-align: left;
+        font-size: 0.9rem;
+      }
+      th {
+        background: rgba(30, 41, 59, 0.9);
+        color: #e2e8f0;
+      }
+      tbody tr:nth-child(even) {
+        background: rgba(15, 23, 42, 0.6);
+      }
+      .muted {
+        color: #94a3b8;
+      }
+      .pill {
+        display: inline-block;
+        padding: 0.15rem 0.55rem;
+        border-radius: 999px;
+        background: rgba(56, 189, 248, 0.15);
+        color: #38bdf8;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+      .error {
+        background: rgba(248, 113, 113, 0.15);
+        border: 1px solid rgba(248, 113, 113, 0.4);
+        color: #fecaca;
+        padding: 1rem;
+        border-radius: 0.75rem;
+        margin-top: 1.5rem;
       }
     </style>
   </head>
   <body>
     <main>
-      <h1>Basketball Prediction Dashboard</h1>
-      <p>CI pipeline is running. Website is live.</p>
-      <a href="https://github.com/Alex-2911/Basketball_prediction">View the GitHub repository</a>
+      <header>
+        <h1>Basketball Prediction Dashboard</h1>
+        <p id="subtitle">Loading dashboard data...</p>
+        <div class="meta-grid" id="meta"></div>
+      </header>
+
+      <section>
+        <h2>Historical Snapshot</h2>
+        <div class="card-grid" id="historical-cards"></div>
+      </section>
+
+      <section>
+        <h2>Strategy (Windowed Simulation)</h2>
+        <div class="card-grid" id="strategy-cards"></div>
+      </section>
+
+      <section>
+        <h2>Placed Bets (Real)</h2>
+        <div class="card-grid" id="bet-summary"></div>
+        <table id="bet-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Home</th>
+              <th>Away</th>
+              <th>Pick</th>
+              <th>Odds</th>
+              <th>Stake</th>
+              <th>Result</th>
+              <th>P/L</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Data Sources</h2>
+        <div class="meta-grid" id="sources"></div>
+      </section>
+
+      <div class="error" id="error" hidden></div>
     </main>
+
+    <script>
+      const DATA_ROOT = 'public/data';
+
+      const splitCsvLine = (line) => {
+        const cells = [];
+        let current = '';
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i += 1) {
+          const char = line[i];
+          if (char === '"') {
+            if (inQuotes && line[i + 1] === '"') {
+              current += '"';
+              i += 1;
+            } else {
+              inQuotes = !inQuotes;
+            }
+          } else if (char === ',' && !inQuotes) {
+            cells.push(current);
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        cells.push(current);
+        return cells.map((cell) => cell.trim());
+      };
+
+      const parseCsv = (csvText) => {
+        const lines = csvText.trim().split(/\r?\n/);
+        if (!lines.length) return [];
+        const headers = splitCsvLine(lines[0]);
+        return lines.slice(1).map((line) => {
+          const cells = splitCsvLine(line);
+          const row = {};
+          headers.forEach((header, idx) => {
+            row[header] = cells[idx] ?? '';
+          });
+          return row;
+        });
+      };
+
+      const formatNumber = (value, decimals = 2) => {
+        if (value === null || value === undefined || Number.isNaN(value)) return '—';
+        return Number(value).toFixed(decimals);
+      };
+
+      const formatPercent = (value, decimals = 1) => {
+        if (value === null || value === undefined || Number.isNaN(value)) return '—';
+        return `${(Number(value) * 100).toFixed(decimals)}%`;
+      };
+
+      const makeCard = (title, value, hint = '') => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <h3>${title}</h3>
+          <div class="value">${value}</div>
+          ${hint ? `<div class="muted">${hint}</div>` : ''}
+        `;
+        return card;
+      };
+
+      const renderMeta = (metaEntries) => {
+        const container = document.getElementById('meta');
+        container.innerHTML = '';
+        metaEntries.forEach(([label, value]) => {
+          const block = document.createElement('div');
+          block.className = 'meta';
+          block.innerHTML = `<div class="muted">${label}</div><div>${value}</div>`;
+          container.appendChild(block);
+        });
+      };
+
+      const renderSources = (sources) => {
+        const container = document.getElementById('sources');
+        container.innerHTML = '';
+        Object.entries(sources).forEach(([label, value]) => {
+          const block = document.createElement('div');
+          block.className = 'meta';
+          block.innerHTML = `<div class="muted">${label}</div><div>${value ?? '—'}</div>`;
+          container.appendChild(block);
+        });
+      };
+
+      const renderBetTable = (rows) => {
+        const tbody = document.querySelector('#bet-table tbody');
+        tbody.innerHTML = '';
+        if (!rows.length) {
+          const row = document.createElement('tr');
+          row.innerHTML = '<td colspan="8" class="muted">No settled bets available.</td>';
+          tbody.appendChild(row);
+          return;
+        }
+        rows.forEach((row) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${row.date}</td>
+            <td>${row.home_team}</td>
+            <td>${row.away_team}</td>
+            <td>${row.pick || 'HOME'}</td>
+            <td>${formatNumber(row.odds, 2)}</td>
+            <td>${formatNumber(row.stake, 2)}</td>
+            <td>${row.won === '1' || row.won === 1 ? 'Win' : 'Loss'}</td>
+            <td>${formatNumber(row.pnl, 2)}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      };
+
+      const summarizeBets = (rows) => {
+        if (!rows.length) {
+          return {
+            count: 0,
+            wins: 0,
+            profit: 0,
+            roi: 0,
+          };
+        }
+        const stakeSum = rows.reduce((sum, row) => sum + Number(row.stake || 0), 0);
+        const profitSum = rows.reduce((sum, row) => sum + Number(row.pnl || 0), 0);
+        const wins = rows.reduce((sum, row) => sum + (Number(row.won) === 1 ? 1 : 0), 0);
+        return {
+          count: rows.length,
+          wins,
+          profit: profitSum,
+          roi: stakeSum ? profitSum / stakeSum : 0,
+        };
+      };
+
+      const filterWindowRows = (rows, windowStart, windowEnd) => rows.filter((row) => {
+        const date = row.date || row.game_date;
+        if (!date || !windowStart || !windowEnd) return false;
+        return date >= windowStart && date <= windowEnd;
+      });
+
+      const toNumber = (value) => {
+        const num = Number(value);
+        return Number.isNaN(num) ? 0 : num;
+      };
+
+      const renderDashboard = async () => {
+        try {
+          const [stateRes, metricsRes, localRes, betRes] = await Promise.all([
+            fetch(`${DATA_ROOT}/dashboard_state.json`),
+            fetch(`${DATA_ROOT}/metrics_snapshot.json`),
+            fetch(`${DATA_ROOT}/local_matched_games_latest.csv`),
+            fetch(`${DATA_ROOT}/bet_log_flat_live.csv`).catch(() => null),
+          ]);
+
+          if (!stateRes.ok || !metricsRes.ok || !localRes.ok) {
+            throw new Error('Required dashboard data files could not be loaded.');
+          }
+
+          const dashboardState = await stateRes.json();
+          const metrics = await metricsRes.json();
+          const localMatchedRows = parseCsv(await localRes.text());
+          const betRows = betRes && betRes.ok ? parseCsv(await betRes.text()) : [];
+
+          const filteredMatches = filterWindowRows(
+            localMatchedRows,
+            dashboardState.window_start,
+            dashboardState.window_end
+          );
+          const strategyWins = filteredMatches.reduce((sum, row) => sum + (Number(row.win) === 1 ? 1 : 0), 0);
+          const strategyStake = filteredMatches.reduce((sum, row) => sum + toNumber(row.stake), 0);
+          const strategyPnl = filteredMatches.reduce((sum, row) => sum + toNumber(row.pnl), 0);
+          const strategyRoi = strategyStake ? strategyPnl / strategyStake : 0;
+          const strategyWinRate = filteredMatches.length ? strategyWins / filteredMatches.length : 0;
+
+          const settledBets = betRows.filter((row) => row.pnl !== '' && row.pnl !== undefined && row.pnl !== null);
+          const betSummary = summarizeBets(settledBets);
+
+          document.getElementById('subtitle').textContent = dashboardState.active_filters_text;
+
+          renderMeta([
+            ['As of', dashboardState.as_of_date || '—'],
+            ['Window', `${dashboardState.window_size} games (${dashboardState.window_start || '—'} → ${dashboardState.window_end || '—'})`],
+            ['Params', `${dashboardState.params_used_label} · ${dashboardState.params_source_label}`],
+            ['Strategy as of', dashboardState.strategy_as_of_date || '—'],
+            ['Last update (UTC)', dashboardState.last_update_utc],
+          ]);
+
+          const historicalCards = document.getElementById('historical-cards');
+          historicalCards.innerHTML = '';
+          historicalCards.append(
+            makeCard('Historical matches', metrics.realized?.count ?? '—'),
+            makeCard('Historical win rate', formatPercent(metrics.realized?.win_rate)),
+            makeCard('Historical ROI', formatPercent(metrics.realized?.roi)),
+            makeCard('Historical P/L', formatNumber(metrics.realized?.profit_sum, 2)),
+            makeCard('EV mean', formatNumber(metrics.ev_stats?.mean, 2))
+          );
+
+          const strategyCards = document.getElementById('strategy-cards');
+          strategyCards.innerHTML = '';
+          strategyCards.append(
+            makeCard('Strategy matches (window)', filteredMatches.length),
+            makeCard('Strategy wins (window)', strategyWins),
+            makeCard('Strategy win rate', formatPercent(strategyWinRate)),
+            makeCard('Strategy ROI', formatPercent(strategyRoi)),
+            makeCard('Strategy P/L (window)', formatNumber(strategyPnl, 2)),
+            makeCard('Bankroll (last 200)', formatNumber(metrics.bankroll?.bankroll_last_200_eur, 2), '€'),
+            makeCard('Deposit', formatNumber(metrics.bankroll?.deposit_eur, 2), '€'),
+            makeCard('Flat stake', formatNumber(metrics.bankroll?.flat_stake_eur, 2), '€')
+          );
+
+          const betSummaryGrid = document.getElementById('bet-summary');
+          betSummaryGrid.innerHTML = '';
+          betSummaryGrid.append(
+            makeCard('Settled bets', betSummary.count),
+            makeCard('Settled wins', betSummary.wins),
+            makeCard('Settled ROI', formatPercent(betSummary.roi)),
+            makeCard('Settled P/L', formatNumber(betSummary.profit, 2))
+          );
+
+          renderBetTable(settledBets);
+
+          renderSources({
+            'Combined results': dashboardState.source_files?.combined ?? '—',
+            'Local matched': dashboardState.source_files?.local_matched ?? '—',
+            'Bet log': dashboardState.source_files?.bet_log ?? '—',
+          });
+        } catch (error) {
+          const errorBox = document.getElementById('error');
+          errorBox.hidden = false;
+          errorBox.textContent = error.message;
+        }
+      };
+
+      renderDashboard();
+    </script>
   </body>
 </html>
