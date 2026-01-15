@@ -127,6 +127,40 @@ def _coerce_win(series: pd.Series) -> pd.Series:
     return mapped
 
 
+def _derive_home_won(df: pd.DataFrame) -> pd.Series:
+    for col in ("home_team_won", "home_win", "home_result", "win"):
+        if col in df.columns:
+            return _coerce_win(df[col])
+
+    if "home_score" in df.columns and "away_score" in df.columns:
+        home_score = pd.to_numeric(df["home_score"], errors="coerce")
+        away_score = pd.to_numeric(df["away_score"], errors="coerce")
+        return (home_score > away_score).astype(float)
+
+    if "home_points" in df.columns and "away_points" in df.columns:
+        home_score = pd.to_numeric(df["home_points"], errors="coerce")
+        away_score = pd.to_numeric(df["away_points"], errors="coerce")
+        return (home_score > away_score).astype(float)
+
+    if "result" in df.columns:
+        home = _normalize_team(df["home_team"])
+        away = _normalize_team(df["away_team"])
+        result_str = _normalize_team(df["result"])
+        match_mask = result_str.eq(home) | result_str.eq(away)
+        home_won = pd.Series(np.nan, index=df.index, dtype="float")
+        if match_mask.any():
+            home_won.loc[match_mask] = (result_str[match_mask] == home[match_mask]).astype(float)
+        result_numeric = pd.to_numeric(df["result"], errors="coerce")
+        if result_numeric.notna().any():
+            result_numeric = result_numeric.where(
+                result_numeric.isna(), (result_numeric >= 1).astype(float)
+            )
+            home_won = home_won.fillna(result_numeric)
+        return home_won
+
+    return pd.Series(np.nan, index=df.index, dtype="float")
+
+
 def _latest_file(path: Path, pattern: str) -> Path | None:
     candidates = sorted(path.glob(pattern))
     return candidates[-1] if candidates else None
@@ -172,17 +206,21 @@ def _prepare_combined(df: pd.DataFrame) -> pd.DataFrame:
         - (1 - combined["prob_used"])
     ) * 100
 
-    if columns.result:
-        combined["win"] = _coerce_win(combined[columns.result])
-    else:
-        combined["win"] = np.nan
+    combined["win"] = _derive_home_won(combined)
 
+    bad_prob = combined["prob_iso"] > 1
+    bad_prob_used = combined["prob_used"] > 1
+    combined = combined[~(bad_prob | bad_prob_used)].copy()
+
+    combined["pick"] = "HOME"
     combined["game_key"] = (
         combined["date"].fillna("")
         + "_"
         + combined["home_team"].fillna("")
         + "_"
         + combined["away_team"].fillna("")
+        + "_"
+        + combined["pick"].fillna("")
     )
     return combined
 
@@ -228,6 +266,18 @@ def _load_ledger(path: Path) -> pd.DataFrame:
     if ledger["pick"].isna().any():
         ledger["pick"] = ledger["pick"].fillna("HOME")
 
+    ledger["pick"] = ledger["pick"].astype(str).str.strip().str.upper()
+
+    if ledger["prob_used"].isna().any() and "prob_iso" in ledger.columns:
+        prob_iso = pd.to_numeric(ledger["prob_iso"], errors="coerce")
+        ledger["prob_used"] = prob_iso.clip(PROB_CLIP_LO, PROB_CLIP_HI)
+
+    prob_iso = pd.to_numeric(ledger["prob_iso"], errors="coerce") if "prob_iso" in ledger.columns else None
+    prob_used = pd.to_numeric(ledger["prob_used"], errors="coerce")
+    bad_prob = prob_iso > 1 if prob_iso is not None else pd.Series(False, index=ledger.index)
+    bad_prob_used = prob_used > 1
+    ledger = ledger[~(bad_prob | bad_prob_used)].copy()
+
     ledger["won"] = _coerce_win(ledger["won"]).astype("float")
 
     status = _normalize_status(ledger["status"].fillna(""))
@@ -254,6 +304,8 @@ def _load_ledger(path: Path) -> pd.DataFrame:
         + ledger["home_team"].fillna("")
         + "_"
         + ledger["away_team"].fillna("")
+        + "_"
+        + ledger["pick"].fillna("")
     )
 
     return ledger
@@ -263,22 +315,7 @@ def _dedupe_ledger(ledger: pd.DataFrame) -> pd.DataFrame:
     if ledger.empty:
         return ledger
 
-    status_rank = _normalize_status(ledger["status"]).map({"PENDING": 0, "SETTLED": 1}).fillna(0)
-    settled_ts = pd.to_datetime(ledger["settled_at_utc"], errors="coerce")
-    created_ts = pd.to_datetime(ledger["created_at_utc"], errors="coerce")
-
-    ledger = ledger.assign(
-        _status_rank=status_rank,
-        _settled_ts=settled_ts,
-        _created_ts=created_ts,
-    ).sort_values([
-        "_status_rank",
-        "_settled_ts",
-        "_created_ts",
-    ])
-
-    ledger = ledger.drop_duplicates(subset=["game_key"], keep="last")
-    return ledger.drop(columns=["_status_rank", "_settled_ts", "_created_ts"])
+    return ledger.drop_duplicates(subset=["game_key"], keep="first")
 
 
 def _append_new_bets(ledger: pd.DataFrame, combined: pd.DataFrame) -> pd.DataFrame:
