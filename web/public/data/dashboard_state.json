@@ -7,7 +7,7 @@
   "params_used_label": "Historical",
   "params_source_label": "GLOBAL",
   "strategy_as_of_date": "2026-01-11",
-  "last_update_utc": "2026-01-17T22:04:48.191Z",
+  "last_update_utc": "2026-01-17T22:10:30.540Z",
   "source_files": {
     "combined": "combined_latest.csv",
     "combined_source": "Kelly/combined_nba_predictions_iso_2026-01-17.csv",
