@@ -64,7 +64,7 @@ jobs:
       - name: Run Isotonic shortlist + bet log engine (Script 5)
         run: |
           echo "=== Running isotonic shortlist + bet log update (Script 5) ==="
-          SOURCE_ROOT=$GITHUB_WORKSPACE/2026 python scripts/5_Isotonic_based_betting_strategy_2026.py
+          python 2026/src//5_Isotonic_based_betting_strategy_2026.py
           echo "=== Script 5 finished ==="
 
       - name: Maintain persistent bet log ledger
