@@ -103,15 +103,39 @@ jobs:
             2026/output/LightGBM/Kelly/*.csv
           if-no-files-found: warn
 
+      - name: Build dashboard assets (web/public/data)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/build_dashboard_assets.js
+          ls -la web/public/data
+
+
       # -----------------------
       # Commit everything once
       # -----------------------
-      - name: Commit and push updated bet log ledger
-        if: always()
+      - name: Commit updated outputs (LightGBM + dashboard data)
+        shell: bash
         run: |
+          set -euo pipefail
+
+          git status --porcelain
+
+          # 1) commit the generated LightGBM outputs
+          git add 2026/output/LightGBM || true
+
+          # 2) if you also build dashboard artifacts in this repo, add them too
+          # (uncomment if present)
+          # git add web/public/data || true
+
+          if git diff --cached --quiet; then
+            echo "No staged changes to commit."
+            exit 0
+          fi
+          
+          git add web/public/data || true
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add 2026/bet_log/bet_log_flat_live.csv || true
-          git commit -m "chore: update bet log (auto)" || true
+          git commit -m "chore: update betting stats & outputs (auto)"
           git push origin 2026
+
