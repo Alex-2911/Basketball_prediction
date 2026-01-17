@@ -1,1 +1,4 @@
 .DS_Store
+__pycache__/
+public/
+2026/src/__pycache__/
