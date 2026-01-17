@@ -114,28 +114,30 @@ jobs:
       # -----------------------
       # Commit everything once
       # -----------------------
-      - name: Commit updated outputs (LightGBM + dashboard data)
+      - name: Commit updated outputs (auto)
         shell: bash
         run: |
           set -euo pipefail
-
-          git status --porcelain
-
-          # 1) commit the generated LightGBM outputs
-          git add 2026/output/LightGBM || true
-
-          # 2) if you also build dashboard artifacts in this repo, add them too
-          # (uncomment if present)
-          # git add web/public/data || true
-
-          if git diff --cached --quiet; then
-            echo "No staged changes to commit."
-            exit 0
-          fi
-          
-          git add web/public/data || true
+      
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -m "chore: update betting stats & outputs (auto)"
+      
+          # Stage the ACTUAL generated outputs
+          git add 2026/output/LightGBM/bet_log_flat_live.csv || true
+          git add 2026/output/LightGBM/combined_nba_predictions_acc_*.csv || true
+          git add 2026/output/LightGBM/home_win_rates_sorted_*.csv || true
+          git add 2026/output/LightGBM/Kelly/*.csv || true
+      
+          # Optional: prevent accidentally committing junk folder
+          git restore --staged 2026/LightGBM 2>/dev/null || true
+      
+          if git diff --cached --quiet; then
+            echo "No staged changes to commit."
+            git status --porcelain
+            exit 0
+          fi
+      
+          git commit -m "chore: update outputs (auto)"
           git push origin 2026
+
 
