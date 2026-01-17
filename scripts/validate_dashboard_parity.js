@@ -45,6 +45,20 @@ function parseCsv(csvText) {
   });
 }
 
+function formatDateUTC(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function computeWindowDates(windowSize) {
+  const windowEndDate = new Date();
+  const windowStartDate = new Date(windowEndDate);
+  windowStartDate.setUTCDate(windowEndDate.getUTCDate() - (windowSize - 1));
+  return {
+    windowStart: formatDateUTC(windowStartDate),
+    windowEnd: formatDateUTC(windowEndDate),
+  };
+}
+
 function ensure(condition, message) {
   if (!condition) {
     throw new Error(message);
@@ -53,14 +67,11 @@ function ensure(condition, message) {
 
 function main() {
   const dashboardState = JSON.parse(fs.readFileSync(path.join(dataDir, 'dashboard_state.json'), 'utf8'));
-  const combinedRows = parseCsv(fs.readFileSync(path.join(dataDir, 'combined_latest.csv'), 'utf8'));
   const localMatchedRows = parseCsv(fs.readFileSync(path.join(dataDir, 'local_matched_games_latest.csv'), 'utf8'));
 
-  const combinedDateKey = combinedRows[0]?.date ? 'date' : (combinedRows[0]?.game_date ? 'game_date' : 'date');
-  const combinedDates = combinedRows.map((row) => row[combinedDateKey]).filter(Boolean).sort();
-  const windowRows = combinedDates.slice(-dashboardState.window_size);
-  const computedWindowStart = windowRows[0] || null;
-  const computedWindowEnd = windowRows[windowRows.length - 1] || null;
+  const { windowStart: computedWindowStart, windowEnd: computedWindowEnd } = computeWindowDates(
+    dashboardState.window_size
+  );
 
   ensure(
     computedWindowStart === dashboardState.window_start,
