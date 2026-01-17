@@ -111,9 +111,6 @@ jobs:
           ls -la web/public/data
 
 
-      # -----------------------
-      # Commit everything once
-      # -----------------------
       - name: Commit updated outputs (auto)
         shell: bash
         run: |
@@ -122,39 +119,23 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Stage the ACTUAL generated outputs (dashboard-critical)
-          git add 2026/output/LightGBM/metrics_snapshot.json || true
-          git add 2026/output/LightGBM/strategy_params.txt || true
-          git add 2026/output/LightGBM/local_matched_games_*.csv || true
+          # Stage ALL generated outputs we expect to persist
+          git add -A \
+            2026/output/LightGBM \
+            web/public/data || true
 
-          # Also stage the usual updated files
-          git add 2026/output/LightGBM/bet_log_flat_live.csv || true
-          git add 2026/output/LightGBM/bet_log_live.csv || true
-          git add 2026/output/LightGBM/bet_log_live_*.csv || true
-          git add 2026/output/LightGBM/bet_shortlist_*.csv || true
-          git add 2026/output/LightGBM/betting_summary_*.xlsx || true
-          git add 2026/output/LightGBM/combined_nba_predictions_acc_*.csv || true
-          git add 2026/output/LightGBM/home_win_rates_sorted_*.csv || true
-          git add 2026/output/LightGBM/Kelly/*.csv || true
-
-          # If you want the BP repo to also ship prebuilt dashboard assets:
-          git add web/public/data || true
-
-          # Safety: don't accidentally commit junk
+          # Optional safety: don't accidentally commit an unwanted folder
           git restore --staged 2026/LightGBM 2>/dev/null || true
-
-          echo "---- staged ----"
-          git diff --cached --name-only || true
-          echo "---- status ----"
-          git status --porcelain || true
 
           if git diff --cached --quiet; then
             echo "No staged changes to commit."
+            git status --porcelain
             exit 0
           fi
 
-          git commit -m "chore: update dashboard artifacts (auto)"
+          git commit -m "chore: update outputs (auto)"
           git push origin 2026
+
 
 
 
