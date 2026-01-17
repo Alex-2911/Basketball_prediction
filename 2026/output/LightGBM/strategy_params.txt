@@ -1,7 +1,7 @@
-as_of_date=2026-01-08
+as_of_date=2026-01-16
 min_ev=-5.0
 stake=100.0
 home_win_rate_threshold=0.65
 odds_max=2.5
-odds_min=1.6
-prob_threshold=0.7
+odds_min=1.4
+prob_threshold=0.65
