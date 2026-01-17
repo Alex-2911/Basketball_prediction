@@ -5,9 +5,15 @@ const fs = require('fs');
 const path = require('path');
 
 const repoRoot = path.resolve(__dirname, '..');
+
+// Basketball_prediction outputs live here (default):
+//   <repo>/2026/output/LightGBM
+// You can override with env.LGBM_DIR.
 const outputDir = path.resolve(
   process.env.LGBM_DIR || path.join(repoRoot, '2026', 'output', 'LightGBM')
 );
+
+// Dashboard expects files here:
 const webDataDir = path.join(repoRoot, 'web', 'public', 'data');
 
 const REQUIRED_WINDOW_SIZE = 200;
@@ -69,6 +75,7 @@ function splitCsvLine(line) {
 }
 
 function findLatestFile(dir, prefix, suffix = '.csv') {
+  if (!fs.existsSync(dir)) return null;
   const entries = fs.readdirSync(dir);
   const candidates = entries
     .filter((name) => name.startsWith(prefix) && name.endsWith(suffix))
@@ -79,9 +86,7 @@ function findLatestFile(dir, prefix, suffix = '.csv') {
     .filter(Boolean)
     .sort((a, b) => (a.date > b.date ? 1 : -1));
 
-  if (!candidates.length) {
-    return null;
-  }
+  if (!candidates.length) return null;
   return candidates[candidates.length - 1].name;
 }
 
@@ -103,6 +108,7 @@ function formatDateUTC(date) {
   return date.toISOString().slice(0, 10);
 }
 
+// NOTE: keeps your previous behavior: last N days in UTC ending "today" (runner time).
 function determineWindowDates(windowSize) {
   const windowEndDate = new Date();
   const windowStartDate = new Date(windowEndDate);
@@ -114,22 +120,68 @@ function determineWindowDates(windowSize) {
 }
 
 function copyFile(source, target) {
+  ensureDir(path.dirname(target));
   fs.copyFileSync(source, target);
+}
+
+function safeReadJson(filePath, label) {
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Missing required file: ${label} (${filePath})`);
+  }
+  const raw = fs.readFileSync(filePath, 'utf8');
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    throw new Error(`Failed to parse JSON: ${label} (${filePath})`);
+  }
 }
 
 function main() {
   ensureDir(webDataDir);
 
+  // ----------------------------
+  // Required: metrics snapshot
+  // ----------------------------
   const metricsPath = path.join(outputDir, 'metrics_snapshot.json');
-  const metricsSnapshot = JSON.parse(fs.readFileSync(metricsPath, 'utf8'));
+  const metricsSnapshot = safeReadJson(metricsPath, 'metrics_snapshot.json');
 
-  const combinedLatestName = findLatestFile(outputDir, 'combined_nba_predictions_acc_');
-  if (!combinedLatestName) {
-    throw new Error('No combined_nba_predictions_acc_*.csv found');
+  // ----------------------------
+  // Prefer ISO combined (Kelly/combined_nba_predictions_iso_*)
+  // else fallback to ACC combined (combined_nba_predictions_acc_*)
+  // ----------------------------
+  const kellyDir = path.join(outputDir, 'Kelly');
+  const combinedIsoName = fs.existsSync(kellyDir)
+    ? findLatestFile(kellyDir, 'combined_nba_predictions_iso_')
+    : null;
+
+  const combinedAccName = findLatestFile(outputDir, 'combined_nba_predictions_acc_');
+
+  const combinedLatestPath = combinedIsoName
+    ? path.join(kellyDir, combinedIsoName)
+    : (combinedAccName ? path.join(outputDir, combinedAccName) : null);
+
+  if (!combinedLatestPath) {
+    throw new Error(
+      `No combined predictions found. Looked for:
+- ${path.join(kellyDir, 'combined_nba_predictions_iso_*.csv')}
+- ${path.join(outputDir, 'combined_nba_predictions_acc_*.csv')}`
+    );
   }
-  const combinedLatestPath = path.join(outputDir, combinedLatestName);
+
+  console.log(
+    combinedIsoName
+      ? `Using ISO combined for dashboard: ${path.join('Kelly', combinedIsoName)}`
+      : `Using ACC combined for dashboard: ${combinedAccName}`
+  );
+
+  // ----------------------------
+  // Window dates
+  // ----------------------------
   const { windowStart, windowEnd } = determineWindowDates(REQUIRED_WINDOW_SIZE);
 
+  // ----------------------------
+  // local matched games
+  // ----------------------------
   const localMatchedLatestName = findLatestFile(outputDir, 'local_matched_games_');
   if (!localMatchedLatestName) {
     throw new Error('No local_matched_games_*.csv found');
@@ -137,11 +189,19 @@ function main() {
   const localMatchedPath = path.join(outputDir, localMatchedLatestName);
   const localMatchedText = fs.readFileSync(localMatchedPath, 'utf8');
   const localMatchedRows = parseCsv(localMatchedText);
-  const localMatchedDateKey = localMatchedRows[0]?.date ? 'date' : (localMatchedRows[0]?.game_date ? 'game_date' : 'date');
+  const localMatchedDateKey = localMatchedRows[0]?.date
+    ? 'date'
+    : (localMatchedRows[0]?.game_date ? 'game_date' : 'date');
 
+  // ----------------------------
+  // bet log (optional)
+  // ----------------------------
   const betLogPath = path.join(outputDir, 'bet_log_flat_live.csv');
   const betLogExists = fs.existsSync(betLogPath);
 
+  // ----------------------------
+  // strategy_params.txt -> strategy_params.json (optional)
+  // ----------------------------
   const strategyParamsTxtPath = path.join(outputDir, 'strategy_params.txt');
   let strategyParams = {};
   if (fs.existsSync(strategyParamsTxtPath)) {
@@ -149,8 +209,14 @@ function main() {
     strategyParams = parseStrategyParams(raw);
   }
 
-  const asOfDate = strategyParams.as_of_date || metricsSnapshot?.meta?.eval_base_date_max || windowEnd;
+  const asOfDate =
+    strategyParams.as_of_date ||
+    metricsSnapshot?.meta?.eval_base_date_max ||
+    windowEnd;
 
+  // ----------------------------
+  // Active filters text
+  // ----------------------------
   const filterParams = metricsSnapshot.filter_params || {};
   const activeFiltersText = [
     `HW \u2265 ${formatNumber(filterParams.home_win_rate_threshold, 2)}`,
@@ -160,6 +226,9 @@ function main() {
     `window ${REQUIRED_WINDOW_SIZE} days (${windowStart || '—'} \u2192 ${windowEnd || '—'})`,
   ].join(' | ');
 
+  // ----------------------------
+  // Windowed local matches count + as_of_date from matches
+  // ----------------------------
   const inWindowLocalMatches = localMatchedRows.filter((row) => {
     const dateValue = row[localMatchedDateKey];
     if (!dateValue || !windowStart || !windowEnd) return false;
@@ -170,6 +239,9 @@ function main() {
     ? inWindowLocalMatches.map((row) => row[localMatchedDateKey]).sort().slice(-1)[0]
     : (localMatchedRows.map((row) => row[localMatchedDateKey]).sort().slice(-1)[0] || null);
 
+  // ----------------------------
+  // dashboard_state.json
+  // ----------------------------
   const dashboardState = {
     as_of_date: asOfDate,
     window_size: REQUIRED_WINDOW_SIZE,
@@ -182,15 +254,23 @@ function main() {
     last_update_utc: new Date().toISOString(),
     source_files: {
       combined: 'combined_latest.csv',
+      combined_source: combinedIsoName
+        ? `Kelly/${combinedIsoName}`
+        : (combinedAccName || null),
       local_matched: 'local_matched_games_latest.csv',
+      local_matched_source: localMatchedLatestName,
       bet_log: betLogExists ? 'bet_log_flat_live.csv' : null,
     },
     strategy_matches_window: inWindowLocalMatches.length,
   };
 
+  // ----------------------------
+  // Copy artifacts into web/public/data
+  // ----------------------------
   copyFile(metricsPath, path.join(webDataDir, 'metrics_snapshot.json'));
   copyFile(combinedLatestPath, path.join(webDataDir, 'combined_latest.csv'));
   copyFile(localMatchedPath, path.join(webDataDir, 'local_matched_games_latest.csv'));
+
   if (betLogExists) {
     copyFile(betLogPath, path.join(webDataDir, 'bet_log_flat_live.csv'));
   }
@@ -208,6 +288,11 @@ function main() {
     JSON.stringify(dashboardState, null, 2),
     'utf8'
   );
+
+  // Small sanity output (helps debugging in Actions logs)
+  const combinedHeader = fs.readFileSync(path.join(webDataDir, 'combined_latest.csv'), 'utf8')
+    .split(/\r?\n/)[0];
+  console.log('combined_latest.csv header:', combinedHeader);
 
   console.log('Dashboard assets prepared in web/public/data');
 }
