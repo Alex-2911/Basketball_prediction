@@ -110,6 +110,13 @@ jobs:
           node scripts/build_dashboard_assets.js
           ls -la web/public/data
 
+      - name: Show git status before commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git status --porcelain
+          echo "----"
+          ls -la 2026/output/LightGBM | tail -n 50
 
       - name: Commit updated outputs (auto)
         shell: bash
@@ -135,6 +142,7 @@ jobs:
 
           git commit -m "chore: update outputs (auto)"
           git push origin 2026
+          
 
 
 
