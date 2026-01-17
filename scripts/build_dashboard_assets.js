@@ -97,22 +97,17 @@ function formatMinEv(value) {
   return `${num}`;
 }
 
-function determineWindowDates(rows, dateKey) {
-  if (!rows.length) {
-    return { windowStart: null, windowEnd: null, windowRows: [] };
-  }
-  const sorted = rows
-    .map((row) => row[dateKey])
-    .filter(Boolean)
-    .sort();
-  if (!sorted.length) {
-    return { windowStart: null, windowEnd: null, windowRows: [] };
-  }
-  const windowRows = sorted.slice(-REQUIRED_WINDOW_SIZE);
+function formatDateUTC(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function determineWindowDates(windowSize) {
+  const windowEndDate = new Date();
+  const windowStartDate = new Date(windowEndDate);
+  windowStartDate.setUTCDate(windowEndDate.getUTCDate() - (windowSize - 1));
   return {
-    windowStart: windowRows[0],
-    windowEnd: windowRows[windowRows.length - 1],
-    windowRows,
+    windowStart: formatDateUTC(windowStartDate),
+    windowEnd: formatDateUTC(windowEndDate),
   };
 }
 
@@ -131,10 +126,7 @@ function main() {
     throw new Error('No combined_nba_predictions_acc_*.csv found');
   }
   const combinedLatestPath = path.join(outputDir, combinedLatestName);
-  const combinedText = fs.readFileSync(combinedLatestPath, 'utf8');
-  const combinedRows = parseCsv(combinedText);
-  const combinedDateKey = combinedRows[0]?.date ? 'date' : (combinedRows[0]?.game_date ? 'game_date' : 'date');
-  const { windowStart, windowEnd } = determineWindowDates(combinedRows, combinedDateKey);
+  const { windowStart, windowEnd } = determineWindowDates(REQUIRED_WINDOW_SIZE);
 
   const localMatchedLatestName = findLatestFile(outputDir, 'local_matched_games_');
   if (!localMatchedLatestName) {
@@ -163,7 +155,7 @@ function main() {
     `odds ${formatNumber(filterParams.odds_min, 2)}\u2013${formatNumber(filterParams.odds_max, 2)}`,
     `p \u2265 ${formatNumber(filterParams.prob_threshold, 2)}`,
     `EV > ${formatMinEv(filterParams.min_EV)}`,
-    `window ${REQUIRED_WINDOW_SIZE} (${windowStart || '—'} \u2192 ${windowEnd || '—'})`,
+    `window ${REQUIRED_WINDOW_SIZE} days (${windowStart || '—'} \u2192 ${windowEnd || '—'})`,
   ].join(' | ');
 
   const inWindowLocalMatches = localMatchedRows.filter((row) => {
