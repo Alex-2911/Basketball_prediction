@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SOURCE_ROOT="${SOURCE_ROOT:-$(pwd)/2026}"
-LGBM_DIR="${LGBM_DIR:-${SOURCE_ROOT}/LightGBM}"
+LGBM_DIR="${LGBM_DIR:-${SOURCE_ROOT}/output/LightGBM}"
 N_WINDOW="${N_WINDOW:-200}"
 
 if [[ ! -d "${SOURCE_ROOT}" ]]; then
@@ -56,3 +56,5 @@ if [[ "$(wc -l < "${matched_path}")" -le 1 ]]; then
 fi
 
 echo "Pipeline outputs ready in ${LGBM_DIR}"
+
+node scripts/build_dashboard_assets.js
