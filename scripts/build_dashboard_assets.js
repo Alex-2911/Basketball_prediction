@@ -5,7 +5,9 @@ const fs = require('fs');
 const path = require('path');
 
 const repoRoot = path.resolve(__dirname, '..');
-const outputDir = path.join(repoRoot, '2026', 'output', 'LightGBM');
+const outputDir = path.resolve(
+  process.env.LGBM_DIR || path.join(repoRoot, '2026', 'output', 'LightGBM')
+);
 const webDataDir = path.join(repoRoot, 'web', 'public', 'data');
 
 const REQUIRED_WINDOW_SIZE = 200;
