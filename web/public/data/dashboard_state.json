@@ -1,13 +1,13 @@
 {
   "as_of_date": "2026-01-08",
   "window_size": 200,
-  "window_start": "2025-12-15",
-  "window_end": "2026-01-14",
-  "active_filters_text": "HW ≥ 0.65 | odds 1.60–2.50 | p ≥ 0.70 | EV > −5 | window 200 (2025-12-15 → 2026-01-14)",
+  "window_start": "2025-07-02",
+  "window_end": "2026-01-17",
+  "active_filters_text": "HW ≥ 0.65 | odds 1.60–2.50 | p ≥ 0.70 | EV > −5 | window 200 days (2025-07-02 → 2026-01-17)",
   "params_used_label": "Historical",
   "params_source_label": "GLOBAL",
   "strategy_as_of_date": "2026-01-08",
-  "last_update_utc": "2026-01-15T18:54:04.574Z",
+  "last_update_utc": "2026-01-17T20:26:31.117Z",
   "source_files": {
     "combined": "combined_latest.csv",
     "local_matched": "local_matched_games_latest.csv",
