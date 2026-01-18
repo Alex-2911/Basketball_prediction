@@ -62,23 +62,30 @@ jobs:
       # Script 5
       # -----------------------
       - name: Run Isotonic shortlist + bet log engine (Script 5)
-        run: |
-          echo "=== Running isotonic shortlist + bet log update (Script 5) ==="
-          python 2026/src//5_Isotonic_based_betting_strategy_2026.py
-          echo "=== Script 5 finished ==="
-
-      - name: Debug local_matched_games_latest right after Script 5
         shell: bash
         run: |
           set -euo pipefail
-          echo "AFTER SCRIPT 5 HEAD:"
+          echo "=== Running isotonic shortlist + bet log update (Script 5) ==="
+          python 2026/src/5_Isotonic_based_betting_strategy_2026.py
+          echo "=== Script 5 finished ==="
+
+
+      - name: Hash local_matched_games_latest after Script 5
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "HASH AFTER SCRIPT5:"
           ls -la web/public/data || true
           if test -f web/public/data/local_matched_games_latest.csv; then
+            sha256sum web/public/data/local_matched_games_latest.csv
+            wc -l web/public/data/local_matched_games_latest.csv
+            tail -n 3 web/public/data/local_matched_games_latest.csv
+            echo "HEAD:"
             head -n 5 web/public/data/local_matched_games_latest.csv
           else
             echo "MISSING web/public/data/local_matched_games_latest.csv"
           fi
-
 
       - name: Maintain persistent bet log ledger
         run: |
@@ -125,6 +132,13 @@ jobs:
           echo "AFTER NODE HEAD:"
           head -n 5 web/public/data/local_matched_games_latest.csv
 
+          echo "HASH AFTER NODE:"
+          sha256sum web/public/data/local_matched_games_latest.csv || true
+          echo "HASH IN REPO (HEAD):"
+          git show HEAD:web/public/data/local_matched_games_latest.csv 2>/dev/null | sha256sum || echo "No file in HEAD"
+
+          echo "DIFF AFTER NODE vs AFTER SCRIPT5 (if any):"
+          git diff -- web/public/data/local_matched_games_latest.csv || true
 
       - name: Show git status before commit
         shell: bash
