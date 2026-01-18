@@ -103,12 +103,24 @@ jobs:
             2026/output/LightGBM/Kelly/*.csv
           if-no-files-found: warn
 
+      - name: Debug local_matched_games_latest right after Script 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "AFTER SCRIPT 5 HEAD:"
+          ls -la web/public/data || true
+          test -f web/public/data/local_matched_games_latest.csv && head -n 5 web/public/data/local_matched_games_latest.csv || echo "MISSING local_matched_games_latest.csv"
+
+
       - name: Build dashboard assets (web/public/data)
         shell: bash
         run: |
           set -euo pipefail
           node scripts/build_dashboard_assets.js
           ls -la web/public/data
+          echo "AFTER NODE HEAD:"
+          head -n 5 web/public/data/local_matched_games_latest.csv
+
 
       - name: Show git status before commit
         shell: bash
