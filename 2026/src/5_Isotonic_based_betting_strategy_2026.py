@@ -1036,10 +1036,5 @@ def main() -> None:
     logging.info("AFTER WRITE HEAD:\n%s", "\n".join(p.read_text(encoding="utf-8").splitlines()[:5]))
 
        
-)
-
-
-
-
 if __name__ == "__main__":
     main()
