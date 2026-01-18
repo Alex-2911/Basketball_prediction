@@ -25,6 +25,11 @@ Outputs (same intent as before):
 
 Additional output (ONLY ADDITION, minimal change):
 - (repo_root)/web/public/data/local_matched_games_latest.csv
+
+IMPORTANT (new requirement):
+- local_matched_games_latest.csv must contain the filtered subset from the last 200 PLAYED games,
+  capped at the latest played date ("yesterday"/as_of_date), using params_used + min_EV.
+  Only this output logic has been changed below.
 """
 
 from __future__ import annotations
@@ -903,6 +908,9 @@ def write_latest_local_matched_csv(export_df: Optional[pd.DataFrame]) -> None:
     """
     Minimal add-on: writes web/public/data/local_matched_games_latest.csv
     using the already computed matched_export (no filter logic change).
+
+    NOTE: The *call site* below is modified so that export_df passed here is the
+          expected: filtered subset from the last 200 played games, capped at as_of_date.
     """
     try:
         repo_root = Path(__file__).resolve().parents[2]
@@ -929,6 +937,74 @@ def write_latest_local_matched_csv(export_df: Optional[pd.DataFrame]) -> None:
 
     except Exception as e:
         logging.warning("Could not write local_matched_games_latest.csv: %s", e)
+
+
+# -----------------------------
+# ONLY CHANGE FOR YOUR NEW REQUIREMENT:
+# Build "latest" export as filtered subset on last 200 played games capped at as_of_date
+# -----------------------------
+
+def build_latest_local_matched_for_dashboard(
+    df_past_sorted: pd.DataFrame,
+    *,
+    params_used: dict,
+    as_of_date: str,
+    window_n: int,
+    min_ev: float,
+    flat_stake: float,
+    prob_clip_lo: float,
+    prob_clip_hi: float,
+) -> pd.DataFrame:
+    """
+    Returns a DataFrame suitable for local_matched_games_latest.csv:
+    - Uses only played games (df_past_sorted)
+    - Caps the candidate window to as_of_date (latest played date) to enforce "yesterday" limit
+    - Takes the last window_n games in that capped set (default 200)
+    - Applies the same filter logic (params_used + min_ev + prob clipping)
+    - Exports in the expected columns
+    - Dedupes by (date, home_team, away_team), keeping the best odds_1 if duplicates exist
+    """
+    if df_past_sorted is None or df_past_sorted.empty:
+        return pd.DataFrame()
+
+    df = _ensure_datetime(df_past_sorted, DATE_COL).sort_values(DATE_COL).copy()
+
+    asof_dt = pd.to_datetime(as_of_date, errors="coerce")
+    if pd.isna(asof_dt):
+        window_df = df.tail(int(window_n)).copy()
+    else:
+        window_df = df[df[DATE_COL] <= asof_dt].tail(int(window_n)).copy()
+
+    if window_df.empty:
+        return pd.DataFrame()
+
+    # Apply effective filters on this window
+    _m, subset = evaluate_params_on_hist_window(
+        window_df,
+        params_used,
+        min_ev=min_ev,
+        flat_stake_backtest=flat_stake,
+        prob_clip_lo=prob_clip_lo,
+        prob_clip_hi=prob_clip_hi,
+    )
+
+    if subset is None or subset.empty:
+        return pd.DataFrame()
+
+    export_df = prepare_local_matched_export(subset, stake=flat_stake)
+
+    # Deduplicate matchup rows (e.g., multiple odds snapshots)
+    if not export_df.empty:
+        export_df["odds_1"] = pd.to_numeric(export_df["odds_1"], errors="coerce")
+        export_df = export_df.sort_values(
+            ["date", "home_team", "away_team", "odds_1"],
+            ascending=[True, True, True, False],
+        ).drop_duplicates(
+            ["date", "home_team", "away_team"],
+            keep="first",
+        ).reset_index(drop=True)
+
+    return export_df
 
 
 # -----------------------------
@@ -1341,9 +1417,21 @@ def main() -> None:
         logging.info("No shortlist bets for %s", target_ymd)
 
     # ---------------------------------------------------------------------
-    # ONLY ADDITION: also publish "latest" file for the hoops-insight dashboard
+    # ONLY BEHAVIOR CHANGE:
+    # publish "local_matched_games_latest.csv" as filtered subset on last 200 played games,
+    # capped at as_of_date ("yesterday"), using params_used + min_EV.
     # ---------------------------------------------------------------------
-    write_latest_local_matched_csv(matched_export)
+    latest_for_dashboard = build_latest_local_matched_for_dashboard(
+        df_past_sorted,
+        params_used=params_used,
+        as_of_date=as_of_date,
+        window_n=FAIR_COMPARE_N,   # 200
+        min_ev=min_EV,
+        flat_stake=FLAT_STAKE,
+        prob_clip_lo=PROB_CLIP_LO,
+        prob_clip_hi=PROB_CLIP_HI,
+    )
+    write_latest_local_matched_csv(latest_for_dashboard)
 
     logging.info("DONE. metrics_snapshot as_of=%s | out_dir=%s", as_of_date, out_dir)
 
