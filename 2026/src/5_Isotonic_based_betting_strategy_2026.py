@@ -91,6 +91,13 @@ def setup_logging() -> None:
 # HELPERS
 # -----------------------------
 
+def find_repo_root() -> Path:
+    p = Path(__file__).resolve()
+    while p != p.parent and not (p / "web" / "public").exists():
+        p = p.parent
+    return p
+
+
 def get_yesterday_date(target_dt: datetime) -> datetime.date:
     # Always treat "yesterday" as the last completed day relative to target_dt
     return (target_dt - timedelta(days=1)).date()
@@ -168,7 +175,11 @@ def resolve_params_source(output_dir: Path, variant: str) -> Path:
     if env_path:
         return Path(env_path)
 
-    repo_root = Path(__file__).resolve().parents[2]
+    # find repo root by walking up until we see "web/public"
+    repo_root = Path(__file__).resolve()
+    while repo_root != repo_root.parent and not (repo_root / "web" / "public").exists():
+        repo_root = repo_root.parent
+
     candidates = [
         repo_root / "public" / "data" / "strategy_params.json",
         repo_root / "web" / "public" / "data" / "strategy_params.json",
@@ -688,7 +699,7 @@ def write_latest_local_matched_csv(
     try:
         _validate_params(params_used, name="params_used")
 
-        repo_root = Path(__file__).resolve().parents[2]
+        repo_root = find_repo_root()
         out_path = repo_root / "web" / "public" / "data" / "local_matched_games_latest.csv"
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -704,10 +715,17 @@ def write_latest_local_matched_csv(
             return
 
         # --- cutoff to yesterday ---
-        yesterday = get_yesterday_date(target_dt)
         df = df_past_sorted.copy()
         df = _ensure_datetime(df, DATE_COL)
-        df = df[df[DATE_COL].dt.date <= yesterday].copy()
+        
+        max_played_ts = pd.to_datetime(df[DATE_COL], errors="coerce").max()
+        if pd.isna(max_played_ts):
+            pd.DataFrame(columns=cols).to_csv(out_path, index=False, encoding="utf-8")
+            logging.info("Wrote EMPTY local_matched_games_latest.csv -> %s (no played dates)", out_path)
+            return
+        
+        cutoff_date = max_played_ts.date()
+        df = df[df[DATE_COL].dt.date <= cutoff_date].copy()
 
         # last N played games inside cutoff
         df = df.sort_values(DATE_COL).tail(int(window_n)).copy()
@@ -743,7 +761,16 @@ def write_latest_local_matched_csv(
             out_path,
             len(export_df),
             int(window_n),
-            str(yesterday),
+            str(cutoff_date),
+        )
+
+  
+        (out_path.parent / "local_matched_games_latest__written_by_script5.txt").write_text(
+            f"written_at_utc={datetime.utcnow().isoformat()}Z\n"
+            f"rows={len(export_df)}\n"
+            f"first_date={export_df['date'].iloc[0] if len(export_df) else 'NA'}\n"
+            f"last_date={export_df['date'].iloc[-1] if len(export_df) else 'NA'}\n",
+            encoding="utf-8",
         )
 
     except Exception as e:
@@ -1002,7 +1029,8 @@ def main() -> None:
 
     logging.info("DONE. local_matched_games_latest.csv updated using LOCAL params on last-200 window ending %s.", as_of_date)
 
-    p = Path(__file__).resolve().parents[2] / "web/public/data/local_matched_games_latest.csv"
+    p = find_repo_root() / "web" / "public" / "data" / "local_matched_games_latest.csv"
+
     logging.info("AFTER WRITE: latest size=%d bytes mtime=%s", p.stat().st_size, datetime.fromtimestamp(p.stat().st_mtime))
     logging.info("AFTER WRITE HEAD:\n%s", "\n".join(p.read_text(encoding="utf-8").splitlines()[:5]))
 
