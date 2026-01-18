@@ -22,6 +22,9 @@ Outputs (same intent as before):
 - out_dir/strategy_params.txt
 - out_dir/summary.json
 - (repo_root)/public/data/last_run.json  (for trace)
+
+Additional output (ONLY ADDITION, minimal change):
+- (repo_root)/web/public/data/local_matched_games_latest.csv
 """
 
 from __future__ import annotations
@@ -893,6 +896,42 @@ def write_strategy_params(params_used: dict, *, min_ev: float, as_of_date: str, 
 
 
 # -----------------------------
+# NEW: write latest CSV for dashboard
+# -----------------------------
+
+def write_latest_local_matched_csv(export_df: Optional[pd.DataFrame]) -> None:
+    """
+    Minimal add-on: writes web/public/data/local_matched_games_latest.csv
+    using the already computed matched_export (no filter logic change).
+    """
+    try:
+        repo_root = Path(__file__).resolve().parents[2]
+        out_path = repo_root / "web" / "public" / "data" / "local_matched_games_latest.csv"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        cols = [
+            "date", "home_team", "away_team",
+            "home_win_rate", "prob_iso", "prob_used",
+            "odds_1", "EV_€_per_100", "win", "pnl", "stake"
+        ]
+
+        if export_df is None or export_df.empty:
+            pd.DataFrame(columns=cols).to_csv(out_path, index=False, encoding="utf-8")
+            logging.info("Wrote EMPTY local_matched_games_latest.csv -> %s", out_path)
+            return
+
+        df = export_df.copy()
+        for c in cols:
+            if c not in df.columns:
+                df[c] = np.nan
+        df[cols].to_csv(out_path, index=False, encoding="utf-8")
+        logging.info("Wrote local_matched_games_latest.csv -> %s (%d rows)", out_path, len(df))
+
+    except Exception as e:
+        logging.warning("Could not write local_matched_games_latest.csv: %s", e)
+
+
+# -----------------------------
 # REAL BETS (optional)
 # -----------------------------
 
@@ -1300,6 +1339,11 @@ def main() -> None:
         logging.info("Saved shortlist -> %s (%d rows)", shortlist_path, len(flat_today))
     else:
         logging.info("No shortlist bets for %s", target_ymd)
+
+    # ---------------------------------------------------------------------
+    # ONLY ADDITION: also publish "latest" file for the hoops-insight dashboard
+    # ---------------------------------------------------------------------
+    write_latest_local_matched_csv(matched_export)
 
     logging.info("DONE. metrics_snapshot as_of=%s | out_dir=%s", as_of_date, out_dir)
 
