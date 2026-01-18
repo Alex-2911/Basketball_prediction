@@ -126,10 +126,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Stage ALL generated outputs we expect to persist
-          git add -A \
-            2026/output/LightGBM \
-            web/public/data || true
+          # Stage outputs
+          git add -A 2026/output/LightGBM || true
+
+          # Force-add dashboard assets even if ignored
+          git add -f web/public/data || true
 
           # Optional safety: don't accidentally commit an unwanted folder
           git restore --staged 2026/LightGBM 2>/dev/null || true
@@ -142,6 +143,7 @@ jobs:
 
           git commit -m "chore: update outputs (auto)"
           git push origin 2026
+
           
 
 
