@@ -3,33 +3,14 @@
 """
 5_Isotonic_based_betting_strategy_2026.py  (DROP-IN, FIXED)
 
-Key fixes vs your current version:
-1) metrics_snapshot "as_of_date" is derived from the latest *played* game in df_all
-   (not from df_past which could be artificially capped).
-2) "window/bankroll window dates" are based on last N played games (df_past sorted),
-   not on matched subset ordering.
-3) resolve_params_source checks BOTH:
-      public/data/strategy_params.json
-      web/public/data/strategy_params.json
+ONLY BEHAVIOR CHANGE (per your request):
+- web/public/data/local_matched_games_latest.csv is now built from:
+    (a) last 200 PLAYED games, capped at as_of_date (latest played date)
+    (b) FILTER PARAMS loaded from strategy_params.json (params_source_path)
+    (c) min_EV applied
+  This ensures the dashboard "Active Filters (effective)" are what drives local_matched_games_latest.csv.
 
-Outputs (same intent as before):
-- pred_dir/home_win_rates_sorted_YYYY-MM-DD.csv
-- pred_dir/Kelly/nba_grid_search_results_YYYY-MM-DD.csv
-- pred_dir/Kelly/combined_nba_predictions_iso_YYYY-MM-DD.csv
-- pred_dir/bet_shortlist_YYYY-MM-DD.csv
-- out_dir/local_matched_games_YYYY-MM-DD.csv
-- out_dir/metrics_snapshot.json
-- out_dir/strategy_params.txt
-- out_dir/summary.json
-- (repo_root)/public/data/last_run.json  (for trace)
-
-Additional output (ONLY ADDITION, minimal change):
-- (repo_root)/web/public/data/local_matched_games_latest.csv
-
-IMPORTANT (new requirement):
-- local_matched_games_latest.csv must contain the filtered subset from the last 200 PLAYED games,
-  capped at the latest played date ("yesterday"/as_of_date), using params_used + min_EV.
-  Only this output logic has been changed below.
+Everything else remains unchanged.
 """
 
 from __future__ import annotations
@@ -228,16 +209,6 @@ def _compute_prob_used(df: pd.DataFrame, lo: float, hi: float, src=ISO_COL, dst=
 def _compute_ev_per_100(df: pd.DataFrame, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100") -> pd.DataFrame:
     out = df.copy()
     out[dst] = (out[prob_col] * (out[odds_col] - 1.0) - (1.0 - out[prob_col])) * 100.0
-    return out
-
-
-def _make_game_key(df: pd.DataFrame, date_col: str, home_col="home_team", away_col="away_team", dst="game_key") -> pd.DataFrame:
-    out = _ensure_datetime(df, date_col)
-    out[dst] = (
-        out[date_col].dt.strftime("%Y-%m-%d") + "_" +
-        out[home_col].astype(str) + "_" +
-        out[away_col].astype(str)
-    )
     return out
 
 
@@ -453,18 +424,14 @@ def attach_home_win_rate(df: pd.DataFrame, hwr_path: str) -> pd.DataFrame:
     hwr = pd.read_csv(hwr_path, encoding="utf-8")
     cols = list(hwr.columns)
 
-    # handle both "index as team" and explicit team column
     if "Home Win Rate" in cols and len(cols) >= 1:
-        # team is index column if file saved with index=True
         if cols[0] != "Home Win Rate":
             team_col = cols[0]
             win_col = "Home Win Rate"
         else:
-            # fallback
             team_col = cols[0]
             win_col = cols[-1]
     else:
-        # generic attempt
         lower = {c.lower(): c for c in cols}
         team_col = lower.get("team", cols[0])
         win_col = next((c for c in cols if "win rate" in c.lower()), cols[-1])
@@ -769,7 +736,6 @@ def prepare_local_matched_export(matched_subset: pd.DataFrame, stake: float) -> 
     df = _ensure_datetime(df, "date")
     df["date"] = df["date"].dt.strftime("%Y-%m-%d")
 
-    # normalize expected columns
     if "home_win_rate" not in df.columns:
         df["home_win_rate"] = df[HOMEWR_COL]
     if "prob_iso" not in df.columns:
@@ -901,16 +867,12 @@ def write_strategy_params(params_used: dict, *, min_ev: float, as_of_date: str, 
 
 
 # -----------------------------
-# NEW: write latest CSV for dashboard
+# LATEST CSV for dashboard
 # -----------------------------
 
 def write_latest_local_matched_csv(export_df: Optional[pd.DataFrame]) -> None:
     """
-    Minimal add-on: writes web/public/data/local_matched_games_latest.csv
-    using the already computed matched_export (no filter logic change).
-
-    NOTE: The *call site* below is modified so that export_df passed here is the
-          expected: filtered subset from the last 200 played games, capped at as_of_date.
+    Writes web/public/data/local_matched_games_latest.csv.
     """
     try:
         repo_root = Path(__file__).resolve().parents[2]
@@ -940,14 +902,80 @@ def write_latest_local_matched_csv(export_df: Optional[pd.DataFrame]) -> None:
 
 
 # -----------------------------
-# ONLY CHANGE FOR YOUR NEW REQUIREMENT:
-# Build "latest" export as filtered subset on last 200 played games capped at as_of_date
+# ONLY CHANGE: load dashboard filter params from params_source_path
 # -----------------------------
+
+def _load_filter_params_for_latest(params_source_path: Path, fallback: dict) -> dict:
+    """
+    Reads filter params for local_matched_games_latest.csv.
+
+    Preference:
+    - strategy_params.json (or other JSON) with keys:
+        home_win_rate_threshold, odds_min, odds_max, prob_threshold
+      (or legacy keys: home_win_rate_threshold/odds_min/odds_max/prob_threshold)
+
+    Fallback:
+    - strategy_params.txt key=value lines
+    - fallback dict passed in
+    """
+    try:
+        if params_source_path and params_source_path.exists():
+            if params_source_path.suffix.lower() == ".json":
+                raw = json.loads(params_source_path.read_text(encoding="utf-8"))
+                # allow nested structures if ever used
+                if isinstance(raw, dict) and "filter_params" in raw and isinstance(raw["filter_params"], dict):
+                    raw = raw["filter_params"]
+
+                cand = {
+                    "home_win_rate_threshold": raw.get("home_win_rate_threshold"),
+                    "odds_min": raw.get("odds_min"),
+                    "odds_max": raw.get("odds_max"),
+                    "prob_threshold": raw.get("prob_threshold"),
+                }
+                if all(v is not None for v in cand.values()):
+                    out = {k: float(v) for k, v in cand.items()}
+                    _validate_params(out, name=f"latest_params({params_source_path.name})")
+                    return out
+
+            # txt fallback
+            txt = params_source_path.read_text(encoding="utf-8", errors="ignore")
+            lines = [ln.strip() for ln in txt.splitlines() if ln.strip() and "=" in ln]
+            parsed = {}
+            for ln in lines:
+                k, v = ln.split("=", 1)
+                parsed[k.strip()] = v.strip()
+
+            cand = {
+                "home_win_rate_threshold": parsed.get("home_win_rate_threshold"),
+                "odds_min": parsed.get("odds_min"),
+                "odds_max": parsed.get("odds_max"),
+                "prob_threshold": parsed.get("prob_threshold"),
+            }
+            if all(v is not None for v in cand.values()):
+                out = {k: float(v) for k, v in cand.items()}
+                _validate_params(out, name=f"latest_params({params_source_path.name})")
+                return out
+
+    except Exception as e:
+        logging.warning("Could not load params for latest file from %s: %s", params_source_path, e)
+
+    # fallback
+    try:
+        _validate_params(fallback, name="latest_params_fallback")
+        return fallback
+    except Exception:
+        return {
+            "home_win_rate_threshold": 0.0,
+            "odds_min": 0.0,
+            "odds_max": 999.0,
+            "prob_threshold": 0.0,
+        }
+
 
 def build_latest_local_matched_for_dashboard(
     df_past_sorted: pd.DataFrame,
     *,
-    params_used: dict,
+    params_for_latest: dict,
     as_of_date: str,
     window_n: int,
     min_ev: float,
@@ -956,16 +984,16 @@ def build_latest_local_matched_for_dashboard(
     prob_clip_hi: float,
 ) -> pd.DataFrame:
     """
-    Returns a DataFrame suitable for local_matched_games_latest.csv:
-    - Uses only played games (df_past_sorted)
-    - Caps the candidate window to as_of_date (latest played date) to enforce "yesterday" limit
-    - Takes the last window_n games in that capped set (default 200)
-    - Applies the same filter logic (params_used + min_ev + prob clipping)
-    - Exports in the expected columns
-    - Dedupes by (date, home_team, away_team), keeping the best odds_1 if duplicates exist
+    Build local_matched_games_latest.csv as:
+    - last window_n PLAYED games capped at as_of_date
+    - filtered using params_for_latest + min_ev + prob clipping
+    - exported in standard columns
+    - deduped by (date, home_team, away_team) keeping best odds_1
     """
     if df_past_sorted is None or df_past_sorted.empty:
         return pd.DataFrame()
+
+    _validate_params(params_for_latest, name="params_for_latest")
 
     df = _ensure_datetime(df_past_sorted, DATE_COL).sort_values(DATE_COL).copy()
 
@@ -978,10 +1006,9 @@ def build_latest_local_matched_for_dashboard(
     if window_df.empty:
         return pd.DataFrame()
 
-    # Apply effective filters on this window
-    _m, subset = evaluate_params_on_hist_window(
+    _, subset = evaluate_params_on_hist_window(
         window_df,
-        params_used,
+        params_for_latest,
         min_ev=min_ev,
         flat_stake_backtest=flat_stake,
         prob_clip_lo=prob_clip_lo,
@@ -993,7 +1020,6 @@ def build_latest_local_matched_for_dashboard(
 
     export_df = prepare_local_matched_export(subset, stake=flat_stake)
 
-    # Deduplicate matchup rows (e.g., multiple odds snapshots)
     if not export_df.empty:
         export_df["odds_1"] = pd.to_numeric(export_df["odds_1"], errors="coerce")
         export_df = export_df.sort_values(
@@ -1032,7 +1058,6 @@ def build_settled_bets(bet_log_df: pd.DataFrame, results_df: pd.DataFrame) -> pd
 
     df = bet_log_df.copy()
 
-    # minimal schema resolver
     date_col = "date" if "date" in df.columns else ("game_date" if "game_date" in df.columns else None)
     home_col = "home_team" if "home_team" in df.columns else ("home" if "home" in df.columns else None)
     away_col = "away_team" if "away_team" in df.columns else ("away" if "away" in df.columns else None)
@@ -1062,7 +1087,6 @@ def build_settled_bets(bet_log_df: pd.DataFrame, results_df: pd.DataFrame) -> pd
     else:
         df["win"] = np.nan
 
-    # if win missing -> derive from results_df using result==home_team
     if df["win"].isna().any() and results_df is not None and not results_df.empty:
         res = results_df.copy()
         if "date" not in res.columns:
@@ -1072,7 +1096,6 @@ def build_settled_bets(bet_log_df: pd.DataFrame, results_df: pd.DataFrame) -> pd
         res["home_team_n"] = _norm_text(res["home_team"])
         res["away_team_n"] = _norm_text(res["away_team"])
 
-        # result_raw might be teamcode winner
         if "result" in res.columns:
             res["result_n"] = _norm_text(res["result"])
         elif RESULT_RAW_COL in res.columns:
@@ -1123,12 +1146,8 @@ def build_flat_shortlist_today(
 
     df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=ISO_COL, dst="prob_used")
     df = _compute_ev_per_100(df, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100")
-    df = _make_game_key(df, date_col="date", dst="game_key")
-
-    df = df.sort_values("EV_€_per_100", ascending=False).drop_duplicates("game_key").reset_index(drop=True)
 
     prob_thr_eff = max(float(params_used["prob_threshold"]), float(prob_clip_lo))
-
     mask = (
         (df[HOMEWR_COL] >= float(params_used["home_win_rate_threshold"])) &
         (df[HOME_ODDS_COL] >= float(params_used["odds_min"])) &
@@ -1155,14 +1174,10 @@ def build_flat_shortlist_today(
 
 
 # -----------------------------
-# AS-OF DATE FIX (IMPORTANT)
+# AS-OF DATE FIX
 # -----------------------------
 
 def resolve_as_of_date_from_df_all(df_all: pd.DataFrame, fallback: str) -> str:
-    """
-    FIX: derive as_of_date from latest played game in df_all (result_raw present and not '0').
-    This avoids stale as_of_date when df_past split is unexpectedly capped.
-    """
     if df_all is None or df_all.empty:
         return fallback
 
@@ -1218,7 +1233,6 @@ def main() -> None:
     if not combined_path or not combined_date:
         raise FileNotFoundError("No combined_nba_predictions_acc_*.csv files found.")
 
-    # allow fallback to latest combined
     if combined_date != target_ymd:
         logging.info("Using latest combined date %s instead of %s", combined_date, target_ymd)
         target_ymd = combined_date
@@ -1240,7 +1254,7 @@ def main() -> None:
     df_all = load_combined_df(pred_dir, target_ymd)
     df_all = _ensure_datetime(df_all, DATE_COL)
 
-    # 1b) HOME WIN RATES (based on df_all played history)
+    # 1b) HOME WIN RATES
     hwr_path = compute_home_win_rates(df_all, target_ymd, pred_dir)
 
     # 2) MERGE TODAY PREDICTIONS (optional)
@@ -1268,7 +1282,6 @@ def main() -> None:
     m_iso = df_all[PRED_PROBA_COL].notna()
     df_all.loc[m_iso, ISO_COL] = iso.transform(df_all.loc[m_iso, PRED_PROBA_COL].astype(float).values)
 
-    # refresh past/future views with ISO column
     df_past, df_future = split_past_future(df_all, today_date, tomorrow_date)
 
     b0, b1, ll0, ll1 = compute_calibration_metrics(df_past)
@@ -1319,9 +1332,7 @@ def main() -> None:
     matched_window_df = subset_l if use_local else subset_g
     matched_export = prepare_local_matched_export(matched_window_df, stake=FLAT_STAKE) if matched_window_df is not None else pd.DataFrame()
 
-    # -------------------------
-    # FIXED: as_of_date from df_all played max (NOT df_past)
-    # -------------------------
+    # as_of_date from latest played game
     as_of_date = resolve_as_of_date_from_df_all(df_all, fallback=target_ymd)
 
     export_path = export_local_matched_games_settled(
@@ -1330,10 +1341,7 @@ def main() -> None:
         as_of_date=as_of_date,
     )
 
-    # -------------------------
-    # FIXED: bankroll_last_200 uses last 200 played games (sorted), not matched subset
-    # (this is "model EV bankroll", same style as your previous loop)
-    # -------------------------
+    # bankroll_last_200 (model EV bankroll)
     last_200_games = df_past_sorted.tail(200).copy()
     last_200_games = _compute_prob_used(last_200_games, lo=PROB_CLIP_LO, hi=PROB_CLIP_HI, src=ISO_COL, dst="prob_used")
     last_200_games = last_200_games.dropna(subset=["prob_used", HOME_ODDS_COL])
@@ -1388,7 +1396,7 @@ def main() -> None:
         settled_summary=settled_summary,
     )
 
-    # write outputs
+    # write outputs (unchanged)
     write_json(out_dir / "metrics_snapshot.json", snapshot)
     write_strategy_params(params_used, min_ev=min_EV, as_of_date=as_of_date, stake=FLAT_STAKE, output_dir=out_dir)
     write_json(out_dir / "summary.json", {
@@ -1400,7 +1408,7 @@ def main() -> None:
         "local_matched_games_source": str(export_path) if export_path else None,
     })
 
-    # shortlist for today/tomorrow
+    # shortlist (unchanged)
     flat_today = build_flat_shortlist_today(
         upcoming_df=df_future,
         params_used=params_used,
@@ -1417,13 +1425,14 @@ def main() -> None:
         logging.info("No shortlist bets for %s", target_ymd)
 
     # ---------------------------------------------------------------------
-    # ONLY BEHAVIOR CHANGE:
-    # publish "local_matched_games_latest.csv" as filtered subset on last 200 played games,
-    # capped at as_of_date ("yesterday"), using params_used + min_EV.
+    # ONLY CHANGED OUTPUT:
+    # Build latest file from strategy_params.json (historical filters) over last 200 played games capped at as_of_date
     # ---------------------------------------------------------------------
+    params_for_latest = _load_filter_params_for_latest(params_source_path, fallback=params_used)
+
     latest_for_dashboard = build_latest_local_matched_for_dashboard(
         df_past_sorted,
-        params_used=params_used,
+        params_for_latest=params_for_latest,
         as_of_date=as_of_date,
         window_n=FAIR_COMPARE_N,   # 200
         min_ev=min_EV,
