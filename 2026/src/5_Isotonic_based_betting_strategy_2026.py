@@ -1035,9 +1035,7 @@ def main() -> None:
     logging.info("AFTER WRITE: latest size=%d bytes mtime=%s", p.stat().st_size, datetime.fromtimestamp(p.stat().st_mtime))
     logging.info("AFTER WRITE HEAD:\n%s", "\n".join(p.read_text(encoding="utf-8").splitlines()[:5]))
 
-    (out_path.parent / "local_matched_games_latest__written_by_script5.txt").write_text(
-    f"written_at_utc={datetime.utcnow().isoformat()}Z\n"
-    
+       
 )
 
 
