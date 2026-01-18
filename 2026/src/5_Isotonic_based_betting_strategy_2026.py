@@ -948,7 +948,7 @@ def main() -> None:
     # -------------------------
     write_latest_local_matched_csv(
       df_past_sorted,
-      params_used=params_used,
+      params_used=local_params,
       target_dt=target_dt,
       window_n=FAIR_COMPARE_N,   # 200
       min_ev=min_EV,
@@ -1001,6 +1001,11 @@ def main() -> None:
     })
 
     logging.info("DONE. local_matched_games_latest.csv updated using LOCAL params on last-200 window ending %s.", as_of_date)
+
+    p = Path(__file__).resolve().parents[2] / "web/public/data/local_matched_games_latest.csv"
+    logging.info("AFTER WRITE: latest size=%d bytes mtime=%s", p.stat().st_size, datetime.fromtimestamp(p.stat().st_mtime))
+    logging.info("AFTER WRITE HEAD:\n%s", "\n".join(p.read_text(encoding="utf-8").splitlines()[:5]))
+
 
 
 if __name__ == "__main__":
