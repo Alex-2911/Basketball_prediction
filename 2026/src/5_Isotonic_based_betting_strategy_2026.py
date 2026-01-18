@@ -91,6 +91,11 @@ def setup_logging() -> None:
 # HELPERS
 # -----------------------------
 
+def get_yesterday_date(target_dt: datetime) -> datetime.date:
+    # Always treat "yesterday" as the last completed day relative to target_dt
+    return (target_dt - timedelta(days=1)).date()
+
+
 def to_float_series(s: pd.Series) -> pd.Series:
     return (
         s.astype(str)
@@ -659,12 +664,30 @@ def prepare_local_matched_export(matched_subset: pd.DataFrame, stake: float) -> 
     return out.sort_values("date").reset_index(drop=True)
 
 
-def write_latest_local_matched_csv(export_df: Optional[pd.DataFrame]) -> None:
+def write_latest_local_matched_csv(
+    df_past_sorted: pd.DataFrame,
+    *,
+    params_used: dict,
+    target_dt: datetime,
+    window_n: int,
+    min_ev: float,
+    stake: float,
+    prob_clip_lo: float,
+    prob_clip_hi: float,
+) -> None:
     """
-    Writes web/public/data/local_matched_games_latest.csv.
-    This MUST contain the actual filtered subset from last-200 window using generated LOCAL params.
+    Writes web/public/data/local_matched_games_latest.csv as:
+    - played games only
+    - limited to last completed day (yesterday relative to target_dt)
+    - last N games inside that cutoff
+    - filtered by params_used + EV > min_ev
+    - exported with win/pnl/stake columns
+
+    This is the ONLY place that defines "latest" for the dashboard.
     """
     try:
+        _validate_params(params_used, name="params_used")
+
         repo_root = Path(__file__).resolve().parents[2]
         out_path = repo_root / "web" / "public" / "data" / "local_matched_games_latest.csv"
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -675,20 +698,57 @@ def write_latest_local_matched_csv(export_df: Optional[pd.DataFrame]) -> None:
             "odds_1", "EV_€_per_100", "win", "pnl", "stake"
         ]
 
-        if export_df is None or export_df.empty:
+        if df_past_sorted is None or df_past_sorted.empty:
             pd.DataFrame(columns=cols).to_csv(out_path, index=False, encoding="utf-8")
             logging.info("Wrote EMPTY local_matched_games_latest.csv -> %s", out_path)
             return
 
-        df = export_df.copy()
+        # --- cutoff to yesterday ---
+        yesterday = get_yesterday_date(target_dt)
+        df = df_past_sorted.copy()
+        df = _ensure_datetime(df, DATE_COL)
+        df = df[df[DATE_COL].dt.date <= yesterday].copy()
+
+        # last N played games inside cutoff
+        df = df.sort_values(DATE_COL).tail(int(window_n)).copy()
+
+        # compute prob_used + EV
+        df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=ISO_COL, dst="prob_used")
+        df = _compute_ev_per_100(df, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100")
+
+        # apply filters (same as evaluate_params_on_hist_window)
+        prob_thr_eff = max(float(params_used["prob_threshold"]), float(prob_clip_lo))
+        mask = (
+            (df[HOMEWR_COL] >= float(params_used["home_win_rate_threshold"])) &
+            (df[HOME_ODDS_COL] >= float(params_used["odds_min"])) &
+            (df[HOME_ODDS_COL] <= float(params_used["odds_max"])) &
+            (df["prob_used"] >= prob_thr_eff) &
+            (df["EV_€_per_100"] > float(min_ev))
+        )
+        subset = df.loc[mask].copy()
+
+        if subset.empty:
+            pd.DataFrame(columns=cols).to_csv(out_path, index=False, encoding="utf-8")
+            logging.info("Wrote EMPTY (no matches) local_matched_games_latest.csv -> %s", out_path)
+            return
+
+        export_df = prepare_local_matched_export(subset, stake=float(stake))
         for c in cols:
-            if c not in df.columns:
-                df[c] = np.nan
-        df[cols].to_csv(out_path, index=False, encoding="utf-8")
-        logging.info("Wrote local_matched_games_latest.csv -> %s (%d rows)", out_path, len(df))
+            if c not in export_df.columns:
+                export_df[c] = np.nan
+
+        export_df[cols].to_csv(out_path, index=False, encoding="utf-8")
+        logging.info(
+            "Wrote local_matched_games_latest.csv -> %s (%d rows) [window_n=%d cutoff<=%s]",
+            out_path,
+            len(export_df),
+            int(window_n),
+            str(yesterday),
+        )
 
     except Exception as e:
         logging.warning("Could not write local_matched_games_latest.csv: %s", e)
+
 
 
 def write_json(path: Path, payload: dict) -> None:
@@ -886,7 +946,17 @@ def main() -> None:
     # Write the ONLY file you want to be correct on dashboard:
     # web/public/data/local_matched_games_latest.csv
     # -------------------------
-    write_latest_local_matched_csv(matched_export_latest)
+    write_latest_local_matched_csv(
+      df_past_sorted,
+      params_used=params_used,
+      target_dt=target_dt,
+      window_n=FAIR_COMPARE_N,   # 200
+      min_ev=min_EV,
+      stake=FLAT_STAKE,
+      prob_clip_lo=PROB_CLIP_LO,
+      prob_clip_hi=PROB_CLIP_HI,
+    )
+
 
     # Also write strategy params TXT (generated each run)
     write_strategy_params(local_params, min_ev=min_EV, as_of_date=as_of_date, stake=FLAT_STAKE, output_dir=out_dir)
