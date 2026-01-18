@@ -1,5 +1,5 @@
 {
-  "as_of_date": "2026-01-16",
+  "as_of_date": "2026-01-17",
   "window_size": 200,
   "window_start": "2025-07-03",
   "window_end": "2026-01-18",
@@ -7,13 +7,13 @@
   "params_used_label": "Historical",
   "params_source_label": "LOCAL",
   "strategy_as_of_date": "2026-01-16",
-  "last_update_utc": "2026-01-18T02:50:54.856Z",
+  "last_update_utc": "2026-01-18T13:26:29.650Z",
   "source_files": {
     "combined": "combined_latest.csv",
     "combined_source": "Kelly/combined_nba_predictions_iso_2026-01-18.csv",
     "local_matched": "local_matched_games_latest.csv",
-    "local_matched_source": "local_matched_games_2026-01-16.csv",
+    "local_matched_source": "local_matched_games_2026-01-17.csv",
     "bet_log": "bet_log_flat_live.csv"
   },
-  "strategy_matches_window": 13
+  "strategy_matches_window": 17
 }
