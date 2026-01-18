@@ -1,6 +1,23 @@
 #!/usr/bin/env node
 'use strict';
 
+/**
+ * build_dashboard_assets.js (DROP-IN)
+ *
+ * What this fixes:
+ * 1) NEVER overwrites web/public/data/local_matched_games_latest.csv if Script 5 already wrote it.
+ *    (Detected by presence of web/public/data/local_matched_games_latest__written_by_script5.txt)
+ * 2) Uses Script 5 window definition (last 200 PLAYED games) from metrics_snapshot.json:
+ *      metricsSnapshot.local_window_200.window_start / window_end
+ *    Instead of "last 200 days in UTC".
+ * 3) Uses params from metricsSnapshot.params_used and EV from metricsSnapshot.local_window_200.min_EV_applied
+ *    (your Script 5 snapshot structure).
+ *
+ * Fallback behavior:
+ * - If Script 5 file + marker is missing, falls back to latest 2026/output/LightGBM/local_matched_games_*.csv
+ * - If window_start/window_end missing in snapshot, falls back to last 200 days UTC (legacy behavior)
+ */
+
 const fs = require('fs');
 const path = require('path');
 
@@ -26,12 +43,13 @@ function parseStrategyParams(txt) {
   const params = {};
   txt.split(/\r?\n/).forEach((line) => {
     if (!line.trim()) return;
-    const [key, value] = line.split('=');
+    const idx = line.indexOf('=');
+    if (idx === -1) return;
+    const key = line.slice(0, idx).trim();
+    const valueRaw = line.slice(idx + 1).trim();
     if (!key) return;
-    const trimmedValue = value?.trim();
-    if (trimmedValue === undefined) return;
-    const num = Number(trimmedValue);
-    params[key.trim()] = Number.isNaN(num) ? trimmedValue : num;
+    const num = Number(valueRaw);
+    params[key] = Number.isNaN(num) ? valueRaw : num;
   });
   return params;
 }
@@ -40,7 +58,7 @@ function parseCsv(csvText) {
   const lines = csvText.trim().split(/\r?\n/);
   if (!lines.length) return [];
   const headers = splitCsvLine(lines[0]);
-  return lines.slice(1).map((line) => {
+  return lines.slice(1).filter(Boolean).map((line) => {
     const cells = splitCsvLine(line);
     const row = {};
     headers.forEach((header, idx) => {
@@ -98,9 +116,7 @@ function formatNumber(value, decimals = 2) {
 function formatMinEv(value) {
   if (value === null || value === undefined || Number.isNaN(value)) return '—';
   const num = Number(value);
-  if (num < 0) {
-    return `\u2212${Math.abs(num)}`;
-  }
+  if (num < 0) return `\u2212${Math.abs(num)}`;
   return `${num}`;
 }
 
@@ -108,7 +124,7 @@ function formatDateUTC(date) {
   return date.toISOString().slice(0, 10);
 }
 
-// NOTE: keeps your previous behavior: last N days in UTC ending "today" (runner time).
+// Legacy fallback: last N days in UTC ending "today" (runner time).
 function determineWindowDates(windowSize) {
   const windowEndDate = new Date();
   const windowStartDate = new Date(windowEndDate);
@@ -175,20 +191,48 @@ function main() {
   );
 
   // ----------------------------
-  // Window dates
+  // Window dates (Script 5 truth: last 200 PLAYED games)
+  // Fallback to legacy last-200-days if missing.
   // ----------------------------
-  const { windowStart, windowEnd } = determineWindowDates(REQUIRED_WINDOW_SIZE);
+  let windowStart = metricsSnapshot?.local_window_200?.window_start || null;
+  let windowEnd = metricsSnapshot?.local_window_200?.window_end || null;
+
+  if (!windowStart || !windowEnd) {
+    const legacy = determineWindowDates(REQUIRED_WINDOW_SIZE);
+    windowStart = windowStart || legacy.windowStart;
+    windowEnd = windowEnd || legacy.windowEnd;
+    console.log('Window dates missing in snapshot; falling back to legacy last-200-days UTC.');
+  } else {
+    console.log(`Window dates from snapshot (played-games window): ${windowStart} -> ${windowEnd}`);
+  }
 
   // ----------------------------
   // local matched games
+  // Prefer Script 5 output in web/public/data (do not overwrite)
   // ----------------------------
-  const localMatchedLatestName = findLatestFile(outputDir, 'local_matched_games_');
-  if (!localMatchedLatestName) {
-    throw new Error('No local_matched_games_*.csv found');
+  const script5LatestPath = path.join(webDataDir, 'local_matched_games_latest.csv');
+  const script5MarkerPath = path.join(webDataDir, 'local_matched_games_latest__written_by_script5.txt');
+
+  let localMatchedPath = null;
+  let localMatchedSourceLabel = null;
+
+  if (fs.existsSync(script5LatestPath) && fs.existsSync(script5MarkerPath)) {
+    localMatchedPath = script5LatestPath;
+    localMatchedSourceLabel = 'web/public/data/local_matched_games_latest.csv (script5)';
+    console.log('Using Script 5 local_matched_games_latest.csv (will not overwrite).');
+  } else {
+    const localMatchedLatestName = findLatestFile(outputDir, 'local_matched_games_');
+    if (!localMatchedLatestName) {
+      throw new Error('No local_matched_games_*.csv found and Script5 latest is missing');
+    }
+    localMatchedPath = path.join(outputDir, localMatchedLatestName);
+    localMatchedSourceLabel = `2026/output/LightGBM/${localMatchedLatestName}`;
+    console.log(`Using outputDir local matched file: ${localMatchedLatestName}`);
   }
-  const localMatchedPath = path.join(outputDir, localMatchedLatestName);
+
   const localMatchedText = fs.readFileSync(localMatchedPath, 'utf8');
   const localMatchedRows = parseCsv(localMatchedText);
+
   const localMatchedDateKey = localMatchedRows[0]?.date
     ? 'date'
     : (localMatchedRows[0]?.game_date ? 'game_date' : 'date');
@@ -209,25 +253,30 @@ function main() {
     strategyParams = parseStrategyParams(raw);
   }
 
+  // ----------------------------
+  // as_of_date (prefer txt, else snapshot, else windowEnd)
+  // ----------------------------
   const asOfDate =
     strategyParams.as_of_date ||
     metricsSnapshot?.meta?.eval_base_date_max ||
     windowEnd;
 
   // ----------------------------
-  // Active filters text
+  // Active filters text (from Script 5 snapshot structure)
   // ----------------------------
-  const filterParams = metricsSnapshot.filter_params || {};
+  const filterParams = metricsSnapshot.params_used || {};
+  const minEvApplied = metricsSnapshot?.local_window_200?.min_EV_applied;
+
   const activeFiltersText = [
     `HW \u2265 ${formatNumber(filterParams.home_win_rate_threshold, 2)}`,
     `odds ${formatNumber(filterParams.odds_min, 2)}\u2013${formatNumber(filterParams.odds_max, 2)}`,
     `p \u2265 ${formatNumber(filterParams.prob_threshold, 2)}`,
-    `EV > ${formatMinEv(filterParams.min_EV)}`,
-    `window ${REQUIRED_WINDOW_SIZE} days (${windowStart || '—'} \u2192 ${windowEnd || '—'})`,
+    `EV > ${formatMinEv(minEvApplied)}`,
+    `window ${REQUIRED_WINDOW_SIZE} played games (${windowStart || '—'} \u2192 ${windowEnd || '—'})`,
   ].join(' | ');
 
   // ----------------------------
-  // Windowed local matches count + as_of_date from matches
+  // Windowed local matches count + strategy_as_of_date
   // ----------------------------
   const inWindowLocalMatches = localMatchedRows.filter((row) => {
     const dateValue = row[localMatchedDateKey];
@@ -258,7 +307,7 @@ function main() {
         ? `Kelly/${combinedIsoName}`
         : (combinedAccName || null),
       local_matched: 'local_matched_games_latest.csv',
-      local_matched_source: localMatchedLatestName,
+      local_matched_source: localMatchedSourceLabel,
       bet_log: betLogExists ? 'bet_log_flat_live.csv' : null,
     },
     strategy_matches_window: inWindowLocalMatches.length,
@@ -269,7 +318,14 @@ function main() {
   // ----------------------------
   copyFile(metricsPath, path.join(webDataDir, 'metrics_snapshot.json'));
   copyFile(combinedLatestPath, path.join(webDataDir, 'combined_latest.csv'));
-  copyFile(localMatchedPath, path.join(webDataDir, 'local_matched_games_latest.csv'));
+
+  // IMPORTANT: do NOT overwrite script5 local_matched_games_latest.csv if it's already there
+  const localMatchedTarget = path.join(webDataDir, 'local_matched_games_latest.csv');
+  if (path.resolve(localMatchedPath) !== path.resolve(localMatchedTarget)) {
+    copyFile(localMatchedPath, localMatchedTarget);
+  } else {
+    console.log('local_matched_games_latest.csv already in web/public/data; not copying.');
+  }
 
   if (betLogExists) {
     copyFile(betLogPath, path.join(webDataDir, 'bet_log_flat_live.csv'));
