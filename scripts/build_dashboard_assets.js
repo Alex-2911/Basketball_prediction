@@ -106,6 +106,42 @@ function parseDelimitedWithDelimiter(text) {
   return { headers, rows, delimiter };
 }
 
+function resolveHeader(headers, candidates) {
+  const headerSet = new Set(headers);
+  for (const candidate of candidates) {
+    if (headerSet.has(candidate)) return candidate;
+  }
+  const lowered = new Map(headers.map((header) => [header.toLowerCase(), header]));
+  for (const candidate of candidates) {
+    const resolved = lowered.get(candidate.toLowerCase());
+    if (resolved) return resolved;
+  }
+  return null;
+}
+
+function validateLocalMatchedSchema(headers, delimiter) {
+  const dateKey = resolveHeader(headers, ['date', 'game_date']);
+  const homeKey = resolveHeader(headers, ['home_team', 'home', 'team_home']);
+  const awayKey = resolveHeader(headers, ['away_team', 'away', 'team_away']);
+
+  if (!dateKey) {
+    throw new Error(
+      `local_matched_games schema missing date column. Expected "date" or "game_date". ` +
+        `Detected headers: [${headers.join(', ')}] (delimiter: ${delimiter === '\t' ? 'tab' : ','})`
+    );
+  }
+
+  if (!homeKey || !awayKey) {
+    throw new Error(
+      `local_matched_games schema missing team identifiers. Expected home/away columns ` +
+        `like "home_team"/"away_team" or "home"/"away" or "team_home"/"team_away". ` +
+        `Detected headers: [${headers.join(', ')}] (delimiter: ${delimiter === '\t' ? 'tab' : ','})`
+    );
+  }
+
+  return { dateKey, homeKey, awayKey };
+}
+
 function escapeDelimitedValue(value, delimiter) {
   const stringValue = value === null || value === undefined ? '' : String(value);
   const needsQuotes =
@@ -256,33 +292,32 @@ function main() {
     determineWindowDatesFromAsOf(asOfDate, REQUIRED_WINDOW_SIZE);
 
   // ----------------------------
-  // local matched games: use the DEPLOYED file if it exists,
-  // otherwise fall back to latest local_matched_games_*.csv
+  // local matched games: prefer latest output local_matched_games_*.csv,
+  // otherwise fall back to deployed local_matched_games_latest.csv
   // ----------------------------
   const deployedLocalMatched = path.join(webDataDir, 'local_matched_games_latest.csv');
 
   let localMatchedSourcePath = null;
 
-  if (fs.existsSync(deployedLocalMatched)) {
-    localMatchedSourcePath = deployedLocalMatched;
-    console.log('Using existing web/public/data/local_matched_games_latest.csv as source.');
-  } else {
-    const localMatchedLatestName = findLatestFile(outputDir, 'local_matched_games_');
-    if (!localMatchedLatestName) {
-      throw new Error('No local_matched_games_*.csv found and no deployed local_matched_games_latest.csv exists.');
-    }
+  const localMatchedLatestName = findLatestFile(outputDir, 'local_matched_games_');
+  if (localMatchedLatestName) {
     localMatchedSourcePath = path.join(outputDir, localMatchedLatestName);
     console.log(`Using output local matched source: ${localMatchedLatestName}`);
+  } else if (fs.existsSync(deployedLocalMatched)) {
+    localMatchedSourcePath = deployedLocalMatched;
+    console.log('Using existing web/public/data/local_matched_games_latest.csv as source (fallback).');
+  } else {
+    throw new Error('No local_matched_games_*.csv found and no deployed local_matched_games_latest.csv exists.');
   }
 
   const localMatchedText = fs.readFileSync(localMatchedSourcePath, 'utf8');
-  const localMatchedRows = parseDelimited(localMatchedText);
-
-  // detect date column key
-  const firstRow = localMatchedRows[0] || {};
-  const localMatchedDateKey =
-    Object.prototype.hasOwnProperty.call(firstRow, 'date') ? 'date'
-      : (Object.prototype.hasOwnProperty.call(firstRow, 'game_date') ? 'game_date' : 'date');
+  const localMatchedParsed = parseDelimitedWithDelimiter(localMatchedText);
+  const localMatchedHeaders = localMatchedParsed.headers;
+  const localMatchedRows = localMatchedParsed.rows;
+  const { dateKey: localMatchedDateKey } = validateLocalMatchedSchema(
+    localMatchedHeaders,
+    localMatchedParsed.delimiter
+  );
 
   // ----------------------------
   // bet log (optional)
@@ -309,11 +344,18 @@ function main() {
   // ----------------------------
   // Windowed local matches count
   // ----------------------------
-  const inWindowLocalMatches = localMatchedRows.filter((row) => {
-    const dateValue = row[localMatchedDateKey];
-    if (!dateValue) return false;
-    return dateValue >= windowStart && dateValue <= windowEnd;
-  });
+  let inWindowLocalMatches = [];
+  if (!localMatchedRows.length) {
+    console.warn(
+      'Warning: local_matched_games_latest.csv has no rows; strategy_matches_window will be set to 0.'
+    );
+  } else {
+    inWindowLocalMatches = localMatchedRows.filter((row) => {
+      const dateValue = row[localMatchedDateKey];
+      if (!dateValue) return false;
+      return dateValue >= windowStart && dateValue <= windowEnd;
+    });
+  }
 
   const strategyAsOfDate = localMatchedRows.length
     ? localMatchedRows.map((r) => r[localMatchedDateKey]).filter(Boolean).sort().slice(-1)[0]
