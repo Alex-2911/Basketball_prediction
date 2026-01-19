@@ -140,6 +140,35 @@ jobs:
           echo "DIFF AFTER NODE vs AFTER SCRIPT5 (if any):"
           git diff -- web/public/data/local_matched_games_latest.csv || true
 
+      - name: Guard: combined_latest.csv must not contain placeholder outcomes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+
+          p = Path("web/public/data/combined_latest.csv")
+          if not p.exists():
+              raise SystemExit("Missing web/public/data/combined_latest.csv")
+
+          total = 0
+          bad = 0
+
+          with p.open(newline="", encoding="utf-8") as f:
+              r = csv.DictReader(f, delimiter="\t")
+              for row in r:
+                  total += 1
+                  res = (row.get("result_raw") or row.get("result") or "").strip()
+                  htw = (row.get("home_team_won") or "").strip()
+                  if res in {"0", "1"} and htw == "":
+                      bad += 1
+
+          if bad:
+              raise SystemExit(f"Found {bad}/{total} placeholder outcome rows in combined_latest.csv.")
+          print(f"OK: checked {total} rows; no placeholder outcomes.")
+          PY
+
       - name: Show git status before commit
         shell: bash
         run: |
@@ -175,7 +204,6 @@ jobs:
           git push origin 2026
 
           
-
 
 
 
