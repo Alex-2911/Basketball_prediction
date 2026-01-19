@@ -158,6 +158,14 @@ def update_betting_statistics(combined_df, most_recent_date, prediction_dir):
     season_df['date'] = pd.to_datetime(season_df['date'], errors='coerce')
     daily_games_df['date'] = pd.to_datetime(daily_games_df['date'], errors='coerce')
 
+    # Normalize placeholder results to NaN
+    season_df['result'] = (
+        season_df['result']
+        .astype(str)
+        .str.strip()
+        .replace(["", "0", "1", "nan", "None"], np.nan)
+    )
+
     # Update result column based on actual winners
     for _, row in daily_games_df.iterrows():
         date = row['date']
@@ -168,6 +176,12 @@ def update_betting_statistics(combined_df, most_recent_date, prediction_dir):
             (season_df['home_team'] == winning_team) | (season_df['away_team'] == winning_team)
         )
         season_df.loc[mask, 'result'] = winning_team
+
+    # Keep only rows with valid outcomes
+    season_df = season_df[
+        (season_df['result'] == season_df['home_team'])
+        | (season_df['result'] == season_df['away_team'])
+    ]
 
     # Ensure probabilities are numeric
     season_df['home_team_prob'] = pd.to_numeric(season_df['home_team_prob'], errors='coerce')
@@ -191,7 +205,10 @@ def update_betting_statistics(combined_df, most_recent_date, prediction_dir):
     save_path = os.path.join(prediction_dir, f'combined_nba_predictions_acc_{today_str_format}.csv')
     # Drop unnamed columns and NaNs
     season_df.drop(columns=['Unnamed: 8'], errors='ignore', inplace=True)
-    season_df.dropna(inplace=True)
+    season_df.dropna(
+        subset=["date", "home_team", "away_team", "home_team_prob", "result", "accuracy"],
+        inplace=True,
+    )
     season_df.to_csv(save_path, index=False)
     logging.info(f"Updated betting statistics saved to {save_path}")
     return season_df
