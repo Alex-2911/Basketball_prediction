@@ -88,6 +88,53 @@ function parseDelimited(text) {
   });
 }
 
+function parseDelimitedWithDelimiter(text) {
+  const raw = text.trim();
+  if (!raw) return { headers: [], rows: [], delimiter: ',' };
+  const lines = raw.split(/\r?\n/);
+  if (!lines.length) return { headers: [], rows: [], delimiter: ',' };
+  const delimiter = detectDelimiter(lines[0]);
+  const headers = splitLine(lines[0], delimiter);
+  const rows = lines.slice(1).map((line) => {
+    const cells = splitLine(line, delimiter);
+    const row = {};
+    headers.forEach((h, idx) => {
+      row[h] = cells[idx] ?? '';
+    });
+    return row;
+  });
+  return { headers, rows, delimiter };
+}
+
+function escapeDelimitedValue(value, delimiter) {
+  const stringValue = value === null || value === undefined ? '' : String(value);
+  const needsQuotes =
+    stringValue.includes('"') ||
+    stringValue.includes('\n') ||
+    stringValue.includes('\r') ||
+    stringValue.includes(delimiter);
+  if (!needsQuotes) return stringValue;
+  return `"${stringValue.replace(/"/g, '""')}"`;
+}
+
+function serializeDelimited(headers, rows, delimiter) {
+  if (!headers.length) return '';
+  const lines = [];
+  lines.push(headers.map((header) => escapeDelimitedValue(header, delimiter)).join(delimiter));
+  rows.forEach((row) => {
+    const line = headers.map((header) => escapeDelimitedValue(row[header] ?? '', delimiter)).join(delimiter);
+    lines.push(line);
+  });
+  return `${lines.join('\n')}\n`;
+}
+
+function isMissing(value) {
+  if (value === null || value === undefined) return true;
+  const normalized = String(value).trim().toLowerCase();
+  if (!normalized) return true;
+  return ['nan', 'none', 'null', 'undefined'].includes(normalized);
+}
+
 function findLatestFile(dir, prefix, suffix = '.csv') {
   if (!fs.existsSync(dir)) return null;
   const entries = fs.readdirSync(dir);
@@ -299,7 +346,30 @@ function main() {
   // Copy artifacts into web/public/data
   // ----------------------------
   copyFile(metricsPath, path.join(webDataDir, 'metrics_snapshot.json'));
-  copyFile(combinedLatestPath, path.join(webDataDir, 'combined_latest.csv'));
+  const combinedRawText = fs.readFileSync(combinedLatestPath, 'utf8');
+  const combinedParsed = parseDelimitedWithDelimiter(combinedRawText);
+  const combinedHeaders = combinedParsed.headers;
+  const combinedDelimiter = combinedParsed.delimiter;
+  const combinedRows = combinedParsed.rows;
+  const filteredCombinedRows = combinedRows.filter((row) => {
+    const resultRawValue = row.result_raw ?? '';
+    const resultValue = row.result ?? '';
+    const hasPlaceholderResult =
+      ['0', '1'].includes(String(resultRawValue).trim()) ||
+      ['0', '1'].includes(String(resultValue).trim());
+    return !(hasPlaceholderResult && isMissing(row.home_team_won));
+  });
+  const filteredCount = combinedRows.length - filteredCombinedRows.length;
+  if (filteredCount > 0) {
+    console.log(`Filtered placeholder outcomes: removed ${filteredCount}/${combinedRows.length} rows`);
+  } else {
+    console.log(`No placeholder outcomes found (checked ${combinedRows.length} rows).`);
+  }
+  fs.writeFileSync(
+    path.join(webDataDir, 'combined_latest.csv'),
+    serializeDelimited(combinedHeaders, filteredCombinedRows, combinedDelimiter),
+    'utf8'
+  );
 
   // Always ensure deployed local_matched_games_latest.csv matches our chosen source
   copyFile(localMatchedSourcePath, path.join(webDataDir, 'local_matched_games_latest.csv'));
