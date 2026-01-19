@@ -140,7 +140,7 @@ jobs:
           echo "DIFF AFTER NODE vs AFTER SCRIPT5 (if any):"
           git diff -- web/public/data/local_matched_games_latest.csv || true
 
-      - name: Guard: combined_latest.csv must not contain placeholder outcomes
+      - name: Guard combined_latest.csv must not contain placeholder outcomes
         shell: bash
         run: |
           set -euo pipefail
@@ -152,22 +152,28 @@ jobs:
           if not p.exists():
               raise SystemExit("Missing web/public/data/combined_latest.csv")
 
-          total = 0
-          bad = 0
-
           with p.open(newline="", encoding="utf-8") as f:
               r = csv.DictReader(f, delimiter="\t")
+              # Schema guard: ensure it's the expected TSV with key columns
+              required = {"result", "result_raw", "home_team_won"}
+              if not (set(r.fieldnames or []) & required):
+                  raise SystemExit(f"combined_latest.csv schema looks wrong. Headers: {r.fieldnames}")
+
+              total = 0
+              bad = 0
+
               for row in r:
                   total += 1
                   res = (row.get("result_raw") or row.get("result") or "").strip()
-                  htw = (row.get("home_team_won") or "").strip()
-                  if res in {"0", "1"} and htw == "":
+                  htw = (row.get("home_team_won") or "").strip().lower()
+                  if htw in {"", "nan", "none"} and res in {"0", "1"}:
                       bad += 1
 
           if bad:
               raise SystemExit(f"Found {bad}/{total} placeholder outcome rows in combined_latest.csv.")
           print(f"OK: checked {total} rows; no placeholder outcomes.")
           PY
+
 
       - name: Show git status before commit
         shell: bash
