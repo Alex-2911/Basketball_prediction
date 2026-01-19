@@ -6,5 +6,5 @@
   "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-01-19.csv",
   "local_matched_games_latest_written": true,
   "local_window_games": 200,
-  "local_matched_games": 13
+  "local_matched_games": 28
 }

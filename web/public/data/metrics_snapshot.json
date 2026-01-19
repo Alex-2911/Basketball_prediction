@@ -9,32 +9,32 @@
   },
   "params_used_type": "LOCAL",
   "params_used": {
-    "home_win_rate_threshold": 0.5,
-    "odds_min": 2.3,
+    "home_win_rate_threshold": 0.65,
+    "odds_min": 1.1,
     "odds_max": 3.2,
     "prob_threshold": 0.45,
-    "n_trades": 15,
-    "profit_\u20ac": 1466.0,
-    "roi_%": 97.73
+    "n_trades": 30,
+    "profit_\u20ac": 1394.0,
+    "roi_%": 46.47
   },
   "local_window_200": {
     "min_EV_applied": -5.0,
     "metrics": {
-      "n_trades": 13,
-      "win_rate_%": 69.23,
-      "avg_EV_\u20ac_per_100": 40.66,
-      "profit_\u20ac": 1061.0,
-      "roi_%": 81.62,
+      "n_trades": 29,
+      "win_rate_%": 65.52,
+      "avg_EV_\u20ac_per_100": 21.0,
+      "profit_\u20ac": 889.0,
+      "roi_%": 30.66,
       "prob_thr_eff": 0.45
     },
     "window_start": "2025-12-23",
     "window_end": "2026-01-18",
     "window_games": 200,
-    "matched_games": 13
+    "matched_games": 28
   },
   "bankroll": {
     "deposit_eur": 1000.0,
-    "bankroll_last_200_eur": 2416.13,
+    "bankroll_last_200_eur": 2479.68,
     "flat_stake_eur": 100.0
   }
 }
