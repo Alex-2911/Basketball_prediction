@@ -152,27 +152,36 @@ jobs:
           if not p.exists():
               raise SystemExit("Missing web/public/data/combined_latest.csv")
 
-          with p.open(newline="", encoding="utf-8") as f:
-              r = csv.DictReader(f, delimiter="\t")
-              # Schema guard: ensure it's the expected TSV with key columns
-              required = {"result", "result_raw", "home_team_won"}
-              if not (set(r.fieldnames or []) & required):
-                  raise SystemExit(f"combined_latest.csv schema looks wrong. Headers: {r.fieldnames}")
+          # Detect delimiter from the header line
+          header = p.read_text(encoding="utf-8", errors="replace").splitlines()[0]
+          delim = "\t" if ("\t" in header and header.count("\t") >= header.count(",")) else ","
 
-              total = 0
-              bad = 0
+          total = 0
+          bad = 0
+
+          with p.open(newline="", encoding="utf-8") as f:
+              r = csv.DictReader(f, delimiter=delim)
+
+              # Schema guard: must contain these columns
+              required = {"result", "result_raw", "home_team_won"}
+              if not required.issubset(set(r.fieldnames or [])):
+                  raise SystemExit(
+                      f"combined_latest.csv schema looks wrong for delimiter={repr(delim)}. "
+                      f"Headers: {r.fieldnames}"
+                  )
 
               for row in r:
                   total += 1
                   res = (row.get("result_raw") or row.get("result") or "").strip()
                   htw = (row.get("home_team_won") or "").strip().lower()
-                  if htw in {"", "nan", "none"} and res in {"0", "1"}:
+                  if res in {"0", "1"} and htw in {"", "nan", "none"}:
                       bad += 1
 
           if bad:
               raise SystemExit(f"Found {bad}/{total} placeholder outcome rows in combined_latest.csv.")
-          print(f"OK: checked {total} rows; no placeholder outcomes.")
+          print(f"OK: checked {total} rows; delimiter={repr(delim)}; no placeholder outcomes.")
           PY
+
 
 
       - name: Show git status before commit
