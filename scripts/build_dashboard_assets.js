@@ -216,17 +216,40 @@ function copyFile(source, target) {
   fs.copyFileSync(source, target);
 }
 
-function addDaysISO(isoDate, deltaDays) {
-  const d = new Date(`${isoDate}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + deltaDays);
-  return d.toISOString().slice(0, 10);
+function coerceDateISO(value) {
+  if (!value) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10);
 }
 
-// Window is last N days ending at as_of_date (NOT runner "today")
-function determineWindowDatesFromAsOf(asOfDate, windowSize) {
-  const windowEnd = asOfDate;
-  const windowStart = addDaysISO(windowEnd, -(windowSize - 1));
-  return { windowStart, windowEnd };
+function isPlayedRow(row) {
+  const result = row.result ?? row.result_raw ?? '';
+  const trimmed = String(result).trim();
+  return trimmed !== '' && trimmed !== '0';
+}
+
+function computeWindowFromPlayedGames(combinedRows, windowSize) {
+  const playedDates = combinedRows
+    .filter(isPlayedRow)
+    .map((row) => coerceDateISO(row.game_date ?? row.date))
+    .filter(Boolean)
+    .sort();
+  if (!playedDates.length) {
+    throw new Error('No played games found in combined file for window computation.');
+  }
+  const slice = playedDates.slice(-windowSize);
+  if (!slice.length) {
+    throw new Error('Window selection produced zero rows.');
+  }
+  return {
+    windowStart: slice[0],
+    windowEnd: slice[slice.length - 1],
+    playedCount: playedDates.length,
+  };
 }
 
 function main() {
@@ -267,6 +290,17 @@ function main() {
       : `Using ACC combined for dashboard: ${combinedAccName}`
   );
 
+  const combinedRawText = fs.readFileSync(combinedLatestPath, 'utf8');
+  const combinedParsed = parseDelimitedWithDelimiter(combinedRawText);
+  const combinedHeaders = combinedParsed.headers;
+  const combinedDelimiter = combinedParsed.delimiter;
+  const combinedRows = combinedParsed.rows;
+  const { windowStart, windowEnd, playedCount } = computeWindowFromPlayedGames(
+    combinedRows,
+    REQUIRED_WINDOW_SIZE
+  );
+  console.log(`Computed window from ${playedCount} played games.`);
+
   // ----------------------------
   // strategy_params.txt -> strategy_params.json (optional)
   // ----------------------------
@@ -286,12 +320,6 @@ function main() {
     new Date().toISOString().slice(0, 10);
 
   // ----------------------------
-  // Window dates based on as_of_date
-  // ----------------------------
-  const { windowStart, windowEnd } =
-    determineWindowDatesFromAsOf(asOfDate, REQUIRED_WINDOW_SIZE);
-
-  // ----------------------------
   // local matched games: prefer latest output local_matched_games_*.csv,
   // otherwise fall back to deployed local_matched_games_latest.csv
   // ----------------------------
@@ -299,15 +327,17 @@ function main() {
 
   let localMatchedSourcePath = null;
 
-  const localMatchedLatestName = findLatestFile(outputDir, 'local_matched_games_');
-  if (localMatchedLatestName) {
-    localMatchedSourcePath = path.join(outputDir, localMatchedLatestName);
-    console.log(`Using output local matched source: ${localMatchedLatestName}`);
-  } else if (fs.existsSync(deployedLocalMatched)) {
+  if (fs.existsSync(deployedLocalMatched)) {
     localMatchedSourcePath = deployedLocalMatched;
-    console.log('Using existing web/public/data/local_matched_games_latest.csv as source (fallback).');
+    console.log('Using web/public/data/local_matched_games_latest.csv as source (Script 5).');
   } else {
-    throw new Error('No local_matched_games_*.csv found and no deployed local_matched_games_latest.csv exists.');
+    const localMatchedLatestName = findLatestFile(outputDir, 'local_matched_games_');
+    if (localMatchedLatestName) {
+      localMatchedSourcePath = path.join(outputDir, localMatchedLatestName);
+      console.log(`Using output local matched source (fallback): ${localMatchedLatestName}`);
+    } else {
+      throw new Error('No local_matched_games_*.csv found and no deployed local_matched_games_latest.csv exists.');
+    }
   }
 
   const localMatchedText = fs.readFileSync(localMatchedSourcePath, 'utf8');
@@ -338,7 +368,7 @@ function main() {
     `odds ${formatNumber(paramsUsed.odds_min, 2)}\u2013${formatNumber(paramsUsed.odds_max, 2)}`,
     `p \u2265 ${formatNumber(paramsUsed.prob_threshold, 2)}`,
     `EV > ${formatMinEv(minEV)}`,
-    `window ${REQUIRED_WINDOW_SIZE} days (${windowStart} \u2192 ${windowEnd})`,
+    `window ${REQUIRED_WINDOW_SIZE} games (${windowStart} \u2192 ${windowEnd})`,
   ].join(' | ');
 
   // ----------------------------
@@ -388,11 +418,6 @@ function main() {
   // Copy artifacts into web/public/data
   // ----------------------------
   copyFile(metricsPath, path.join(webDataDir, 'metrics_snapshot.json'));
-  const combinedRawText = fs.readFileSync(combinedLatestPath, 'utf8');
-  const combinedParsed = parseDelimitedWithDelimiter(combinedRawText);
-  const combinedHeaders = combinedParsed.headers;
-  const combinedDelimiter = combinedParsed.delimiter;
-  const combinedRows = combinedParsed.rows;
   const filteredCombinedRows = combinedRows.filter((row) => {
     const resultRawValue = row.result_raw ?? '';
     const resultValue = row.result ?? '';
