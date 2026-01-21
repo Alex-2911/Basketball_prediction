@@ -1,19 +1,19 @@
 {
-  "as_of_date": "2026-01-19",
+  "as_of_date": "2026-01-20",
   "window_size": 200,
   "window_start": "2025-12-25",
-  "window_end": "2026-01-19",
-  "active_filters_text": "HW ≥ 0.65 | odds 1.10–3.20 | p ≥ 0.45 | EV > −5 | window 200 games (2025-12-25 → 2026-01-19)",
+  "window_end": "2026-01-20",
+  "active_filters_text": "HW ≥ 0.50 | odds 2.30–3.20 | p ≥ 0.45 | EV > −5 | window 200 games (2025-12-25 → 2026-01-20)",
   "params_used_label": "Historical",
   "params_source_label": "LOCAL",
   "strategy_as_of_date": "2026-01-19",
-  "last_update_utc": "2026-01-20T20:39:49.063Z",
+  "last_update_utc": "2026-01-21T17:59:28.448Z",
   "source_files": {
     "combined": "combined_latest.csv",
-    "combined_source": "Kelly/combined_nba_predictions_iso_2026-01-20.csv",
+    "combined_source": "Kelly/combined_nba_predictions_iso_2026-01-21.csv",
     "local_matched": "local_matched_games_latest.csv",
     "local_matched_source": "web/public/data/local_matched_games_latest.csv",
     "bet_log": "bet_log_flat_live.csv"
   },
-  "strategy_matches_window": 29
+  "strategy_matches_window": 16
 }
