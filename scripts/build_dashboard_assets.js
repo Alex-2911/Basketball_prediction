@@ -402,6 +402,27 @@ function main() {
     active_filters_text: activeFiltersText,
     params_used_label: 'Historical',
     params_source_label: metricsSnapshot.params_used_type || 'Unknown',
+    effective_params: {
+      as_of_date: asOfDate,
+      window_size: REQUIRED_WINDOW_SIZE,
+      home_win_rate_threshold:
+        paramsUsed.home_win_rate_threshold ?? strategyParams.home_win_rate_threshold ?? null,
+      odds_min: paramsUsed.odds_min ?? strategyParams.odds_min ?? null,
+      odds_max: paramsUsed.odds_max ?? strategyParams.odds_max ?? null,
+      prob_threshold: paramsUsed.prob_threshold ?? strategyParams.prob_threshold ?? null,
+      min_ev: minEV !== undefined ? minEV : (strategyParams.min_ev ?? null),
+      stake: strategyParams.stake ?? null,
+      n_trades: strategyParams.n_trades ?? null,
+      profit_eur: strategyParams['profit_€'] ?? strategyParams.profit_eur ?? null,
+      roi_pct: strategyParams['roi_%'] ?? strategyParams.roi_pct ?? null,
+    },
+    params_sources: {
+      metrics_snapshot: 'metrics_snapshot.json',
+      strategy_params_json: fs.existsSync(path.join(webDataDir, 'strategy_params.json'))
+        ? 'strategy_params.json'
+        : null,
+      strategy_params_txt: fs.existsSync(strategyParamsTxtPath) ? 'strategy_params.txt' : null,
+    },
     strategy_as_of_date: strategyAsOfDate,
     last_update_utc: new Date().toISOString(),
     source_files: {
