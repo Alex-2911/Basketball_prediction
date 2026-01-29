@@ -1,40 +1,40 @@
 {
   "meta": {
-    "eval_base_date_max": "2026-01-27",
+    "eval_base_date_max": "2026-01-28",
     "strategy_variant": "iso",
     "strategy_variant_label": "ISO/KELLY",
     "params_source": "/home/runner/work/Basketball_prediction/Basketball_prediction/web/public/data/strategy_params.json",
-    "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-01-28.csv",
+    "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-01-29.csv",
     "local_matched_games_source": null
   },
   "params_used_type": "LOCAL",
   "params_used": {
-    "home_win_rate_threshold": 0.55,
-    "odds_min": 2.3,
+    "home_win_rate_threshold": 0.6,
+    "odds_min": 1.6,
     "odds_max": 3.2,
     "prob_threshold": 0.45,
-    "n_trades": 12,
-    "profit_\u20ac": 684.0,
-    "roi_%": 57.0
+    "n_trades": 28,
+    "profit_\u20ac": 788.0,
+    "roi_%": 28.14
   },
   "local_window_200": {
     "min_EV_applied": -5.0,
     "metrics": {
-      "n_trades": 12,
-      "win_rate_%": 58.33,
-      "avg_EV_\u20ac_per_100": 54.99,
-      "profit_\u20ac": 684.0,
-      "roi_%": 57.0,
+      "n_trades": 28,
+      "win_rate_%": 60.71,
+      "avg_EV_\u20ac_per_100": 34.15,
+      "profit_\u20ac": 788.0,
+      "roi_%": 28.14,
       "prob_thr_eff": 0.45
     },
-    "window_start": "2025-12-31",
-    "window_end": "2026-01-27",
+    "window_start": "2026-01-02",
+    "window_end": "2026-01-28",
     "window_games": 200,
-    "matched_games": 12
+    "matched_games": 28
   },
   "bankroll": {
     "deposit_eur": 1000.0,
-    "bankroll_last_200_eur": 2334.64,
+    "bankroll_last_200_eur": 2162.91,
     "flat_stake_eur": 100.0
   }
 }
