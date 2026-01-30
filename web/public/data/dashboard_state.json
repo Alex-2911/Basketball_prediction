@@ -1,13 +1,13 @@
 {
-  "as_of_date": "2026-01-28",
+  "as_of_date": "2026-01-29",
   "window_size": 200,
   "window_start": "2026-01-02",
-  "window_end": "2026-01-28",
-  "active_filters_text": "HW ≥ 0.60 | odds 1.60–3.20 | p ≥ 0.45 | EV > −5 | window 200 games (2026-01-02 → 2026-01-28)",
+  "window_end": "2026-01-29",
+  "active_filters_text": "HW ≥ 0.60 | odds 1.60–3.20 | p ≥ 0.45 | EV > −5 | window 200 games (2026-01-02 → 2026-01-29)",
   "params_used_label": "Historical",
   "params_source_label": "LOCAL",
   "effective_params": {
-    "as_of_date": "2026-01-28",
+    "as_of_date": "2026-01-29",
     "window_size": 200,
     "home_win_rate_threshold": 0.6,
     "odds_min": 1.6,
@@ -15,23 +15,23 @@
     "prob_threshold": 0.45,
     "min_ev": -5,
     "stake": 100,
-    "n_trades": 28,
-    "profit_eur": 788,
-    "roi_pct": 28.14
+    "n_trades": 26,
+    "profit_eur": 738,
+    "roi_pct": 28.38
   },
   "params_sources": {
     "metrics_snapshot": "metrics_snapshot.json",
     "strategy_params_json": "strategy_params.json",
     "strategy_params_txt": "strategy_params.txt"
   },
-  "strategy_as_of_date": "2026-01-28",
-  "last_update_utc": "2026-01-29T17:42:55.484Z",
+  "strategy_as_of_date": "2026-01-29",
+  "last_update_utc": "2026-01-30T17:38:48.592Z",
   "source_files": {
     "combined": "combined_latest.csv",
-    "combined_source": "Kelly/combined_nba_predictions_iso_2026-01-29.csv",
+    "combined_source": "Kelly/combined_nba_predictions_iso_2026-01-30.csv",
     "local_matched": "local_matched_games_latest.csv",
     "local_matched_source": "web/public/data/local_matched_games_latest.csv",
     "bet_log": "bet_log_flat_live.csv"
   },
-  "strategy_matches_window": 28
+  "strategy_matches_window": 26
 }
