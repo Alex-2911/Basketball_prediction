@@ -1,224 +1,29 @@
-name: "🏀 4. Update Betting Statistics + Shortlist (Scripts 4 & 5)"
-
-permissions:
-  contents: write
-
-concurrency:
-  group: nba-step-4-5-stats-shortlist
-  cancel-in-progress: true
+name: Calculate Betting Statistics
 
 on:
-  workflow_dispatch:
-
-  workflow_run:
-    workflows: ["🏀 3. Build Predictions & Betting Lines (Today)"]
-    types: [completed]
+  push:
+    branches:
+      - patch/node-schema-fix-2026
 
 jobs:
-  update_betting_stats_and_shortlist:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+  setup-node:
     runs-on: ubuntu-latest
-    env:
-      STRATEGY_VARIANT: iso
-
     steps:
-      - name: Checkout repository (branch 2026)
-        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v2
         with:
-          ref: 2026
-          fetch-depth: 0
+          node-version: '16'
 
-      - name: Set up Python 3.11 (with pip cache)
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
+  build-dashboard:
+    runs-on: ubuntu-latest
+    needs: setup-node
+    steps:
+      - name: Build Dashboard Assets
+        run: npm run build
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install jupyter nbconvert
-
-      # -----------------------
-      # Script 4
-      # -----------------------
-      - name: Run betting statistics updater (Script 4)
-        run: |
-          echo "=== Running betting statistics update (Script 4) ==="
-          python 2026/src/4_calculate_betting_statistics_2026.py
-          echo "=== Script 4 finished ==="
-
-      - name: Upload Script 4 outputs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: betting_statistics_outputs
-          path: |
-            2026/output/LightGBM/combined_nba_predictions_acc*.csv
-          if-no-files-found: warn
-
-      # -----------------------
-      # Script 5
-      # -----------------------
-      - name: Run Isotonic shortlist + bet log engine (Script 5)
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "=== Running isotonic shortlist + bet log update (Script 5) ==="
-          python 2026/src/5_Isotonic_based_betting_strategy_2026.py
-          echo "=== Script 5 finished ==="
-
-
-      - name: Hash local_matched_games_latest after Script 5
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "HASH AFTER SCRIPT5:"
-          ls -la web/public/data || true
-          if test -f web/public/data/local_matched_games_latest.csv; then
-            sha256sum web/public/data/local_matched_games_latest.csv
-            wc -l web/public/data/local_matched_games_latest.csv
-            tail -n 3 web/public/data/local_matched_games_latest.csv
-            echo "HEAD:"
-            head -n 5 web/public/data/local_matched_games_latest.csv
-          else
-            echo "MISSING web/public/data/local_matched_games_latest.csv"
-          fi
-
-      - name: Maintain persistent bet log ledger
-        run: |
-          echo "=== Maintaining persistent bet log ledger ==="
-          python 2026/scripts/maintain_bet_log_flat_live.py
-          echo "=== Bet log ledger maintenance finished ==="
-
-      - name: Verify metrics snapshot output
-        run: |
-          ls -la 2026/output/LightGBM | head -n 50
-          test -f 2026/output/LightGBM/metrics_snapshot.json
-
-      - name: Upload metrics snapshot
-        uses: actions/upload-artifact@v4
-        with:
-          name: metrics-snapshot
-          path: 2026/output/LightGBM/metrics_snapshot.json
-          if-no-files-found: error
-
-      - name: Upload Script 5 outputs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: betting_shortlist_and_logs
-          path: |
-            2026/output/LightGBM/bet_log_flat_live.csv
-            2026/output/LightGBM/bet_log_live.csv
-            2026/output/LightGBM/bet_log_live_*.csv
-            2026/output/LightGBM/bet_shortlist_*.csv
-            2026/output/LightGBM/home_win_rates_sorted_*.csv
-            2026/output/LightGBM/betting_summary_*.xlsx
-            2026/output/LightGBM/local_matched_games_*.csv
-            2026/output/LightGBM/metrics_snapshot.json
-            2026/output/LightGBM/strategy_params.txt
-            2026/output/LightGBM/Kelly/*.csv
-          if-no-files-found: warn
-
-      - name: Build dashboard assets (web/public/data)
-        shell: bash
-        run: |
-          set -euo pipefail
-          node scripts/build_dashboard_assets.js
-          ls -la web/public/data
-          echo "AFTER NODE HEAD:"
-          head -n 5 web/public/data/local_matched_games_latest.csv
-
-          echo "HASH AFTER NODE:"
-          sha256sum web/public/data/local_matched_games_latest.csv || true
-          echo "HASH IN REPO (HEAD):"
-          git show HEAD:web/public/data/local_matched_games_latest.csv 2>/dev/null | sha256sum || echo "No file in HEAD"
-
-          echo "DIFF AFTER NODE vs AFTER SCRIPT5 (if any):"
-          git diff -- web/public/data/local_matched_games_latest.csv || true
-
-      - name: Guard combined_latest.csv must not contain placeholder outcomes
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import csv
-          from pathlib import Path
-
-          p = Path("web/public/data/combined_latest.csv")
-          if not p.exists():
-              raise SystemExit("Missing web/public/data/combined_latest.csv")
-
-          # Detect delimiter from the header line
-          header = p.read_text(encoding="utf-8", errors="replace").splitlines()[0]
-          delim = "\t" if ("\t" in header and header.count("\t") >= header.count(",")) else ","
-
-          total = 0
-          bad = 0
-
-          with p.open(newline="", encoding="utf-8") as f:
-              r = csv.DictReader(f, delimiter=delim)
-
-              # Schema guard: must contain these columns
-              required = {"result", "result_raw", "home_team_won"}
-              if not required.issubset(set(r.fieldnames or [])):
-                  raise SystemExit(
-                      f"combined_latest.csv schema looks wrong for delimiter={repr(delim)}. "
-                      f"Headers: {r.fieldnames}"
-                  )
-
-              for row in r:
-                  total += 1
-                  res = (row.get("result_raw") or row.get("result") or "").strip()
-                  htw = (row.get("home_team_won") or "").strip().lower()
-                  if res in {"0", "1"} and htw in {"", "nan", "none"}:
-                      bad += 1
-
-          if bad:
-              raise SystemExit(f"Found {bad}/{total} placeholder outcome rows in combined_latest.csv.")
-          print(f"OK: checked {total} rows; delimiter={repr(delim)}; no placeholder outcomes.")
-          PY
-
-
-
-      - name: Show git status before commit
-        shell: bash
-        run: |
-          set -euo pipefail
-          git status --porcelain
-          echo "----"
-          ls -la 2026/output/LightGBM | tail -n 50
-
-      - name: Commit updated outputs (auto)
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          # Stage outputs
-          git add -A 2026/output/LightGBM || true
-
-          # Force-add dashboard assets even if ignored
-          git add -f web/public/data || true
-
-          # Optional safety: don't accidentally commit an unwanted folder
-          git restore --staged 2026/LightGBM 2>/dev/null || true
-
-          if git diff --cached --quiet; then
-            echo "No staged changes to commit."
-            git status --porcelain
-            exit 0
-          fi
-
-          git commit -m "chore: update outputs (auto)"
-          git push origin 2026
-
-          
-
-
-
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-dashboard
+    steps:
+      - name: Deploy
+        run: npm run deploy
