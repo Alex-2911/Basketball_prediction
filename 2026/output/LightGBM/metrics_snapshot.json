@@ -1,10 +1,10 @@
 {
   "meta": {
-    "eval_base_date_max": "2026-01-29",
+    "eval_base_date_max": "2026-01-30",
     "strategy_variant": "iso",
     "strategy_variant_label": "ISO/KELLY",
     "params_source": "/home/runner/work/Basketball_prediction/Basketball_prediction/web/public/data/strategy_params.json",
-    "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-01-30.csv",
+    "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-01-31.csv",
     "local_matched_games_source": null
   },
   "params_used_type": "LOCAL",
@@ -20,21 +20,21 @@
   "local_window_200": {
     "min_EV_applied": -5.0,
     "metrics": {
-      "n_trades": 26,
-      "win_rate_%": 61.54,
-      "avg_EV_\u20ac_per_100": 31.86,
-      "profit_\u20ac": 738.0,
-      "roi_%": 28.38,
+      "n_trades": 27,
+      "win_rate_%": 59.26,
+      "avg_EV_\u20ac_per_100": 31.83,
+      "profit_\u20ac": 638.0,
+      "roi_%": 23.63,
       "prob_thr_eff": 0.45
     },
-    "window_start": "2026-01-02",
-    "window_end": "2026-01-29",
+    "window_start": "2026-01-03",
+    "window_end": "2026-01-30",
     "window_games": 200,
-    "matched_games": 26
+    "matched_games": 27
   },
   "bankroll": {
     "deposit_eur": 1000.0,
-    "bankroll_last_200_eur": 2266.97,
+    "bankroll_last_200_eur": 2437.09,
     "flat_stake_eur": 100.0
   }
 }
