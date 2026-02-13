@@ -1,13 +1,13 @@
 {
-  "as_of_date": "2026-02-11",
+  "as_of_date": "2026-02-12",
   "window_size": 200,
   "window_start": "2026-01-15",
-  "window_end": "2026-02-11",
-  "active_filters_text": "HW ≥ 0.65 | odds 1.10–2.50 | p ≥ 0.45 | EV > −5 | window 200 games (2026-01-15 → 2026-02-11)",
+  "window_end": "2026-02-12",
+  "active_filters_text": "HW ≥ 0.65 | odds 1.10–2.50 | p ≥ 0.45 | EV > −5 | window 200 games (2026-01-15 → 2026-02-12)",
   "params_used_label": "Historical",
   "params_source_label": "LOCAL",
   "effective_params": {
-    "as_of_date": "2026-02-11",
+    "as_of_date": "2026-02-12",
     "window_size": 200,
     "home_win_rate_threshold": 0.65,
     "odds_min": 1.1,
@@ -25,10 +25,10 @@
     "strategy_params_txt": "strategy_params.txt"
   },
   "strategy_as_of_date": "2026-02-09",
-  "last_update_utc": "2026-02-12T18:01:36.928Z",
+  "last_update_utc": "2026-02-13T17:45:24.616Z",
   "source_files": {
     "combined": "combined_latest.csv",
-    "combined_source": "Kelly/combined_nba_predictions_iso_2026-02-12.csv",
+    "combined_source": "Kelly/combined_nba_predictions_iso_2026-02-13.csv",
     "local_matched": "local_matched_games_latest.csv",
     "local_matched_source": "web/public/data/local_matched_games_latest.csv",
     "bet_log": "bet_log_flat_live.csv"
