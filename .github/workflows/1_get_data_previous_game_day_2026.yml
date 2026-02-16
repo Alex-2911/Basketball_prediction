@@ -9,7 +9,7 @@ concurrency:
 
 on:
   schedule:
-    - cron: "0 17 * * *"  # every evening (UTC)
+    - cron: "0 16 * * *"  # every evening (UTC)
   workflow_dispatch: {}
 
 jobs:
