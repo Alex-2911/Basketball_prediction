@@ -30,9 +30,7 @@ jobs:
           cache: "pip"
 
       - name: Install Google Chrome
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable
+        uses: browser-actions/setup-chrome@v1
 
       - name: Cache WebDriverManager
         uses: actions/cache@v3
