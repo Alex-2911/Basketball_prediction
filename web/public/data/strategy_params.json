@@ -1,12 +1,12 @@
 {
-  "as_of_date": "2026-02-21",
+  "as_of_date": "2026-02-22",
   "min_ev": -5,
   "stake": 100,
-  "home_win_rate_threshold": 0.6,
-  "n_trades": 15,
-  "odds_max": 2.1,
-  "odds_min": 1.1,
+  "home_win_rate_threshold": 0.5,
+  "n_trades": 11,
+  "odds_max": 3,
+  "odds_min": 2.3,
   "prob_threshold": 0.45,
-  "profit_€": 524,
-  "roi_%": 34.93
+  "profit_€": 455,
+  "roi_%": 41.36
 }
