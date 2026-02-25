@@ -25,7 +25,7 @@
     "strategy_params_txt": "strategy_params.txt"
   },
   "strategy_as_of_date": "2026-02-24",
-  "last_update_utc": "2026-02-25T17:02:14.068Z",
+  "last_update_utc": "2026-02-25T18:02:51.423Z",
   "source_files": {
     "combined": "combined_latest.csv",
     "combined_source": "Kelly/combined_nba_predictions_iso_2026-02-25.csv",
