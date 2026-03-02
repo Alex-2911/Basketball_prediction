@@ -1,4 +1,4 @@
-written_at_utc=2026-03-02T16:35:32.441422Z
+written_at_utc=2026-03-02T17:49:29.777198Z
 rows=29
 first_date=2026-01-26
 last_date=2026-03-01
