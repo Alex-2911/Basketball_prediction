@@ -30,7 +30,7 @@ def compute_time_oos_isotonic(
     if work.empty:
         return out
 
-    work[date_col] = pd.to_datetime(work[date_col], errors="coerce")
+    work[date_col] = pd.to_datetime(work[date_col], errors="coerce").dt.normalize()
     work = work.dropna(subset=[date_col]).sort_values([date_col, prob_col])
     if len(work) < min_train:
         return out
