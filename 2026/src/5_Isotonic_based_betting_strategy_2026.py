@@ -34,6 +34,30 @@ from nba_utils_2026 import (
 )
 
 # -----------------------------
+# CENTRALIZED CONFIG / KNOBS
+# -----------------------------
+
+PROBABILITY_CONFIG = {
+    "PROB_COL_HIST": "prob_iso_oos_time",
+    "PROB_COL_LIVE": "prob_live_safe",
+    "PROB_COL_RAW": "home_team_prob",
+    "PROB_COL_ISO_INSAMPLE": "prob_iso_insample",
+    "PROB_COL_LIVE_PROXY": "prob_live_oos_proxy",
+    "USE_LIVE_OOS_PROXY": True,
+    "LIVE_OOS_PROXY_MIN_ROWS": 100,
+    "LIVE_OOS_PROXY_RECENT_N": None,
+    "USE_LIVE_SHRINK": True,
+    "LIVE_SHRINK_START": 0.60,
+    "LIVE_SHRINK_FACTOR": 0.85,
+    "UNDERDOG_ODDS_THRESHOLD": 2.30,
+    "MODEL_MARKET_GAP_PROB_THRESHOLD": 0.60,
+    "HARD_VETO_MODEL_MARKET_GAP": True,
+    "WALK_MIN_TRAIN": 200,
+    "WALK_MIN_STEP": 50,
+    "WALK_MAX_FOLDS": None,
+}
+
+# -----------------------------
 # CONSTANTS / COLUMN NAMES
 # -----------------------------
 
@@ -213,9 +237,10 @@ def _params_to_dict(params: StrategyParams) -> dict:
     }
 
 
-def _compute_prob_used(df: pd.DataFrame, lo: float, hi: float, src=ISO_COL, dst="prob_used") -> pd.DataFrame:
+def _compute_prob_used(df: pd.DataFrame, lo: float, hi: float, src=None, dst="prob_used") -> pd.DataFrame:
     out = df.copy()
-    out[dst] = pd.to_numeric(out[src], errors="coerce").clip(lower=lo, upper=hi)
+    src_col = src if src is not None else ISO_COL
+    out[dst] = pd.to_numeric(out[src_col], errors="coerce").clip(lower=lo, upper=hi)
     return out
 
 
@@ -496,6 +521,149 @@ def compute_calibration_metrics(df_past: pd.DataFrame) -> Tuple[float, float, fl
     return b0, b1, ll0, ll1
 
 
+PROB_COL_HIST = PROBABILITY_CONFIG["PROB_COL_HIST"]
+PROB_COL_LIVE = PROBABILITY_CONFIG["PROB_COL_LIVE"]
+PROB_COL_ISO_INSAMPLE = PROBABILITY_CONFIG["PROB_COL_ISO_INSAMPLE"]
+PROB_COL_LIVE_PROXY = PROBABILITY_CONFIG["PROB_COL_LIVE_PROXY"]
+
+
+def _build_game_key(df: pd.DataFrame) -> pd.Series:
+    dt = pd.to_datetime(df[DATE_COL], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
+    home = df.get("home_team", pd.Series(index=df.index, dtype="object")).astype(str).fillna("").str.upper()
+    away = df.get("away_team", pd.Series(index=df.index, dtype="object")).astype(str).fillna("").str.upper()
+    return dt + "_" + home + "_" + away
+
+
+def _dedupe_games(df: pd.DataFrame) -> pd.DataFrame:
+    out = _ensure_datetime(df, DATE_COL).sort_values(DATE_COL).copy()
+    out["game_key"] = _build_game_key(out)
+    out = out.drop_duplicates(subset=["game_key"], keep="last").copy()
+    return out
+
+
+def compute_prob_iso_oos_time(df_all: pd.DataFrame) -> pd.DataFrame:
+    out = _dedupe_games(df_all)
+    out[PROB_COL_HIST] = np.nan
+    out[PROB_COL_ISO_INSAMPLE] = out.get(ISO_COL, np.nan)
+
+    played = out[RESULT_COL].notna() & out[PRED_PROBA_COL].notna()
+    hist = out.loc[played].sort_values(DATE_COL).copy()
+    min_train = int(PROBABILITY_CONFIG["WALK_MIN_TRAIN"])
+    min_step = int(PROBABILITY_CONFIG["WALK_MIN_STEP"])
+    max_folds = PROBABILITY_CONFIG["WALK_MAX_FOLDS"]
+
+    if len(hist) < (min_train + min_step):
+        return out
+
+    fold = 0
+    start = min_train
+    while start < len(hist):
+        end = min(len(hist), start + min_step)
+        train = hist.iloc[:start]
+        test_idx = hist.index[start:end]
+        if len(train) < min_train:
+            break
+        iso = IsotonicRegression(out_of_bounds="clip")
+        iso.fit(train[PRED_PROBA_COL].astype(float), train[RESULT_COL].astype(int))
+        out.loc[test_idx, PROB_COL_HIST] = iso.transform(hist.loc[test_idx, PRED_PROBA_COL].astype(float))
+        start = end
+        fold += 1
+        if max_folds and fold >= int(max_folds):
+            break
+
+    return out
+
+
+def build_live_oos_proxy(df_all: pd.DataFrame) -> tuple[pd.DataFrame, bool, dict]:
+    out = df_all.copy()
+    out[PROB_COL_LIVE_PROXY] = np.nan
+    elig = out[
+        out[RESULT_COL].notna()
+        & out[PRED_PROBA_COL].notna()
+        & out[PROB_COL_HIST].notna()
+    ].copy()
+    elig = _dedupe_games(elig).sort_values(DATE_COL)
+
+    recent_n = PROBABILITY_CONFIG["LIVE_OOS_PROXY_RECENT_N"]
+    if recent_n:
+        elig = elig.tail(int(recent_n)).copy()
+
+    min_rows = int(PROBABILITY_CONFIG["LIVE_OOS_PROXY_MIN_ROWS"])
+    proxy_ready = bool(PROBABILITY_CONFIG["USE_LIVE_OOS_PROXY"]) and len(elig) >= min_rows
+
+    meta = {
+        "proxy_ready": proxy_ready,
+        "proxy_rows": int(len(elig)),
+        "proxy_win_rate": float(elig[RESULT_COL].astype(float).mean()) if len(elig) else np.nan,
+    }
+
+    if proxy_ready:
+        iso = IsotonicRegression(out_of_bounds="clip")
+        iso.fit(elig[PRED_PROBA_COL].astype(float), elig[RESULT_COL].astype(int))
+        m = out[PRED_PROBA_COL].notna()
+        out.loc[m, PROB_COL_LIVE_PROXY] = iso.transform(out.loc[m, PRED_PROBA_COL].astype(float))
+
+    return out, proxy_ready, meta
+
+
+def apply_live_probability_safety(df: pd.DataFrame, proxy_ready: bool) -> pd.DataFrame:
+    out = df.copy()
+    raw = pd.to_numeric(out[PRED_PROBA_COL], errors="coerce")
+    proxy = pd.to_numeric(out[PROB_COL_LIVE_PROXY], errors="coerce")
+
+    use_proxy = proxy_ready & proxy.notna()
+    live_pre = np.where(use_proxy, proxy, raw)
+
+    odds = pd.to_numeric(out[HOME_ODDS_COL], errors="coerce")
+    underdog = odds > float(PROBABILITY_CONFIG["UNDERDOG_ODDS_THRESHOLD"])
+    guard = underdog & pd.notna(raw) & pd.notna(live_pre) & (live_pre > raw)
+    live_pre = np.where(guard, raw, live_pre)
+
+    out["live_oos_proxy_ready"] = bool(proxy_ready)
+    out["live_oos_proxy_used"] = use_proxy.astype(bool)
+    out["live_underdog_upscale_guard_triggered"] = guard.astype(bool)
+    out["prob_live_safe_pre_clip"] = live_pre
+
+    base = pd.to_numeric(pd.Series(live_pre, index=out.index), errors="coerce").clip(PROB_CLIP_LO, PROB_CLIP_HI)
+    out["prob_base"] = base
+
+    if bool(PROBABILITY_CONFIG["USE_LIVE_SHRINK"]):
+        start = float(PROBABILITY_CONFIG["LIVE_SHRINK_START"])
+        factor = float(PROBABILITY_CONFIG["LIVE_SHRINK_FACTOR"])
+        shrink_mask = base > start
+        shrunk = base.copy()
+        shrunk.loc[shrink_mask] = 0.50 + factor * (base.loc[shrink_mask] - 0.50)
+        out["live_shrink_triggered"] = shrink_mask.astype(bool)
+        out[PROB_COL_LIVE] = shrunk
+    else:
+        out["live_shrink_triggered"] = False
+        out[PROB_COL_LIVE] = base
+
+    out["model_market_gap_flag"] = (
+        (odds > float(PROBABILITY_CONFIG["UNDERDOG_ODDS_THRESHOLD"]))
+        & (pd.to_numeric(out[PROB_COL_LIVE], errors="coerce") > float(PROBABILITY_CONFIG["MODEL_MARKET_GAP_PROB_THRESHOLD"]))
+    ).fillna(False)
+
+    out["prob_used"] = np.where(out[RESULT_COL].notna(), out[PROB_COL_HIST], out[PROB_COL_LIVE])
+    out["prob_used"] = pd.to_numeric(out["prob_used"], errors="coerce").clip(PROB_CLIP_LO, PROB_CLIP_HI)
+    return out
+
+
+def print_row_trace(df: pd.DataFrame, date: str, home_team: str, away_team: str) -> None:
+    key = (pd.to_datetime(df[DATE_COL], errors="coerce").dt.strftime("%Y-%m-%d") == date) & (df["home_team"].astype(str).str.upper() == str(home_team).upper()) & (df["away_team"].astype(str).str.upper() == str(away_team).upper())
+    rows = df.loc[key]
+    if rows.empty:
+        logging.info("TRACE not found for %s %s-%s", date, home_team, away_team)
+        return
+    cols = [
+        DATE_COL, "home_team", "away_team", PRED_PROBA_COL, PROB_COL_ISO_INSAMPLE, PROB_COL_HIST, PROB_COL_LIVE_PROXY,
+        "prob_live_safe_pre_clip", "prob_base", "prob_used", HOME_ODDS_COL, "live_oos_proxy_ready", "live_oos_proxy_used",
+        "live_underdog_upscale_guard_triggered", "live_shrink_triggered", "model_market_gap_flag"
+    ]
+    cols = [c for c in cols if c in rows.columns]
+    logging.info("TRACE ROW:\n%s", rows[cols].to_string(index=False))
+
+
 # -----------------------------
 # STRATEGY SEARCH (LOCAL on last 200)
 # -----------------------------
@@ -514,7 +682,7 @@ def evaluate_params_on_hist_window(
     df = hist_window.copy()
     df = _ensure_datetime(df, DATE_COL)
 
-    df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=ISO_COL, dst="prob_used")
+    df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=PROB_COL_HIST, dst="prob_used")
     df = _compute_ev_per_100(df, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100")
     df = df.dropna(subset=[HOMEWR_COL, "prob_used", HOME_ODDS_COL, RESULT_COL, "EV_€_per_100"])
 
@@ -573,7 +741,7 @@ def find_best_local_params_lastN(
         return None, None
 
     df = _ensure_datetime(hist_df, DATE_COL).sort_values(DATE_COL).tail(int(window_n)).copy()
-    df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=ISO_COL, dst="prob_used")
+    df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=PROB_COL_HIST, dst="prob_used")
     df = _compute_ev_per_100(df, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100")
     df = df.dropna(subset=[HOMEWR_COL, "prob_used", HOME_ODDS_COL, RESULT_COL, "EV_€_per_100"])
 
@@ -639,7 +807,7 @@ def prepare_local_matched_export(matched_subset: pd.DataFrame, stake: float) -> 
     if "home_win_rate" not in df.columns:
         df["home_win_rate"] = df[HOMEWR_COL]
     if "prob_iso" not in df.columns:
-        df["prob_iso"] = df[ISO_COL]
+        df["prob_iso"] = df.get(PROB_COL_ISO_INSAMPLE, df.get(ISO_COL, np.nan))
     if "prob_used" not in df.columns:
         df["prob_used"] = df["prob_iso"]
     if "odds_1" not in df.columns:
@@ -731,7 +899,7 @@ def write_latest_local_matched_csv(
         df = df.sort_values(DATE_COL).tail(int(window_n)).copy()
 
         # compute prob_used + EV
-        df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=ISO_COL, dst="prob_used")
+        df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=PROB_COL_HIST, dst="prob_used")
         df = _compute_ev_per_100(df, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100")
 
         # apply filters (same as evaluate_params_on_hist_window)
@@ -892,13 +1060,30 @@ def main() -> None:
         logging.warning("No past games available – cannot fit isotonic.")
         return
 
-    # 5) FIT ISOTONIC + APPLY
+    # 5) FIT ISOTONIC + APPLY (diagnostic in-sample only)
     iso = fit_isotonic(df_past)
     df_all[ISO_COL] = np.nan
     m_iso = df_all[PRED_PROBA_COL].notna()
     df_all.loc[m_iso, ISO_COL] = iso.transform(df_all.loc[m_iso, PRED_PROBA_COL].astype(float).values)
+    df_all[PROB_COL_ISO_INSAMPLE] = df_all[ISO_COL]
 
-    # refresh past/future views with ISO
+    # 5b) time-safe OOS isotonic for historical rows
+    df_all = compute_prob_iso_oos_time(df_all)
+
+    # 5c) build and apply live OOS proxy + safety guards/shrink
+    df_all, proxy_ready, proxy_meta = build_live_oos_proxy(df_all)
+    logging.info(
+        "LIVE OOS PROXY ready=%s rows=%d train_win_rate=%.4f",
+        proxy_meta["proxy_ready"],
+        proxy_meta["proxy_rows"],
+        proxy_meta["proxy_win_rate"] if pd.notna(proxy_meta["proxy_win_rate"]) else float('nan'),
+    )
+    df_all = apply_live_probability_safety(df_all, proxy_ready=proxy_ready)
+
+    # keep backward compatibility aliases
+    df_all["prob_iso"] = df_all[PROB_COL_ISO_INSAMPLE]
+
+    # refresh past/future views with calibrated columns
     df_past, df_future = split_past_future(df_all, today_date, tomorrow_date)
 
     # sort past chronologically
@@ -961,7 +1146,7 @@ def main() -> None:
 
     # Bankroll over last-200 window (model EV, same style)
     last_200_games = hist_window_200.copy()
-    last_200_games = _compute_prob_used(last_200_games, lo=PROB_CLIP_LO, hi=PROB_CLIP_HI, src=ISO_COL, dst="prob_used")
+    last_200_games = _compute_prob_used(last_200_games, lo=PROB_CLIP_LO, hi=PROB_CLIP_HI, src=PROB_COL_HIST, dst="prob_used")
     last_200_games = last_200_games.dropna(subset=["prob_used", HOME_ODDS_COL])
 
     bankroll_last_200 = float(START_BANKROLL)
@@ -1027,6 +1212,21 @@ def main() -> None:
         "local_window_games": int(len(hist_window_200)),
         "local_matched_games": int(len(matched_export_latest)),
     })
+
+    # diagnostic watchlist / traceability
+    watch_cols = [
+        "home_team", "away_team", DATE_COL, PRED_PROBA_COL, PROB_COL_ISO_INSAMPLE, PROB_COL_HIST,
+        PROB_COL_LIVE_PROXY, "prob_live_safe_pre_clip", "prob_base", "prob_used", "EV_€_per_100",
+        "model_market_gap_flag", "live_underdog_upscale_guard_triggered", "live_shrink_triggered",
+        "live_oos_proxy_used",
+    ]
+    df_watch = df_future.copy()
+    if not df_watch.empty:
+        df_watch = _compute_ev_per_100(df_watch, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100")
+        watch_cols = [c for c in watch_cols if c in df_watch.columns]
+        logging.info("WATCHLIST(active params=%s):\n%s", local_params, df_watch[watch_cols].head(20).to_string(index=False))
+
+    print_row_trace(df_all, date="2026-03-01", home_team="ORL", away_team="DET")
 
     logging.info("DONE. local_matched_games_latest.csv updated using LOCAL params on last-200 window ending %s.", as_of_date)
 
