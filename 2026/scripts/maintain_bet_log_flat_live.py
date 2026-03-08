@@ -17,6 +17,9 @@ ODDS_MIN = 2.10
 ODDS_MAX = 3.10
 HOME_WIN_RATE_MIN = 0.55
 PROB_MIN = 0.40
+UNDERDOG_ODDS_THRESHOLD = 2.30
+MODEL_MARKET_GAP_PROB_THRESHOLD = 0.60
+HARD_VETO_MODEL_MARKET_GAP = True
 
 
 LEDGER_COLUMNS = [
@@ -81,7 +84,19 @@ def _resolve_combined_columns(df: pd.DataFrame) -> CombinedColumns:
     away_col = _resolve_first(df.columns, ["away_team", "away"])
     prob_col = _resolve_first(
         df.columns,
-        ["prob_used", "prob_base", "prob_live_safe", "prob_live_safe_pre_clip", "prob_live_oos_proxy", "prob_iso_oos_time", "prob_iso", "iso_proba_home_win", "pred_home_win_proba", "home_team_prob"],
+        [
+            "prob_live_safe",
+            "prob_used",
+            "prob_base",
+            "prob_live_safe_pre_clip",
+            "prob_live_oos_proxy",
+            "prob_iso_oos_time",
+            "prob_iso_insample",
+            "prob_iso",
+            "iso_proba_home_win",
+            "pred_home_win_proba",
+            "home_team_prob",
+        ],
     )
     odds_col = _resolve_first(df.columns, ["odds_1", "closing_home_odds"])
     home_win_rate_col = _resolve_first(df.columns, ["home_win_rate", "home_winrate"])
@@ -200,8 +215,16 @@ def _prepare_combined(df: pd.DataFrame) -> pd.DataFrame:
     combined["date"] = _normalize_date(combined[columns.date])
     combined["home_team"] = _normalize_team(combined[columns.home])
     combined["away_team"] = _normalize_team(combined[columns.away])
-    combined["prob_iso"] = pd.to_numeric(combined.get("prob_iso", combined[columns.prob]), errors="coerce")
     combined["odds_1"] = pd.to_numeric(combined[columns.odds], errors="coerce")
+
+    combined["prob_selected"] = pd.to_numeric(combined[columns.prob], errors="coerce")
+    combined["prob_iso"] = pd.to_numeric(
+        combined.get("prob_iso_insample", combined.get("prob_iso", combined.get("iso_proba_home_win", np.nan))),
+        errors="coerce",
+    )
+    combined["prob_iso_oos_time"] = pd.to_numeric(combined.get("prob_iso_oos_time", np.nan), errors="coerce")
+    combined["prob_live_oos_proxy"] = pd.to_numeric(combined.get("prob_live_oos_proxy", np.nan), errors="coerce")
+    combined["prob_live_safe"] = pd.to_numeric(combined.get("prob_live_safe", combined["prob_selected"]), errors="coerce")
 
     if columns.home_win_rate:
         combined["home_win_rate"] = pd.to_numeric(
@@ -210,7 +233,38 @@ def _prepare_combined(df: pd.DataFrame) -> pd.DataFrame:
     else:
         combined["home_win_rate"] = np.nan
 
-    combined["prob_used"] = pd.to_numeric(combined.get("prob_used", combined["prob_iso"]), errors="coerce").clip(PROB_CLIP_LO, PROB_CLIP_HI)
+    combined["prob_live_safe_pre_clip"] = pd.to_numeric(
+        combined.get("prob_live_safe_pre_clip", combined["prob_live_safe"]),
+        errors="coerce",
+    )
+    combined["prob_base"] = pd.to_numeric(
+        combined.get("prob_base", combined["prob_live_safe_pre_clip"]),
+        errors="coerce",
+    )
+    combined["prob_used"] = pd.to_numeric(
+        combined.get("prob_used", combined["prob_base"]),
+        errors="coerce",
+    ).clip(PROB_CLIP_LO, PROB_CLIP_HI)
+
+    combined["implied_prob_1"] = pd.to_numeric(
+        combined.get("implied_prob_1", np.where(combined["odds_1"] > 0, 1.0 / combined["odds_1"], np.nan)),
+        errors="coerce",
+    )
+    combined["model_market_gap"] = pd.to_numeric(
+        combined.get("model_market_gap", combined["prob_base"] - combined["implied_prob_1"]),
+        errors="coerce",
+    )
+
+    gap_fallback = (
+        (combined["odds_1"] >= UNDERDOG_ODDS_THRESHOLD)
+        & (combined["prob_used"] >= MODEL_MARKET_GAP_PROB_THRESHOLD)
+    )
+    existing_gap_flag = combined.get("model_market_gap_flag")
+    if existing_gap_flag is None:
+        combined["model_market_gap_flag"] = gap_fallback.fillna(False).astype(bool)
+    else:
+        combined["model_market_gap_flag"] = existing_gap_flag.fillna(gap_fallback).astype(bool)
+
     combined["ev_per_100"] = (
         combined["prob_used"] * (combined["odds_1"] - 1)
         - (1 - combined["prob_used"])
@@ -347,6 +401,9 @@ def _append_new_bets(ledger: pd.DataFrame, combined: pd.DataFrame) -> pd.DataFra
         & (upcoming["prob_used"] >= PROB_MIN)
         & (upcoming["ev_per_100"] > MIN_EV)
     ].copy()
+
+    if HARD_VETO_MODEL_MARKET_GAP and "model_market_gap_flag" in qualifiers.columns:
+        qualifiers = qualifiers[~qualifiers["model_market_gap_flag"].fillna(False)].copy()
 
     new_rows = qualifiers[~qualifiers["game_key"].isin(existing_keys)].copy()
     if new_rows.empty:
