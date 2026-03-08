@@ -87,8 +87,6 @@ def _resolve_combined_columns(df: pd.DataFrame) -> CombinedColumns:
         [
             "prob_live_safe",
             "prob_used",
-            "prob_base",
-            "prob_live_safe_pre_clip",
             "prob_live_oos_proxy",
             "prob_iso_oos_time",
             "prob_iso_insample",
