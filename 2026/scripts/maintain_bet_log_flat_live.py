@@ -128,6 +128,27 @@ def _resolve_combined_columns(df: pd.DataFrame) -> CombinedColumns:
     )
 
 
+
+
+def _to_bool_series(series: pd.Series) -> pd.Series:
+    normalized = series.astype(str).str.strip().str.lower()
+    mapped = normalized.map({
+        "1": True,
+        "true": True,
+        "t": True,
+        "yes": True,
+        "y": True,
+        "0": False,
+        "false": False,
+        "f": False,
+        "no": False,
+        "n": False,
+        "nan": np.nan,
+        "none": np.nan,
+        "": np.nan,
+    })
+    return mapped
+
 def _coerce_win(series: pd.Series) -> pd.Series:
     numeric = pd.to_numeric(series, errors="coerce")
     normalized = series.astype(str).str.strip().str.lower()
@@ -261,7 +282,12 @@ def _prepare_combined(df: pd.DataFrame) -> pd.DataFrame:
     if existing_gap_flag is None:
         combined["model_market_gap_flag"] = gap_fallback.fillna(False).astype(bool)
     else:
-        combined["model_market_gap_flag"] = existing_gap_flag.fillna(gap_fallback).astype(bool)
+        existing_gap_flag = _to_bool_series(existing_gap_flag)
+        combined["model_market_gap_flag"] = np.where(
+            existing_gap_flag.notna(),
+            existing_gap_flag.astype(bool),
+            gap_fallback.fillna(False).astype(bool),
+        )
 
     combined["ev_per_100"] = (
         combined["prob_used"] * (combined["odds_1"] - 1)
@@ -401,7 +427,9 @@ def _append_new_bets(ledger: pd.DataFrame, combined: pd.DataFrame) -> pd.DataFra
     ].copy()
 
     if HARD_VETO_MODEL_MARKET_GAP and "model_market_gap_flag" in qualifiers.columns:
-        qualifiers = qualifiers[~qualifiers["model_market_gap_flag"].fillna(False)].copy()
+        gap_flag_raw = _to_bool_series(qualifiers["model_market_gap_flag"])
+        gap_flag = np.where(gap_flag_raw.notna(), gap_flag_raw.astype(bool), False)
+        qualifiers = qualifiers[~pd.Series(gap_flag, index=qualifiers.index)].copy()
 
     new_rows = qualifiers[~qualifiers["game_key"].isin(existing_keys)].copy()
     if new_rows.empty:
