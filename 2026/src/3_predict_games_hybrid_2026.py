@@ -529,8 +529,17 @@ def main():
     home_team_preds["odds 1"] = home_team_preds["odds 1"].round(2)
     home_team_preds["odds 2"] = home_team_preds["odds 2"].round(2)
 
+    # Initialize probability diagnostics columns used by downstream live scripts
+    for col in [
+        "prob_iso_insample", "prob_iso_oos_time", "prob_live_oos_proxy",
+        "prob_live_safe_pre_clip", "prob_base", "prob_live_safe", "prob_used"
+    ]:
+        if col not in home_team_preds.columns:
+            home_team_preds[col] = np.nan
+
     # Print to console for today
-    cols = ["home_team", "away_team", "home_team_prob", "odds 1", "odds 2", "result", "date"]
+    cols = ["home_team", "away_team", "home_team_prob", "odds 1", "odds 2", "result", "date",
+            "prob_live_safe", "prob_used"]
     logging.info("Final predictions for %s:\n%s",
                  game_day,
                  home_team_preds[cols].to_string(index=False))
