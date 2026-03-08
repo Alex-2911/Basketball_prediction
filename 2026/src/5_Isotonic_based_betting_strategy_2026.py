@@ -27,35 +27,14 @@ import pandas as pd
 from sklearn.isotonic import IsotonicRegression
 from sklearn.metrics import brier_score_loss, log_loss
 
+from live_calibration import compute_live_oos_proxy, compute_time_oos_isotonic
+from live_safety import apply_live_safety
+
 from nba_utils_2026 import (
     get_current_date,
     get_directory_paths,
     normalize_team_code,
 )
-
-# -----------------------------
-# CENTRALIZED CONFIG / KNOBS
-# -----------------------------
-
-PROBABILITY_CONFIG = {
-    "PROB_COL_HIST": "prob_iso_oos_time",
-    "PROB_COL_LIVE": "prob_live_safe",
-    "PROB_COL_RAW": "home_team_prob",
-    "PROB_COL_ISO_INSAMPLE": "prob_iso_insample",
-    "PROB_COL_LIVE_PROXY": "prob_live_oos_proxy",
-    "USE_LIVE_OOS_PROXY": True,
-    "LIVE_OOS_PROXY_MIN_ROWS": 100,
-    "LIVE_OOS_PROXY_RECENT_N": None,
-    "USE_LIVE_SHRINK": True,
-    "LIVE_SHRINK_START": 0.60,
-    "LIVE_SHRINK_FACTOR": 0.85,
-    "UNDERDOG_ODDS_THRESHOLD": 2.30,
-    "MODEL_MARKET_GAP_PROB_THRESHOLD": 0.60,
-    "HARD_VETO_MODEL_MARKET_GAP": True,
-    "WALK_MIN_TRAIN": 200,
-    "WALK_MIN_STEP": 50,
-    "WALK_MAX_FOLDS": None,
-}
 
 # -----------------------------
 # CONSTANTS / COLUMN NAMES
@@ -69,6 +48,14 @@ HOME_ODDS_COL = "closing_home_odds"
 AWAY_ODDS_COL = "closing_away_odds"
 HOMEWR_COL = "home_win_rate"
 ISO_COL = "iso_proba_home_win"
+PROB_ISO_OOS_TIME_COL = "prob_iso_oos_time"
+PROB_LIVE_OOS_PROXY_COL = "prob_live_oos_proxy"
+PROB_LIVE_SAFE_COL = "prob_live_safe"
+PROB_COL_HIST = PROB_ISO_OOS_TIME_COL
+PROB_COL_LIVE = PROB_LIVE_SAFE_COL
+MIN_TRAIN_OOS_TIME = 50
+MIN_STEP_OOS_TIME = 10
+MIN_TRAIN_OOS_PROXY = 200
 
 # Grid search
 FLAT_STAKE = 100.0
@@ -237,10 +224,9 @@ def _params_to_dict(params: StrategyParams) -> dict:
     }
 
 
-def _compute_prob_used(df: pd.DataFrame, lo: float, hi: float, src=None, dst="prob_used") -> pd.DataFrame:
+def _compute_prob_used(df: pd.DataFrame, lo: float, hi: float, src=ISO_COL, dst="prob_used") -> pd.DataFrame:
     out = df.copy()
-    src_col = src if src is not None else ISO_COL
-    out[dst] = pd.to_numeric(out[src_col], errors="coerce").clip(lower=lo, upper=hi)
+    out[dst] = pd.to_numeric(out[src], errors="coerce").clip(lower=lo, upper=hi)
     return out
 
 
@@ -521,152 +507,89 @@ def compute_calibration_metrics(df_past: pd.DataFrame) -> Tuple[float, float, fl
     return b0, b1, ll0, ll1
 
 
-PROB_COL_HIST = PROBABILITY_CONFIG["PROB_COL_HIST"]
-PROB_COL_LIVE = PROBABILITY_CONFIG["PROB_COL_LIVE"]
-PROB_COL_ISO_INSAMPLE = PROBABILITY_CONFIG["PROB_COL_ISO_INSAMPLE"]
-PROB_COL_LIVE_PROXY = PROBABILITY_CONFIG["PROB_COL_LIVE_PROXY"]
-
-
-def _build_game_key(df: pd.DataFrame) -> pd.Series:
-    dt = pd.to_datetime(df[DATE_COL], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
-    home = df.get("home_team", pd.Series(index=df.index, dtype="object")).astype(str).fillna("").str.upper()
-    away = df.get("away_team", pd.Series(index=df.index, dtype="object")).astype(str).fillna("").str.upper()
-    return dt + "_" + home + "_" + away
-
-
-def _dedupe_games(df: pd.DataFrame) -> pd.DataFrame:
-    out = _ensure_datetime(df, DATE_COL).sort_values(DATE_COL).copy()
-    out["game_key"] = _build_game_key(out)
-    out = out.drop_duplicates(subset=["game_key"], keep="last").copy()
-    return out
-
-
-def compute_prob_iso_oos_time(df_all: pd.DataFrame) -> pd.DataFrame:
-    out = _dedupe_games(df_all)
-    out[PROB_COL_HIST] = np.nan
-    out[PROB_COL_ISO_INSAMPLE] = out.get(ISO_COL, np.nan)
-
-    played = out[RESULT_COL].notna() & out[PRED_PROBA_COL].notna()
-    hist = out.loc[played].sort_values(DATE_COL).copy()
-    min_train = int(PROBABILITY_CONFIG["WALK_MIN_TRAIN"])
-    min_step = int(PROBABILITY_CONFIG["WALK_MIN_STEP"])
-    max_folds = PROBABILITY_CONFIG["WALK_MAX_FOLDS"]
-
-    if len(hist) < (min_train + min_step):
-        return out
-
-    fold = 0
-    start = min_train
-    while start < len(hist):
-        end = min(len(hist), start + min_step)
-        train = hist.iloc[:start]
-        test_idx = hist.index[start:end]
-        if len(train) < min_train:
-            break
-        iso = IsotonicRegression(out_of_bounds="clip")
-        iso.fit(train[PRED_PROBA_COL].astype(float), train[RESULT_COL].astype(int))
-        out.loc[test_idx, PROB_COL_HIST] = iso.transform(hist.loc[test_idx, PRED_PROBA_COL].astype(float))
-        start = end
-        fold += 1
-        if max_folds and fold >= int(max_folds):
-            break
-
-    return out
-
-
-def build_live_oos_proxy(df_all: pd.DataFrame) -> tuple[pd.DataFrame, bool, dict]:
-    out = df_all.copy()
-    out[PROB_COL_LIVE_PROXY] = np.nan
-    elig = out[
-        out[RESULT_COL].notna()
-        & out[PRED_PROBA_COL].notna()
-        & out[PROB_COL_HIST].notna()
-    ].copy()
-    elig = _dedupe_games(elig).sort_values(DATE_COL)
-
-    recent_n = PROBABILITY_CONFIG["LIVE_OOS_PROXY_RECENT_N"]
-    if recent_n:
-        elig = elig.tail(int(recent_n)).copy()
-
-    min_rows = int(PROBABILITY_CONFIG["LIVE_OOS_PROXY_MIN_ROWS"])
-    proxy_ready = bool(PROBABILITY_CONFIG["USE_LIVE_OOS_PROXY"]) and len(elig) >= min_rows
-
-    meta = {
-        "proxy_ready": proxy_ready,
-        "proxy_rows": int(len(elig)),
-        "proxy_win_rate": float(elig[RESULT_COL].astype(float).mean()) if len(elig) else np.nan,
-    }
-
-    if proxy_ready:
-        iso = IsotonicRegression(out_of_bounds="clip")
-        iso.fit(elig[PRED_PROBA_COL].astype(float), elig[RESULT_COL].astype(int))
-        m = out[PRED_PROBA_COL].notna()
-        out.loc[m, PROB_COL_LIVE_PROXY] = iso.transform(out.loc[m, PRED_PROBA_COL].astype(float))
-
-    return out, proxy_ready, meta
-
-
-def apply_live_probability_safety(df: pd.DataFrame, proxy_ready: bool) -> pd.DataFrame:
-    out = df.copy()
-    raw = pd.to_numeric(out[PRED_PROBA_COL], errors="coerce")
-    proxy = pd.to_numeric(out[PROB_COL_LIVE_PROXY], errors="coerce")
-
-    use_proxy = proxy_ready & proxy.notna()
-    live_pre = np.where(use_proxy, proxy, raw)
-
-    odds = pd.to_numeric(out[HOME_ODDS_COL], errors="coerce")
-    underdog = odds > float(PROBABILITY_CONFIG["UNDERDOG_ODDS_THRESHOLD"])
-    guard = underdog & pd.notna(raw) & pd.notna(live_pre) & (live_pre > raw)
-    live_pre = np.where(guard, raw, live_pre)
-
-    out["live_oos_proxy_ready"] = bool(proxy_ready)
-    out["live_oos_proxy_used"] = use_proxy.astype(bool)
-    out["live_underdog_upscale_guard_triggered"] = guard.astype(bool)
-    out["prob_live_safe_pre_clip"] = live_pre
-
-    base = pd.to_numeric(pd.Series(live_pre, index=out.index), errors="coerce").clip(PROB_CLIP_LO, PROB_CLIP_HI)
-    out["prob_base"] = base
-
-    if bool(PROBABILITY_CONFIG["USE_LIVE_SHRINK"]):
-        start = float(PROBABILITY_CONFIG["LIVE_SHRINK_START"])
-        factor = float(PROBABILITY_CONFIG["LIVE_SHRINK_FACTOR"])
-        shrink_mask = base > start
-        shrunk = base.copy()
-        shrunk.loc[shrink_mask] = 0.50 + factor * (base.loc[shrink_mask] - 0.50)
-        out["live_shrink_triggered"] = shrink_mask.astype(bool)
-        out[PROB_COL_LIVE] = shrunk
-    else:
-        out["live_shrink_triggered"] = False
-        out[PROB_COL_LIVE] = base
-
-    out["model_market_gap_flag"] = (
-        (odds > float(PROBABILITY_CONFIG["UNDERDOG_ODDS_THRESHOLD"]))
-        & (pd.to_numeric(out[PROB_COL_LIVE], errors="coerce") > float(PROBABILITY_CONFIG["MODEL_MARKET_GAP_PROB_THRESHOLD"]))
-    ).fillna(False)
-
-    out["prob_used"] = np.where(out[RESULT_COL].notna(), out[PROB_COL_HIST], out[PROB_COL_LIVE])
-    out["prob_used"] = pd.to_numeric(out["prob_used"], errors="coerce").clip(PROB_CLIP_LO, PROB_CLIP_HI)
-    return out
-
-
-def print_row_trace(df: pd.DataFrame, date: str, home_team: str, away_team: str) -> None:
-    key = (pd.to_datetime(df[DATE_COL], errors="coerce").dt.strftime("%Y-%m-%d") == date) & (df["home_team"].astype(str).str.upper() == str(home_team).upper()) & (df["away_team"].astype(str).str.upper() == str(away_team).upper())
-    rows = df.loc[key]
-    if rows.empty:
-        logging.info("TRACE not found for %s %s-%s", date, home_team, away_team)
-        return
-    cols = [
-        DATE_COL, "home_team", "away_team", PRED_PROBA_COL, PROB_COL_ISO_INSAMPLE, PROB_COL_HIST, PROB_COL_LIVE_PROXY,
-        "prob_live_safe_pre_clip", "prob_base", "prob_used", HOME_ODDS_COL, "live_oos_proxy_ready", "live_oos_proxy_used",
-        "live_underdog_upscale_guard_triggered", "live_shrink_triggered", "model_market_gap_flag"
-    ]
-    cols = [c for c in cols if c in rows.columns]
-    logging.info("TRACE ROW:\n%s", rows[cols].to_string(index=False))
-
-
 # -----------------------------
 # STRATEGY SEARCH (LOCAL on last 200)
 # -----------------------------
+
+
+
+def build_live_probability_columns(df_all: pd.DataFrame, today_date, tomorrow_date) -> tuple[pd.DataFrame, dict]:
+    df = df_all.copy()
+    played_mask = df[RESULT_RAW_COL].notna() & (df[RESULT_RAW_COL].astype(str) != "0")
+    upcoming_mask = (~played_mask) & df[DATE_COL].dt.date.isin([today_date, tomorrow_date])
+
+    df[PROB_ISO_OOS_TIME_COL] = compute_time_oos_isotonic(
+        df.loc[played_mask].copy(),
+        prob_col=PRED_PROBA_COL,
+        target_col=RESULT_COL,
+        date_col=DATE_COL,
+        min_train=MIN_TRAIN_OOS_TIME,
+        min_step=MIN_STEP_OOS_TIME,
+    )
+
+    proxy_result = compute_live_oos_proxy(
+        df,
+        played_mask=played_mask,
+        upcoming_mask=upcoming_mask,
+        prob_col=PRED_PROBA_COL,
+        target_col=RESULT_COL,
+        oos_col=PROB_ISO_OOS_TIME_COL,
+        min_train_oos=MIN_TRAIN_OOS_PROXY,
+    )
+    df[PROB_LIVE_OOS_PROXY_COL] = proxy_result.proxy
+    df["live_oos_proxy_ready"] = bool(proxy_result.ready)
+    df["live_oos_proxy_train_rows"] = int(proxy_result.train_rows)
+
+    logging.info(
+        "[LIVE OOS PROXY] ready=%s train_rows=%d win_rate=%.4f",
+        proxy_result.ready,
+        proxy_result.train_rows,
+        proxy_result.win_rate if np.isfinite(proxy_result.win_rate) else float("nan"),
+    )
+
+    safety_ready = bool(proxy_result.ready)
+    df = apply_live_safety(df, live_oos_proxy_ready=safety_ready)
+    df[PROB_LIVE_SAFE_COL] = df["prob_base"]
+
+    meta = {
+        "live_oos_proxy_ready": bool(proxy_result.ready),
+        "live_oos_proxy_train_rows": int(proxy_result.train_rows),
+    }
+    return df, meta
+
+
+def run_self_test(df_all: pd.DataFrame, live_meta: dict | None = None) -> None:
+    required_cols = [
+        "home_team_prob", "prob_iso", PROB_ISO_OOS_TIME_COL, PROB_LIVE_OOS_PROXY_COL,
+        "prob_live_safe_pre_clip", "prob_base", "prob_used", "implied_prob_1",
+        "model_market_gap", "model_market_gap_flag", "live_underdog_upscale_guard_triggered",
+        "live_shrink_triggered", "live_oos_proxy_ready", "live_oos_proxy_train_rows",
+    ]
+    missing = [c for c in required_cols if c not in df_all.columns]
+    if missing:
+        raise AssertionError(f"Missing required columns: {missing}")
+
+    played_mask = df_all[RESULT_RAW_COL].notna() & (df_all[RESULT_RAW_COL].astype(str) != "0")
+    played_sorted = df_all.loc[played_mask].sort_values(DATE_COL)
+    if len(played_sorted) > MIN_TRAIN_OOS_TIME + MIN_STEP_OOS_TIME:
+        recent = played_sorted.tail(min(120, len(played_sorted)))
+        ratio = recent[PROB_ISO_OOS_TIME_COL].notna().mean()
+        if ratio < 0.5:
+            raise AssertionError(f"prob_iso_oos_time too sparse on recent played rows: {ratio:.3f}")
+
+    if live_meta is not None:
+        train_rows = int(live_meta.get("live_oos_proxy_train_rows", 0))
+        ready = bool(live_meta.get("live_oos_proxy_ready", False))
+        if train_rows >= MIN_TRAIN_OOS_PROXY and not ready:
+            raise AssertionError("Expected live_oos_proxy_ready=True when train_rows is sufficient")
+
+    suspicious = df_all[(pd.to_numeric(df_all.get("odds_1"), errors="coerce") >= 2.30) & (pd.to_numeric(df_all.get("prob_live_base"), errors="coerce") >= 0.60)]
+    if not suspicious.empty:
+        if not suspicious["model_market_gap_flag"].fillna(False).any():
+            raise AssertionError("Expected underdog/high-prob rows to trigger model_market_gap_flag")
+        reduced = suspicious["prob_used"] < suspicious["prob_live_base"]
+        if not reduced.any():
+            raise AssertionError("Expected underdog/high-prob rows to reduce prob_used")
 
 def evaluate_params_on_hist_window(
     hist_window: pd.DataFrame,
@@ -807,7 +730,7 @@ def prepare_local_matched_export(matched_subset: pd.DataFrame, stake: float) -> 
     if "home_win_rate" not in df.columns:
         df["home_win_rate"] = df[HOMEWR_COL]
     if "prob_iso" not in df.columns:
-        df["prob_iso"] = df.get(PROB_COL_ISO_INSAMPLE, df.get(ISO_COL, np.nan))
+        df["prob_iso"] = df[ISO_COL]
     if "prob_used" not in df.columns:
         df["prob_used"] = df["prob_iso"]
     if "odds_1" not in df.columns:
@@ -970,6 +893,33 @@ def write_strategy_params(params_used: dict, *, min_ev: float, as_of_date: str, 
 # AS-OF DATE (latest played)
 # -----------------------------
 
+
+
+def build_bet_shortlist(df_all: pd.DataFrame, params: dict, min_ev: float) -> pd.DataFrame:
+    out = df_all.copy()
+    played = out[RESULT_RAW_COL].notna() & (out[RESULT_RAW_COL].astype(str) != "0")
+    out = out[~played].copy()
+    out = _compute_ev_per_100(out, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100")
+
+    mask = (
+        (out[HOMEWR_COL] >= float(params["home_win_rate_threshold"])) &
+        (out[HOME_ODDS_COL] >= float(params["odds_min"])) &
+        (out[HOME_ODDS_COL] <= float(params["odds_max"])) &
+        (out["prob_used"] >= float(params["prob_threshold"])) &
+        (out["EV_€_per_100"] > float(min_ev))
+    )
+    shortlist = out.loc[mask].copy()
+    cols = [
+        DATE_COL, "home_team", "away_team", "home_team_prob", "prob_iso", PROB_ISO_OOS_TIME_COL,
+        PROB_LIVE_OOS_PROXY_COL, "prob_live_safe_pre_clip", "prob_base", "prob_used",
+        "odds_1", "implied_prob_1", "model_market_gap", "model_market_gap_flag",
+        "live_underdog_upscale_guard_triggered", "live_shrink_triggered",
+        "live_oos_proxy_ready", "live_oos_proxy_train_rows", HOMEWR_COL, "EV_€_per_100",
+    ]
+    for c in cols:
+        if c not in shortlist.columns:
+            shortlist[c] = np.nan
+    return shortlist[cols]
 def resolve_as_of_date_from_df_past(df_past_sorted: pd.DataFrame, fallback: str) -> str:
     if df_past_sorted is None or df_past_sorted.empty:
         return fallback
@@ -1060,28 +1010,19 @@ def main() -> None:
         logging.warning("No past games available – cannot fit isotonic.")
         return
 
-    # 5) FIT ISOTONIC + APPLY (diagnostic in-sample only)
+    # 5) FIT ISOTONIC + APPLY (in-sample reference only)
     iso = fit_isotonic(df_past)
     df_all[ISO_COL] = np.nan
     m_iso = df_all[PRED_PROBA_COL].notna()
     df_all.loc[m_iso, ISO_COL] = iso.transform(df_all.loc[m_iso, PRED_PROBA_COL].astype(float).values)
-    df_all[PROB_COL_ISO_INSAMPLE] = df_all[ISO_COL]
+    df_all["prob_iso"] = df_all[ISO_COL]
+    df_all["home_team_prob"] = pd.to_numeric(df_all[PRED_PROBA_COL], errors="coerce")
+    if "odds_1" not in df_all.columns and HOME_ODDS_COL in df_all.columns:
+        df_all["odds_1"] = pd.to_numeric(df_all[HOME_ODDS_COL], errors="coerce")
 
-    # 5b) time-safe OOS isotonic for historical rows
-    df_all = compute_prob_iso_oos_time(df_all)
-
-    # 5c) build and apply live OOS proxy + safety guards/shrink
-    df_all, proxy_ready, proxy_meta = build_live_oos_proxy(df_all)
-    logging.info(
-        "LIVE OOS PROXY ready=%s rows=%d train_win_rate=%.4f",
-        proxy_meta["proxy_ready"],
-        proxy_meta["proxy_rows"],
-        proxy_meta["proxy_win_rate"] if pd.notna(proxy_meta["proxy_win_rate"]) else float('nan'),
-    )
-    df_all = apply_live_probability_safety(df_all, proxy_ready=proxy_ready)
-
-    # keep backward compatibility aliases
-    df_all["prob_iso"] = df_all[PROB_COL_ISO_INSAMPLE]
+    # 5b) Build time-OOS calibration + live OOS proxy + live safety
+    df_all, live_meta = build_live_probability_columns(df_all, today_date, tomorrow_date)
+    logging.info("Probability columns: PROB_COL_HIST=%s PROB_COL_LIVE=%s", PROB_COL_HIST, PROB_COL_LIVE)
 
     # refresh past/future views with calibrated columns
     df_past, df_future = split_past_future(df_all, today_date, tomorrow_date)
@@ -1144,6 +1085,11 @@ def main() -> None:
 
     matched_export_latest = prepare_local_matched_export(subset_local, stake=FLAT_STAKE) if subset_local is not None else pd.DataFrame()
 
+    shortlist = build_bet_shortlist(df_all, local_params, min_EV)
+    shortlist_path = kelly_dir / f"bet_shortlist_{target_ymd}.csv"
+    shortlist.to_csv(shortlist_path, index=False, encoding="utf-8")
+    logging.info("Saved bet shortlist -> %s (%d rows)", shortlist_path, len(shortlist))
+
     # Bankroll over last-200 window (model EV, same style)
     last_200_games = hist_window_200.copy()
     last_200_games = _compute_prob_used(last_200_games, lo=PROB_CLIP_LO, hi=PROB_CLIP_HI, src=PROB_COL_HIST, dst="prob_used")
@@ -1199,6 +1145,10 @@ def main() -> None:
             "bankroll_last_200_eur": round(float(bankroll_last_200), 2),
             "flat_stake_eur": round(float(FLAT_STAKE), 2),
         },
+        "live_oos_proxy": {
+            "ready": bool(live_meta.get("live_oos_proxy_ready", False)),
+            "train_rows": int(live_meta.get("live_oos_proxy_train_rows", 0)),
+        },
     }
 
     write_json(out_dir / "metrics_snapshot.json", snapshot)
@@ -1211,23 +1161,11 @@ def main() -> None:
         "local_matched_games_latest_written": True,
         "local_window_games": int(len(hist_window_200)),
         "local_matched_games": int(len(matched_export_latest)),
+        "prob_col_hist": PROB_COL_HIST,
+        "prob_col_live": PROB_COL_LIVE,
     })
 
-    # diagnostic watchlist / traceability
-    watch_cols = [
-        "home_team", "away_team", DATE_COL, PRED_PROBA_COL, PROB_COL_ISO_INSAMPLE, PROB_COL_HIST,
-        PROB_COL_LIVE_PROXY, "prob_live_safe_pre_clip", "prob_base", "prob_used", "EV_€_per_100",
-        "model_market_gap_flag", "live_underdog_upscale_guard_triggered", "live_shrink_triggered",
-        "live_oos_proxy_used",
-    ]
-    df_watch = df_future.copy()
-    if not df_watch.empty:
-        df_watch = _compute_ev_per_100(df_watch, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100")
-        watch_cols = [c for c in watch_cols if c in df_watch.columns]
-        logging.info("WATCHLIST(active params=%s):\n%s", local_params, df_watch[watch_cols].head(20).to_string(index=False))
-
-    print_row_trace(df_all, date="2026-03-01", home_team="ORL", away_team="DET")
-
+    run_self_test(df_all, live_meta=live_meta)
     logging.info("DONE. local_matched_games_latest.csv updated using LOCAL params on last-200 window ending %s.", as_of_date)
 
     p = find_repo_root() / "web" / "public" / "data" / "local_matched_games_latest.csv"

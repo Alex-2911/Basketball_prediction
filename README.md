@@ -151,3 +151,22 @@ This repo separates **historical model performance**, **strategy simulations**, 
 - `strategy_params.txt` is used only as a fallback
 
 This ensures **simulation ≠ reality**, while keeping both views consistent and auditable.
+
+
+## Probability chain (live-safe + OOS calibration)
+
+The betting pipeline now uses an explicit probability chain with separate historical and live columns:
+
+- `home_team_prob`: raw LightGBM probability.
+- `prob_iso`: in-sample isotonic (reference only).
+- `prob_iso_oos_time`: walk-forward time OOS isotonic for played rows (`PROB_COL_HIST`).
+- `prob_live_oos_proxy`: live proxy calibrator built only from OOS-labeled history.
+- `prob_live_safe_pre_clip`: live-safe probability after market-gap guards + continuous shrink.
+- `prob_base`: pre-clip EV-driving value.
+- `prob_used`: final clipped value used by EV and bet filtering (`PROB_COL_LIVE`).
+
+Runtime logs include a line like:
+
+`[LIVE OOS PROXY] ready=True train_rows=312 win_rate=0.5417`
+
+and debug flags such as `model_market_gap_flag`, `live_underdog_upscale_guard_triggered`, and `live_shrink_triggered` are persisted into combined outputs, shortlist files, and live bet logs for full traceability.
