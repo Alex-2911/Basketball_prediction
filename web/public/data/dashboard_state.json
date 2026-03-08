@@ -25,10 +25,10 @@
     "strategy_params_txt": "strategy_params.txt"
   },
   "strategy_as_of_date": "2026-03-05",
-  "last_update_utc": "2026-03-07T17:25:50.491Z",
+  "last_update_utc": "2026-03-08T16:20:00.998Z",
   "source_files": {
     "combined": "combined_latest.csv",
-    "combined_source": "Kelly/combined_nba_predictions_iso_2026-03-07.csv",
+    "combined_source": "Kelly/combined_nba_predictions_iso_2026-03-08.csv",
     "local_matched": "local_matched_games_latest.csv",
     "local_matched_source": "web/public/data/local_matched_games_latest.csv",
     "bet_log": "bet_log_flat_live.csv"
