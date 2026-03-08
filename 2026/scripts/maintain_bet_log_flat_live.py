@@ -128,8 +128,6 @@ def _resolve_combined_columns(df: pd.DataFrame) -> CombinedColumns:
     )
 
 
-
-
 def _to_bool_series(series: pd.Series) -> pd.Series:
     normalized = series.astype(str).str.strip().str.lower()
     mapped = normalized.map({
@@ -476,6 +474,9 @@ def _append_new_bets(ledger: pd.DataFrame, combined: pd.DataFrame) -> pd.DataFra
             "game_key",
         ]
     ]
+
+    if ledger.empty:
+        return append_df.copy()
 
     combined_ledger = pd.concat([ledger, append_df], ignore_index=True)
     return combined_ledger
