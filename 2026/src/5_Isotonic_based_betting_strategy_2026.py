@@ -27,6 +27,9 @@ import pandas as pd
 from sklearn.isotonic import IsotonicRegression
 from sklearn.metrics import brier_score_loss, log_loss
 
+from live_calibration import compute_live_oos_proxy, compute_time_oos_isotonic
+from live_safety import apply_live_safety
+
 from nba_utils_2026 import (
     get_current_date,
     get_directory_paths,
@@ -45,6 +48,14 @@ HOME_ODDS_COL = "closing_home_odds"
 AWAY_ODDS_COL = "closing_away_odds"
 HOMEWR_COL = "home_win_rate"
 ISO_COL = "iso_proba_home_win"
+PROB_ISO_OOS_TIME_COL = "prob_iso_oos_time"
+PROB_LIVE_OOS_PROXY_COL = "prob_live_oos_proxy"
+PROB_LIVE_SAFE_COL = "prob_live_safe"
+PROB_COL_HIST = PROB_ISO_OOS_TIME_COL
+PROB_COL_LIVE = PROB_LIVE_SAFE_COL
+MIN_TRAIN_OOS_TIME = 50
+MIN_STEP_OOS_TIME = 10
+MIN_TRAIN_OOS_PROXY = 200
 
 # Grid search
 FLAT_STAKE = 100.0
@@ -500,6 +511,80 @@ def compute_calibration_metrics(df_past: pd.DataFrame) -> Tuple[float, float, fl
 # STRATEGY SEARCH (LOCAL on last 200)
 # -----------------------------
 
+
+
+def build_live_probability_columns(df_all: pd.DataFrame, today_date, tomorrow_date) -> tuple[pd.DataFrame, dict]:
+    df = df_all.copy()
+    played_mask = df[RESULT_RAW_COL].notna() & (df[RESULT_RAW_COL].astype(str) != "0")
+    upcoming_mask = (~played_mask) & df[DATE_COL].dt.date.isin([today_date, tomorrow_date])
+
+    df[PROB_ISO_OOS_TIME_COL] = compute_time_oos_isotonic(
+        df.loc[played_mask].copy(),
+        prob_col=PRED_PROBA_COL,
+        target_col=RESULT_COL,
+        date_col=DATE_COL,
+        min_train=MIN_TRAIN_OOS_TIME,
+        min_step=MIN_STEP_OOS_TIME,
+    )
+
+    proxy_result = compute_live_oos_proxy(
+        df,
+        played_mask=played_mask,
+        upcoming_mask=upcoming_mask,
+        prob_col=PRED_PROBA_COL,
+        target_col=RESULT_COL,
+        oos_col=PROB_ISO_OOS_TIME_COL,
+        min_train_oos=MIN_TRAIN_OOS_PROXY,
+    )
+    df[PROB_LIVE_OOS_PROXY_COL] = proxy_result.proxy
+    df["live_oos_proxy_ready"] = bool(proxy_result.ready)
+    df["live_oos_proxy_train_rows"] = int(proxy_result.train_rows)
+
+    logging.info(
+        "[LIVE OOS PROXY] ready=%s train_rows=%d win_rate=%.4f",
+        proxy_result.ready,
+        proxy_result.train_rows,
+        proxy_result.win_rate if np.isfinite(proxy_result.win_rate) else float("nan"),
+    )
+
+    safety_ready = bool(proxy_result.ready)
+    df = apply_live_safety(df, live_oos_proxy_ready=safety_ready)
+    df[PROB_LIVE_SAFE_COL] = df["prob_base"]
+
+    meta = {
+        "live_oos_proxy_ready": bool(proxy_result.ready),
+        "live_oos_proxy_train_rows": int(proxy_result.train_rows),
+    }
+    return df, meta
+
+
+def run_self_test(df_all: pd.DataFrame) -> None:
+    required_cols = [
+        "home_team_prob", "prob_iso", PROB_ISO_OOS_TIME_COL, PROB_LIVE_OOS_PROXY_COL,
+        "prob_live_safe_pre_clip", "prob_base", "prob_used", "implied_prob_1",
+        "model_market_gap", "model_market_gap_flag", "live_underdog_upscale_guard_triggered",
+        "live_shrink_triggered", "live_oos_proxy_ready", "live_oos_proxy_train_rows",
+    ]
+    missing = [c for c in required_cols if c not in df_all.columns]
+    if missing:
+        raise AssertionError(f"Missing required columns: {missing}")
+
+    played_mask = df_all[RESULT_RAW_COL].notna() & (df_all[RESULT_RAW_COL].astype(str) != "0")
+    played_sorted = df_all.loc[played_mask].sort_values(DATE_COL)
+    if len(played_sorted) > MIN_TRAIN_OOS_TIME + MIN_STEP_OOS_TIME:
+        recent = played_sorted.tail(min(120, len(played_sorted)))
+        ratio = recent[PROB_ISO_OOS_TIME_COL].notna().mean()
+        if ratio < 0.5:
+            raise AssertionError(f"prob_iso_oos_time too sparse on recent played rows: {ratio:.3f}")
+
+    suspicious = df_all[(pd.to_numeric(df_all.get("odds_1"), errors="coerce") >= 2.30) & (pd.to_numeric(df_all.get("prob_live_base"), errors="coerce") >= 0.60)]
+    if not suspicious.empty:
+        if not suspicious["model_market_gap_flag"].fillna(False).any():
+            raise AssertionError("Expected underdog/high-prob rows to trigger model_market_gap_flag")
+        reduced = suspicious["prob_used"] < suspicious["prob_live_base"]
+        if not reduced.any():
+            raise AssertionError("Expected underdog/high-prob rows to reduce prob_used")
+
 def evaluate_params_on_hist_window(
     hist_window: pd.DataFrame,
     params: dict,
@@ -514,7 +599,7 @@ def evaluate_params_on_hist_window(
     df = hist_window.copy()
     df = _ensure_datetime(df, DATE_COL)
 
-    df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=ISO_COL, dst="prob_used")
+    df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=PROB_COL_HIST, dst="prob_used")
     df = _compute_ev_per_100(df, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100")
     df = df.dropna(subset=[HOMEWR_COL, "prob_used", HOME_ODDS_COL, RESULT_COL, "EV_€_per_100"])
 
@@ -573,7 +658,7 @@ def find_best_local_params_lastN(
         return None, None
 
     df = _ensure_datetime(hist_df, DATE_COL).sort_values(DATE_COL).tail(int(window_n)).copy()
-    df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=ISO_COL, dst="prob_used")
+    df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=PROB_COL_HIST, dst="prob_used")
     df = _compute_ev_per_100(df, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100")
     df = df.dropna(subset=[HOMEWR_COL, "prob_used", HOME_ODDS_COL, RESULT_COL, "EV_€_per_100"])
 
@@ -731,7 +816,7 @@ def write_latest_local_matched_csv(
         df = df.sort_values(DATE_COL).tail(int(window_n)).copy()
 
         # compute prob_used + EV
-        df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=ISO_COL, dst="prob_used")
+        df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=PROB_COL_HIST, dst="prob_used")
         df = _compute_ev_per_100(df, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100")
 
         # apply filters (same as evaluate_params_on_hist_window)
@@ -802,6 +887,33 @@ def write_strategy_params(params_used: dict, *, min_ev: float, as_of_date: str, 
 # AS-OF DATE (latest played)
 # -----------------------------
 
+
+
+def build_bet_shortlist(df_all: pd.DataFrame, params: dict, min_ev: float) -> pd.DataFrame:
+    out = df_all.copy()
+    played = out[RESULT_RAW_COL].notna() & (out[RESULT_RAW_COL].astype(str) != "0")
+    out = out[~played].copy()
+    out = _compute_ev_per_100(out, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100")
+
+    mask = (
+        (out[HOMEWR_COL] >= float(params["home_win_rate_threshold"])) &
+        (out[HOME_ODDS_COL] >= float(params["odds_min"])) &
+        (out[HOME_ODDS_COL] <= float(params["odds_max"])) &
+        (out["prob_used"] >= float(params["prob_threshold"])) &
+        (out["EV_€_per_100"] > float(min_ev))
+    )
+    shortlist = out.loc[mask].copy()
+    cols = [
+        DATE_COL, "home_team", "away_team", "home_team_prob", "prob_iso", PROB_ISO_OOS_TIME_COL,
+        PROB_LIVE_OOS_PROXY_COL, "prob_live_safe_pre_clip", "prob_base", "prob_used",
+        "odds_1", "implied_prob_1", "model_market_gap", "model_market_gap_flag",
+        "live_underdog_upscale_guard_triggered", "live_shrink_triggered",
+        "live_oos_proxy_ready", "live_oos_proxy_train_rows", HOMEWR_COL, "EV_€_per_100",
+    ]
+    for c in cols:
+        if c not in shortlist.columns:
+            shortlist[c] = np.nan
+    return shortlist[cols]
 def resolve_as_of_date_from_df_past(df_past_sorted: pd.DataFrame, fallback: str) -> str:
     if df_past_sorted is None or df_past_sorted.empty:
         return fallback
@@ -892,13 +1004,21 @@ def main() -> None:
         logging.warning("No past games available – cannot fit isotonic.")
         return
 
-    # 5) FIT ISOTONIC + APPLY
+    # 5) FIT ISOTONIC + APPLY (in-sample reference only)
     iso = fit_isotonic(df_past)
     df_all[ISO_COL] = np.nan
     m_iso = df_all[PRED_PROBA_COL].notna()
     df_all.loc[m_iso, ISO_COL] = iso.transform(df_all.loc[m_iso, PRED_PROBA_COL].astype(float).values)
+    df_all["prob_iso"] = df_all[ISO_COL]
+    df_all["home_team_prob"] = pd.to_numeric(df_all[PRED_PROBA_COL], errors="coerce")
+    if "odds_1" not in df_all.columns and HOME_ODDS_COL in df_all.columns:
+        df_all["odds_1"] = pd.to_numeric(df_all[HOME_ODDS_COL], errors="coerce")
 
-    # refresh past/future views with ISO
+    # 5b) Build time-OOS calibration + live OOS proxy + live safety
+    df_all, live_meta = build_live_probability_columns(df_all, today_date, tomorrow_date)
+    logging.info("Probability columns: PROB_COL_HIST=%s PROB_COL_LIVE=%s", PROB_COL_HIST, PROB_COL_LIVE)
+
+    # refresh past/future views with calibrated columns
     df_past, df_future = split_past_future(df_all, today_date, tomorrow_date)
 
     # sort past chronologically
@@ -959,9 +1079,14 @@ def main() -> None:
 
     matched_export_latest = prepare_local_matched_export(subset_local, stake=FLAT_STAKE) if subset_local is not None else pd.DataFrame()
 
+    shortlist = build_bet_shortlist(df_all, local_params, min_EV)
+    shortlist_path = kelly_dir / f"bet_shortlist_{target_ymd}.csv"
+    shortlist.to_csv(shortlist_path, index=False, encoding="utf-8")
+    logging.info("Saved bet shortlist -> %s (%d rows)", shortlist_path, len(shortlist))
+
     # Bankroll over last-200 window (model EV, same style)
     last_200_games = hist_window_200.copy()
-    last_200_games = _compute_prob_used(last_200_games, lo=PROB_CLIP_LO, hi=PROB_CLIP_HI, src=ISO_COL, dst="prob_used")
+    last_200_games = _compute_prob_used(last_200_games, lo=PROB_CLIP_LO, hi=PROB_CLIP_HI, src=PROB_COL_HIST, dst="prob_used")
     last_200_games = last_200_games.dropna(subset=["prob_used", HOME_ODDS_COL])
 
     bankroll_last_200 = float(START_BANKROLL)
@@ -1026,8 +1151,11 @@ def main() -> None:
         "local_matched_games_latest_written": True,
         "local_window_games": int(len(hist_window_200)),
         "local_matched_games": int(len(matched_export_latest)),
+        "prob_col_hist": PROB_COL_HIST,
+        "prob_col_live": PROB_COL_LIVE,
     })
 
+    run_self_test(df_all)
     logging.info("DONE. local_matched_games_latest.csv updated using LOCAL params on last-200 window ending %s.", as_of_date)
 
     p = find_repo_root() / "web" / "public" / "data" / "local_matched_games_latest.csv"

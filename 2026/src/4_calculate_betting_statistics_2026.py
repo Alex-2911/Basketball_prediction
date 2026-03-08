@@ -177,22 +177,19 @@ def update_betting_statistics(combined_df, most_recent_date, prediction_dir):
         )
         season_df.loc[mask, 'result'] = winning_team
 
-    # Keep only rows with valid outcomes
-    season_df = season_df[
-        (season_df['result'] == season_df['home_team'])
-        | (season_df['result'] == season_df['away_team'])
-    ]
-
-    # Ensure probabilities are numeric
+    # Ensure probabilities are numeric and keep both played + upcoming rows
     season_df['home_team_prob'] = pd.to_numeric(season_df['home_team_prob'], errors='coerce')
 
-    # Compute accuracy
+    played_mask = (
+        (season_df['result'] == season_df['home_team'])
+        | (season_df['result'] == season_df['away_team'])
+    )
     home_win = (season_df['home_team_prob'] >= 0.5) & (season_df['result'] == season_df['home_team'])
     away_win = (season_df['home_team_prob'] < 0.5) & (season_df['result'] == season_df['away_team'])
-    season_df['accuracy'] = (home_win | away_win).astype(int)
+    season_df['accuracy'] = np.where(played_mask, (home_win | away_win).astype(int), np.nan)
 
-    # Overall accuracy
-    overall = season_df['accuracy'].mean()
+    # Overall accuracy on played rows only
+    overall = season_df.loc[played_mask, 'accuracy'].mean()
     logging.info(f"Overall accuracy: {overall:.2%}")
 
     # Subset accuracy (home_team_prob > 0.60 and < 0.40)
@@ -203,11 +200,14 @@ def update_betting_statistics(combined_df, most_recent_date, prediction_dir):
 
     # Save updated DataFrame with today's date
     save_path = os.path.join(prediction_dir, f'combined_nba_predictions_acc_{today_str_format}.csv')
-    # Drop unnamed columns and NaNs
+    # Drop unnamed columns and keep upcoming rows for downstream live pipeline
     season_df.drop(columns=['Unnamed: 8'], errors='ignore', inplace=True)
     season_df.dropna(
-        subset=["date", "home_team", "away_team", "home_team_prob", "result", "accuracy"],
+        subset=["date", "home_team", "away_team", "home_team_prob"],
         inplace=True,
+    )
+    season_df = season_df.sort_values('date', ascending=False).drop_duplicates(
+        subset=['date', 'home_team', 'away_team'], keep='first'
     )
     season_df.to_csv(save_path, index=False)
     logging.info(f"Updated betting statistics saved to {save_path}")

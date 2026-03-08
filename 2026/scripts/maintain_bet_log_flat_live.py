@@ -30,6 +30,16 @@ LEDGER_COLUMNS = [
     "won",
     "pnl",
     "prob_used",
+    "prob_base",
+    "prob_live_oos_proxy",
+    "prob_live_safe_pre_clip",
+    "implied_prob_1",
+    "model_market_gap",
+    "model_market_gap_flag",
+    "live_underdog_upscale_guard_triggered",
+    "live_shrink_triggered",
+    "live_oos_proxy_ready",
+    "live_oos_proxy_train_rows",
     "ev_per_100",
     "created_at_utc",
     "settled_at_utc",
@@ -71,7 +81,7 @@ def _resolve_combined_columns(df: pd.DataFrame) -> CombinedColumns:
     away_col = _resolve_first(df.columns, ["away_team", "away"])
     prob_col = _resolve_first(
         df.columns,
-        ["prob_iso", "iso_proba_home_win", "pred_home_win_proba", "home_team_prob"],
+        ["prob_used", "prob_base", "prob_live_safe", "prob_live_safe_pre_clip", "prob_live_oos_proxy", "prob_iso_oos_time", "prob_iso", "iso_proba_home_win", "pred_home_win_proba", "home_team_prob"],
     )
     odds_col = _resolve_first(df.columns, ["odds_1", "closing_home_odds"])
     home_win_rate_col = _resolve_first(df.columns, ["home_win_rate", "home_winrate"])
@@ -190,7 +200,7 @@ def _prepare_combined(df: pd.DataFrame) -> pd.DataFrame:
     combined["date"] = _normalize_date(combined[columns.date])
     combined["home_team"] = _normalize_team(combined[columns.home])
     combined["away_team"] = _normalize_team(combined[columns.away])
-    combined["prob_iso"] = pd.to_numeric(combined[columns.prob], errors="coerce")
+    combined["prob_iso"] = pd.to_numeric(combined.get("prob_iso", combined[columns.prob]), errors="coerce")
     combined["odds_1"] = pd.to_numeric(combined[columns.odds], errors="coerce")
 
     if columns.home_win_rate:
@@ -200,11 +210,19 @@ def _prepare_combined(df: pd.DataFrame) -> pd.DataFrame:
     else:
         combined["home_win_rate"] = np.nan
 
-    combined["prob_used"] = combined["prob_iso"].clip(PROB_CLIP_LO, PROB_CLIP_HI)
+    combined["prob_used"] = pd.to_numeric(combined.get("prob_used", combined["prob_iso"]), errors="coerce").clip(PROB_CLIP_LO, PROB_CLIP_HI)
     combined["ev_per_100"] = (
         combined["prob_used"] * (combined["odds_1"] - 1)
         - (1 - combined["prob_used"])
     ) * 100
+
+    for debug_col in [
+        "prob_base", "prob_live_oos_proxy", "prob_live_safe_pre_clip", "implied_prob_1",
+        "model_market_gap", "model_market_gap_flag", "live_underdog_upscale_guard_triggered",
+        "live_shrink_triggered", "live_oos_proxy_ready", "live_oos_proxy_train_rows",
+    ]:
+        if debug_col not in combined.columns:
+            combined[debug_col] = np.nan
 
     combined["win"] = _derive_home_won(combined)
 
@@ -358,6 +376,16 @@ def _append_new_bets(ledger: pd.DataFrame, combined: pd.DataFrame) -> pd.DataFra
             "won",
             "pnl",
             "prob_used",
+            "prob_base",
+            "prob_live_oos_proxy",
+            "prob_live_safe_pre_clip",
+            "implied_prob_1",
+            "model_market_gap",
+            "model_market_gap_flag",
+            "live_underdog_upscale_guard_triggered",
+            "live_shrink_triggered",
+            "live_oos_proxy_ready",
+            "live_oos_proxy_train_rows",
             "ev_per_100",
             "created_at_utc",
             "settled_at_utc",
