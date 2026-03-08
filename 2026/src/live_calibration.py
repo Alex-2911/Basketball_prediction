@@ -26,39 +26,20 @@ def compute_time_oos_isotonic(
 ) -> pd.Series:
     out = pd.Series(np.nan, index=df_played.index, dtype=float)
     valid = df_played[prob_col].notna() & df_played[target_col].notna() & df_played[date_col].notna()
-    work = df_played.loc[valid, [prob_col, target_col, date_col]].copy()
-    if work.empty:
-        return out
-
-    work[date_col] = pd.to_datetime(work[date_col], errors="coerce").dt.normalize()
-    work = work.dropna(subset=[date_col]).sort_values([date_col, prob_col])
+    work = df_played.loc[valid, [prob_col, target_col, date_col]].sort_values(date_col)
     if len(work) < min_train:
         return out
 
-    date_to_indices = (
-        work.reset_index()
-        .groupby(date_col)["index"]
-        .apply(list)
-        .to_dict()
-    )
-    unique_dates = sorted(date_to_indices.keys())
-
-    pending_dates: list[pd.Timestamp] = []
-    pending_idx: list[int] = []
-
-    def _fit_predict(val_dates: list[pd.Timestamp], val_idx: list[int]) -> None:
+    indices = work.index.to_list()
+    for start in range(min_train, len(indices), min_step):
+        train_idx = indices[:start]
+        val_idx = indices[start : start + min_step]
         if not val_idx:
-            return
-        first_val_date = min(val_dates)
-        train_dates = [d for d in unique_dates if d < first_val_date]
-        if not train_dates:
-            return
-        train_idx = [idx for d in train_dates for idx in date_to_indices[d]]
-        if len(train_idx) < min_train:
-            return
+            break
+
         train_y = df_played.loc[train_idx, target_col].astype(int)
         if train_y.nunique() < 2:
-            return
+            continue
 
         iso = IsotonicRegression(out_of_bounds="clip")
         iso.fit(
@@ -67,17 +48,6 @@ def compute_time_oos_isotonic(
         )
         out.loc[val_idx] = iso.transform(df_played.loc[val_idx, prob_col].astype(float))
 
-    for dt in unique_dates:
-        day_idx = date_to_indices[dt]
-        pending_dates.append(dt)
-        pending_idx.extend(day_idx)
-
-        if len(pending_idx) >= min_step:
-            _fit_predict(pending_dates, pending_idx)
-            pending_dates = []
-            pending_idx = []
-
-    _fit_predict(pending_dates, pending_idx)
     return out
 
 

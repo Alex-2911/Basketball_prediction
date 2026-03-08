@@ -895,11 +895,10 @@ def write_strategy_params(params_used: dict, *, min_ev: float, as_of_date: str, 
 
 
 
-def build_bet_shortlist(df_all: pd.DataFrame, params: dict, min_ev: float, *, today_date, tomorrow_date) -> pd.DataFrame:
+def build_bet_shortlist(df_all: pd.DataFrame, params: dict, min_ev: float) -> pd.DataFrame:
     out = df_all.copy()
     played = out[RESULT_RAW_COL].notna() & (out[RESULT_RAW_COL].astype(str) != "0")
     out = out[~played].copy()
-    out = out[pd.to_datetime(out[DATE_COL], errors="coerce").dt.date.isin([today_date, tomorrow_date])].copy()
     out = _compute_ev_per_100(out, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100")
 
     mask = (
@@ -1086,7 +1085,7 @@ def main() -> None:
 
     matched_export_latest = prepare_local_matched_export(subset_local, stake=FLAT_STAKE) if subset_local is not None else pd.DataFrame()
 
-    shortlist = build_bet_shortlist(df_all, local_params, min_EV, today_date=today_date, tomorrow_date=tomorrow_date)
+    shortlist = build_bet_shortlist(df_all, local_params, min_EV)
     shortlist_path = kelly_dir / f"bet_shortlist_{target_ymd}.csv"
     shortlist.to_csv(shortlist_path, index=False, encoding="utf-8")
     logging.info("Saved bet shortlist -> %s (%d rows)", shortlist_path, len(shortlist))

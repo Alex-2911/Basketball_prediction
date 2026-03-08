@@ -38,6 +38,17 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Maximum days to look back for files
 MAX_DAYS_BACK = 120  # Configurable range for searching files
 
+
+LIVE_PROB_COLUMNS = [
+    "prob_iso_insample",
+    "prob_iso_oos_time",
+    "prob_live_oos_proxy",
+    "prob_live_safe_pre_clip",
+    "prob_base",
+    "prob_live_safe",
+    "prob_used",
+]
+
 # Get current date information
 today, today_str, today_str_format = get_current_date()
 yesterday, yesterday_str, yesterday_str_format = get_current_date(days_offset=1)
@@ -127,6 +138,9 @@ def process_prediction_file(predict_file, last_prediction, prediction_dir):
     # Append and sort by date descending
     predict_df['accuracy'] = np.nan  # add placeholder column
     combined_df = pd.concat([combined_df, predict_df], ignore_index=True)
+    for col in LIVE_PROB_COLUMNS:
+        if col not in combined_df.columns:
+            combined_df[col] = np.nan
     combined_df = combined_df.sort_values(by='date', ascending=False)
     # Display top rows for user
     logging.info("Combined predictions (latest 10 rows):\n%s", combined_df.head(10).to_string(index=False))
@@ -206,17 +220,9 @@ def update_betting_statistics(combined_df, most_recent_date, prediction_dir):
         subset=["date", "home_team", "away_team", "home_team_prob"],
         inplace=True,
     )
-    season_df['_append_order'] = np.arange(len(season_df), dtype=int)
-    # Keep freshest snapshot per game key: prefer resolved result, then latest append order.
-    season_df['_result_resolved'] = (
-        (season_df['result'] == season_df['home_team'])
-        | (season_df['result'] == season_df['away_team'])
-    ).astype(int)
-    season_df = season_df.sort_values(
-        ['date', '_result_resolved', '_append_order'],
-        ascending=[False, False, False],
-    ).drop_duplicates(subset=['date', 'home_team', 'away_team'], keep='first')
-    season_df.drop(columns=['_result_resolved', '_append_order'], inplace=True, errors='ignore')
+    season_df = season_df.sort_values('date', ascending=False).drop_duplicates(
+        subset=['date', 'home_team', 'away_team'], keep='first'
+    )
     season_df.to_csv(save_path, index=False)
     logging.info(f"Updated betting statistics saved to {save_path}")
     return season_df

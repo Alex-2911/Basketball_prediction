@@ -234,16 +234,14 @@ def _prepare_combined(df: pd.DataFrame) -> pd.DataFrame:
     combined["away_team"] = _normalize_team(combined[columns.away])
     combined["odds_1"] = pd.to_numeric(combined[columns.odds], errors="coerce")
 
-    # Resolve probability chain once (avoids any merge-duplication ambiguity)
-    prob_selected = pd.to_numeric(combined[columns.prob], errors="coerce")
-    combined["prob_selected"] = prob_selected
+    combined["prob_selected"] = pd.to_numeric(combined[columns.prob], errors="coerce")
     combined["prob_iso"] = pd.to_numeric(
         combined.get("prob_iso_insample", combined.get("prob_iso", combined.get("iso_proba_home_win", np.nan))),
         errors="coerce",
     )
     combined["prob_iso_oos_time"] = pd.to_numeric(combined.get("prob_iso_oos_time", np.nan), errors="coerce")
     combined["prob_live_oos_proxy"] = pd.to_numeric(combined.get("prob_live_oos_proxy", np.nan), errors="coerce")
-    combined["prob_live_safe"] = pd.to_numeric(combined.get("prob_live_safe", prob_selected), errors="coerce")
+    combined["prob_live_safe"] = pd.to_numeric(combined.get("prob_live_safe", combined["prob_selected"]), errors="coerce")
 
     if columns.home_win_rate:
         combined["home_win_rate"] = pd.to_numeric(
