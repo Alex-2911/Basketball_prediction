@@ -558,7 +558,7 @@ def build_live_probability_columns(df_all: pd.DataFrame, today_date, tomorrow_da
     return df, meta
 
 
-def run_self_test(df_all: pd.DataFrame) -> None:
+def run_self_test(df_all: pd.DataFrame, live_meta: dict | None = None) -> None:
     required_cols = [
         "home_team_prob", "prob_iso", PROB_ISO_OOS_TIME_COL, PROB_LIVE_OOS_PROXY_COL,
         "prob_live_safe_pre_clip", "prob_base", "prob_used", "implied_prob_1",
@@ -576,6 +576,12 @@ def run_self_test(df_all: pd.DataFrame) -> None:
         ratio = recent[PROB_ISO_OOS_TIME_COL].notna().mean()
         if ratio < 0.5:
             raise AssertionError(f"prob_iso_oos_time too sparse on recent played rows: {ratio:.3f}")
+
+    if live_meta is not None:
+        train_rows = int(live_meta.get("live_oos_proxy_train_rows", 0))
+        ready = bool(live_meta.get("live_oos_proxy_ready", False))
+        if train_rows >= MIN_TRAIN_OOS_PROXY and not ready:
+            raise AssertionError("Expected live_oos_proxy_ready=True when train_rows is sufficient")
 
     suspicious = df_all[(pd.to_numeric(df_all.get("odds_1"), errors="coerce") >= 2.30) & (pd.to_numeric(df_all.get("prob_live_base"), errors="coerce") >= 0.60)]
     if not suspicious.empty:
@@ -1139,6 +1145,10 @@ def main() -> None:
             "bankroll_last_200_eur": round(float(bankroll_last_200), 2),
             "flat_stake_eur": round(float(FLAT_STAKE), 2),
         },
+        "live_oos_proxy": {
+            "ready": bool(live_meta.get("live_oos_proxy_ready", False)),
+            "train_rows": int(live_meta.get("live_oos_proxy_train_rows", 0)),
+        },
     }
 
     write_json(out_dir / "metrics_snapshot.json", snapshot)
@@ -1155,7 +1165,7 @@ def main() -> None:
         "prob_col_live": PROB_COL_LIVE,
     })
 
-    run_self_test(df_all)
+    run_self_test(df_all, live_meta=live_meta)
     logging.info("DONE. local_matched_games_latest.csv updated using LOCAL params on last-200 window ending %s.", as_of_date)
 
     p = find_repo_root() / "web" / "public" / "data" / "local_matched_games_latest.csv"
