@@ -1,12 +1,12 @@
 {
-  "as_of_date": "2026-03-09",
+  "as_of_date": "2026-03-10",
   "min_ev": -5,
   "stake": 100,
   "home_win_rate_threshold": 0.55,
-  "n_trades": 10,
+  "n_trades": 11,
   "odds_max": 3,
   "odds_min": 2,
   "prob_threshold": 0.6,
-  "profit_€": 784,
-  "roi_%": 78.4
+  "profit_€": 904,
+  "roi_%": 82.18
 }

@@ -1,0 +1,2 @@
+game_date,home_team,away_team,home_team_prob,prob_iso,prob_iso_oos_time,prob_live_oos_proxy,prob_live_safe_pre_clip,prob_base,prob_used,odds_1,implied_prob_1,model_market_gap,model_market_gap_flag,live_underdog_upscale_guard_triggered,live_shrink_triggered,live_oos_proxy_ready,live_oos_proxy_train_rows,home_win_rate,EV_€_per_100
+2026-03-11,NOP,TOR,0.683777868831315,0.6770833333333334,,0.6555555555555556,0.6322222222222222,0.6322222222222222,0.6322222222222222,2.1,0.47619047619047616,0.1793650793650794,False,False,False,True,892,0.62,32.76666666666668
