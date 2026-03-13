@@ -1,10 +1,10 @@
-as_of_date=2026-03-11
+as_of_date=2026-03-12
 min_ev=-5.0
 stake=100.0
 home_win_rate_threshold=0.6
-n_trades=29
+n_trades=30
 odds_max=3.0
 odds_min=1.4
 prob_threshold=0.6
-profit_€=1074.0
-roi_%=37.03
+profit_€=1214.0
+roi_%=40.47

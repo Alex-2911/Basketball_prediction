@@ -1,12 +1,12 @@
 {
-  "as_of_date": "2026-03-11",
+  "as_of_date": "2026-03-12",
   "strategy_variant": "iso",
   "strategy_variant_label": "ISO/KELLY",
   "params_source": "/home/runner/work/Basketball_prediction/Basketball_prediction/web/public/data/strategy_params.json",
-  "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-03-12.csv",
+  "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-03-13.csv",
   "local_matched_games_latest_written": true,
   "local_window_games": 200,
-  "local_matched_games": 29,
+  "local_matched_games": 30,
   "prob_col_hist": "prob_iso_oos_time",
   "prob_col_live": "prob_live_safe"
 }
