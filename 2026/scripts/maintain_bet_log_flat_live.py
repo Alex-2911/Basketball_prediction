@@ -17,8 +17,6 @@ ODDS_MIN = 2.10
 ODDS_MAX = 3.10
 HOME_WIN_RATE_MIN = 0.55
 PROB_MIN = 0.40
-UNDERDOG_ODDS_THRESHOLD = 2.30
-MODEL_MARKET_GAP_PROB_THRESHOLD = 0.60
 HARD_VETO_MODEL_MARKET_GAP = True
 
 
@@ -36,13 +34,17 @@ LEDGER_COLUMNS = [
     "prob_base",
     "prob_live_oos_proxy",
     "prob_live_safe_pre_clip",
-    "implied_prob_1",
+    "market_implied_p_raw",
+    "market_implied_p_devig",
     "model_market_gap",
     "model_market_gap_flag",
     "live_underdog_upscale_guard_triggered",
     "live_shrink_triggered",
     "live_oos_proxy_ready",
     "live_oos_proxy_train_rows",
+    "live_oos_proxy_bin_n",
+    "live_oos_proxy_bin_winrate",
+    "blocked_by",
     "ev_per_100",
     "created_at_utc",
     "settled_at_utc",
@@ -263,19 +265,21 @@ def _prepare_combined(df: pd.DataFrame) -> pd.DataFrame:
         errors="coerce",
     ).clip(PROB_CLIP_LO, PROB_CLIP_HI)
 
-    combined["implied_prob_1"] = pd.to_numeric(
-        combined.get("implied_prob_1", np.where(combined["odds_1"] > 0, 1.0 / combined["odds_1"], np.nan)),
+    combined["market_implied_p_raw"] = pd.to_numeric(
+        combined.get("market_implied_p_raw", np.where(combined["odds_1"] > 0, 1.0 / combined["odds_1"], np.nan)),
         errors="coerce",
     )
+    combined["market_implied_p_devig"] = pd.to_numeric(
+        combined.get("market_implied_p_devig", np.nan),
+        errors="coerce",
+    )
+    p_market = combined["market_implied_p_devig"].combine_first(combined["market_implied_p_raw"])
     combined["model_market_gap"] = pd.to_numeric(
-        combined.get("model_market_gap", combined["prob_base"] - combined["implied_prob_1"]),
+        combined.get("model_market_gap", combined["prob_base"] - p_market),
         errors="coerce",
     )
 
-    gap_fallback = (
-        (combined["odds_1"] >= UNDERDOG_ODDS_THRESHOLD)
-        & (combined["prob_used"] >= MODEL_MARKET_GAP_PROB_THRESHOLD)
-    )
+    gap_fallback = combined["blocked_by"].astype(str).eq("MODEL_MARKET_GAP") if "blocked_by" in combined.columns else pd.Series(False, index=combined.index)
     existing_gap_flag = combined.get("model_market_gap_flag")
     if existing_gap_flag is None:
         combined["model_market_gap_flag"] = gap_fallback.fillna(False).astype(bool)
@@ -293,9 +297,11 @@ def _prepare_combined(df: pd.DataFrame) -> pd.DataFrame:
     ) * 100
 
     for debug_col in [
-        "prob_base", "prob_live_oos_proxy", "prob_live_safe_pre_clip", "implied_prob_1",
+        "prob_base", "prob_live_oos_proxy", "prob_live_safe_pre_clip", "market_implied_p_raw",
+        "market_implied_p_devig",
         "model_market_gap", "model_market_gap_flag", "live_underdog_upscale_guard_triggered",
         "live_shrink_triggered", "live_oos_proxy_ready", "live_oos_proxy_train_rows",
+        "live_oos_proxy_bin_n", "live_oos_proxy_bin_winrate", "blocked_by",
     ]:
         if debug_col not in combined.columns:
             combined[debug_col] = np.nan
@@ -424,10 +430,11 @@ def _append_new_bets(ledger: pd.DataFrame, combined: pd.DataFrame) -> pd.DataFra
         & (upcoming["ev_per_100"] > MIN_EV)
     ].copy()
 
-    if HARD_VETO_MODEL_MARKET_GAP and "model_market_gap_flag" in qualifiers.columns:
-        gap_flag_raw = _to_bool_series(qualifiers["model_market_gap_flag"])
-        gap_flag = np.where(gap_flag_raw.notna(), gap_flag_raw.astype(bool), False)
-        qualifiers = qualifiers[~pd.Series(gap_flag, index=qualifiers.index)].copy()
+    if "blocked_by" not in qualifiers.columns:
+        qualifiers["blocked_by"] = "PASS"
+
+    if HARD_VETO_MODEL_MARKET_GAP:
+        qualifiers = qualifiers[qualifiers["blocked_by"].astype(str) == "PASS"].copy()
 
     new_rows = qualifiers[~qualifiers["game_key"].isin(existing_keys)].copy()
     if new_rows.empty:
@@ -460,13 +467,17 @@ def _append_new_bets(ledger: pd.DataFrame, combined: pd.DataFrame) -> pd.DataFra
             "prob_base",
             "prob_live_oos_proxy",
             "prob_live_safe_pre_clip",
-            "implied_prob_1",
+            "market_implied_p_raw",
+            "market_implied_p_devig",
             "model_market_gap",
             "model_market_gap_flag",
             "live_underdog_upscale_guard_triggered",
             "live_shrink_triggered",
             "live_oos_proxy_ready",
             "live_oos_proxy_train_rows",
+            "live_oos_proxy_bin_n",
+            "live_oos_proxy_bin_winrate",
+            "blocked_by",
             "ev_per_100",
             "created_at_utc",
             "settled_at_utc",

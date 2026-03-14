@@ -3,50 +3,73 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from odds_utils import compute_market_probs
 
-UNDERDOG_ODDS = 2.30
-HIGH_PROB_FOR_UNDERDOG = 0.60
-GAP_ABS_THRESHOLD = 0.20
-GAP_CAP = 0.15
+
+UNDERDOG_ODDS_GUARD_MIN = 2.00
+UNDERDOG_PROB_GUARD_MIN = 0.60
+GAP_GUARD_MIN = 0.12
+UNDERDOG_CAP = 0.55
+TAU_GAP = 0.08
+USE_BLEND_ALWAYS = True
+BLEND_PROB_START = 0.60
 BASE_SHRINK = 0.85
-STRONGER_SHRINK = 0.75
+FLAGGED_SHRINK = 0.70
 P_MIN = 0.35
 P_MAX = 0.80
+STRICT_BLOCK_POLICY = True
 
 
 def apply_live_safety(df: pd.DataFrame, *, live_oos_proxy_ready: bool) -> pd.DataFrame:
     out = df.copy()
 
-    odds = pd.to_numeric(out.get("odds_1"), errors="coerce")
-    implied = np.where(odds > 0, 1.0 / odds, np.nan)
-    out["implied_prob_1"] = implied
+    raw_prob = pd.to_numeric(out.get("home_team_prob"), errors="coerce")
+    proxy_prob = pd.to_numeric(out.get("prob_live_oos_proxy"), errors="coerce")
+    out["live_oos_proxy_used"] = bool(live_oos_proxy_ready) & proxy_prob.notna()
 
-    base = pd.to_numeric(out.get("home_team_prob"), errors="coerce")
-    if "prob_live_oos_proxy" in out.columns and live_oos_proxy_ready:
-        base = pd.to_numeric(out["prob_live_oos_proxy"], errors="coerce").combine_first(base)
-    if "prob_iso_oos_time" in out.columns:
-        base = pd.to_numeric(out["prob_iso_oos_time"], errors="coerce").combine_first(base)
+    prob_live_base = raw_prob.copy()
+    if live_oos_proxy_ready:
+        prob_live_base = proxy_prob.combine_first(prob_live_base)
 
-    out["prob_live_base"] = base
+    out["prob_live_safe_pre_clip"] = prob_live_base
 
-    gap = base - out["implied_prob_1"]
-    out["model_market_gap"] = gap
+    odds_1 = pd.to_numeric(out.get("odds_1"), errors="coerce")
+    odds_2 = pd.to_numeric(out.get("odds_2"), errors="coerce")
+    market_raw, market_devig = compute_market_probs(odds_1, odds_2)
+    out["market_implied_p_raw"] = market_raw
+    out["market_implied_p_devig"] = market_devig
 
-    underdog_trigger = (odds >= UNDERDOG_ODDS) & (base >= HIGH_PROB_FOR_UNDERDOG)
-    gap_trigger = gap.abs() >= GAP_ABS_THRESHOLD
-    flag = (underdog_trigger | gap_trigger).fillna(False)
-    out["model_market_gap_flag"] = flag
-    out["live_underdog_upscale_guard_triggered"] = underdog_trigger.fillna(False)
+    p_market = market_devig.combine_first(market_raw)
+    out["model_market_gap"] = out["prob_live_safe_pre_clip"] - p_market
 
-    cap_target = out["implied_prob_1"] + GAP_CAP
-    guarded_base = np.where(flag, np.minimum(base, cap_target), base)
-    out["prob_live_base"] = guarded_base
+    gap_flag = (
+        odds_1.ge(float(UNDERDOG_ODDS_GUARD_MIN))
+        & out["prob_live_safe_pre_clip"].ge(float(UNDERDOG_PROB_GUARD_MIN))
+        & out["model_market_gap"].ge(float(GAP_GUARD_MIN))
+    )
+    gap_flag = gap_flag.fillna(False)
+    out["model_market_gap_flag"] = gap_flag
+    out["live_underdog_upscale_guard_triggered"] = gap_flag
 
-    shrink = np.where(flag, STRONGER_SHRINK, BASE_SHRINK)
-    out["live_shrink_triggered"] = flag
+    prob_guarded = pd.to_numeric(out["prob_live_safe_pre_clip"], errors="coerce").copy()
+    prob_guarded = prob_guarded.where(~gap_flag, np.minimum(prob_guarded, float(UNDERDOG_CAP)))
 
-    out["prob_live_safe_pre_clip"] = 0.5 + shrink * (pd.to_numeric(out["prob_live_base"], errors="coerce") - 0.5)
-    out["prob_base"] = out["prob_live_safe_pre_clip"]
-    out["prob_used"] = out["prob_base"].clip(lower=P_MIN, upper=P_MAX)
+    blend_weight = np.exp(-np.abs(pd.to_numeric(out["model_market_gap"], errors="coerce")) / float(TAU_GAP))
+    prob_blended = prob_guarded.copy()
+    if USE_BLEND_ALWAYS:
+        valid_market = p_market.notna() & prob_guarded.notna()
+        prob_blended.loc[valid_market] = (
+            blend_weight.loc[valid_market] * prob_guarded.loc[valid_market]
+            + (1.0 - blend_weight.loc[valid_market]) * p_market.loc[valid_market]
+        )
+
+    alpha = np.where(pd.to_numeric(prob_blended, errors="coerce") > float(BLEND_PROB_START), float(BASE_SHRINK), 1.0)
+    alpha = np.where(gap_flag, np.minimum(alpha, float(FLAGGED_SHRINK)), alpha)
+    prob_used_raw = 0.5 + alpha * (pd.to_numeric(prob_blended, errors="coerce") - 0.5)
+
+    out["prob_base"] = pd.to_numeric(prob_guarded, errors="coerce").clip(lower=float(P_MIN), upper=float(P_MAX))
+    out["prob_used"] = pd.to_numeric(prob_used_raw, errors="coerce").clip(lower=float(P_MIN), upper=float(P_MAX))
+    out["live_shrink_triggered"] = (out["prob_used"] + 1e-12) < out["prob_base"]
+    out["blocked_by"] = np.where(gap_flag & STRICT_BLOCK_POLICY, "MODEL_MARKET_GAP", "PASS")
 
     return out

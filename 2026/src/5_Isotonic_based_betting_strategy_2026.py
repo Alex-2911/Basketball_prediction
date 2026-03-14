@@ -55,7 +55,9 @@ PROB_COL_HIST = PROB_ISO_OOS_TIME_COL
 PROB_COL_LIVE = PROB_LIVE_SAFE_COL
 MIN_TRAIN_OOS_TIME = 50
 MIN_STEP_OOS_TIME = 10
-MIN_TRAIN_OOS_PROXY = 200
+MIN_TRAIN_OOS_PROXY = 300
+MIN_BIN_OOS_PROXY = 25
+N_BINS_OOS_PROXY = 25
 
 # Grid search
 FLAT_STAKE = 100.0
@@ -535,25 +537,39 @@ def build_live_probability_columns(df_all: pd.DataFrame, today_date, tomorrow_da
         target_col=RESULT_COL,
         oos_col=PROB_ISO_OOS_TIME_COL,
         min_train_oos=MIN_TRAIN_OOS_PROXY,
+        date_col=DATE_COL,
+        home_col="home_team",
+        away_col="away_team",
+        n_bins=N_BINS_OOS_PROXY,
+        min_bin_n=MIN_BIN_OOS_PROXY,
     )
     df[PROB_LIVE_OOS_PROXY_COL] = proxy_result.proxy
     df["live_oos_proxy_ready"] = bool(proxy_result.ready)
     df["live_oos_proxy_train_rows"] = int(proxy_result.train_rows)
+    df["live_oos_proxy_train_win_rate"] = float(proxy_result.win_rate)
+    df["live_oos_proxy_bin_n"] = proxy_result.bin_n.astype(int)
+    df["live_oos_proxy_bin_winrate"] = proxy_result.bin_win_rate.astype(float)
+    df["live_oos_proxy_source_col_used"] = proxy_result.source_col_used
+    df["live_oos_proxy_recent_window_used"] = proxy_result.recent_window_used
+    df["live_oos_proxy_used"] = bool(proxy_result.ready) & df[PROB_LIVE_OOS_PROXY_COL].notna()
 
     logging.info(
-        "[LIVE OOS PROXY] ready=%s train_rows=%d win_rate=%.4f",
+        "[LIVE OOS PROXY] ready=%s train_rows=%d win_rate=%.4f source=%s",
         proxy_result.ready,
         proxy_result.train_rows,
         proxy_result.win_rate if np.isfinite(proxy_result.win_rate) else float("nan"),
+        proxy_result.source_col_used or "none",
     )
 
     safety_ready = bool(proxy_result.ready)
     df = apply_live_safety(df, live_oos_proxy_ready=safety_ready)
-    df[PROB_LIVE_SAFE_COL] = df["prob_base"]
+    df[PROB_LIVE_SAFE_COL] = df["prob_used"]
 
     meta = {
         "live_oos_proxy_ready": bool(proxy_result.ready),
         "live_oos_proxy_train_rows": int(proxy_result.train_rows),
+        "live_oos_proxy_train_win_rate": float(proxy_result.win_rate),
+        "live_oos_proxy_source_col_used": proxy_result.source_col_used,
     }
     return df, meta
 
@@ -561,9 +577,11 @@ def build_live_probability_columns(df_all: pd.DataFrame, today_date, tomorrow_da
 def run_self_test(df_all: pd.DataFrame, live_meta: dict | None = None) -> None:
     required_cols = [
         "home_team_prob", "prob_iso", PROB_ISO_OOS_TIME_COL, PROB_LIVE_OOS_PROXY_COL,
-        "prob_live_safe_pre_clip", "prob_base", "prob_used", "implied_prob_1",
+        "prob_live_safe_pre_clip", "prob_base", "prob_used", "market_implied_p_raw",
+        "market_implied_p_devig", "blocked_by",
         "model_market_gap", "model_market_gap_flag", "live_underdog_upscale_guard_triggered",
         "live_shrink_triggered", "live_oos_proxy_ready", "live_oos_proxy_train_rows",
+        "live_oos_proxy_bin_n", "live_oos_proxy_bin_winrate",
     ]
     missing = [c for c in required_cols if c not in df_all.columns]
     if missing:
@@ -583,13 +601,19 @@ def run_self_test(df_all: pd.DataFrame, live_meta: dict | None = None) -> None:
         if train_rows >= MIN_TRAIN_OOS_PROXY and not ready:
             raise AssertionError("Expected live_oos_proxy_ready=True when train_rows is sufficient")
 
-    suspicious = df_all[(pd.to_numeric(df_all.get("odds_1"), errors="coerce") >= 2.30) & (pd.to_numeric(df_all.get("prob_live_base"), errors="coerce") >= 0.60)]
+    suspicious = df_all[
+        (pd.to_numeric(df_all.get("odds_1"), errors="coerce") >= 2.00)
+        & (pd.to_numeric(df_all.get("prob_live_safe_pre_clip"), errors="coerce") >= 0.60)
+    ]
     if not suspicious.empty:
         if not suspicious["model_market_gap_flag"].fillna(False).any():
             raise AssertionError("Expected underdog/high-prob rows to trigger model_market_gap_flag")
-        reduced = suspicious["prob_used"] < suspicious["prob_live_base"]
+        reduced = suspicious["prob_used"] < suspicious["prob_live_safe_pre_clip"]
         if not reduced.any():
             raise AssertionError("Expected underdog/high-prob rows to reduce prob_used")
+        blocked = suspicious.loc[suspicious["model_market_gap_flag"].fillna(False), "blocked_by"].astype(str)
+        if not blocked.eq("MODEL_MARKET_GAP").any():
+            raise AssertionError("Expected flagged underdog/high-prob rows to be blocked by market-gap policy")
 
 def evaluate_params_on_hist_window(
     hist_window: pd.DataFrame,
@@ -900,21 +924,26 @@ def build_bet_shortlist(df_all: pd.DataFrame, params: dict, min_ev: float) -> pd
     played = out[RESULT_RAW_COL].notna() & (out[RESULT_RAW_COL].astype(str) != "0")
     out = out[~played].copy()
     out = _compute_ev_per_100(out, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100")
+    if "blocked_by" not in out.columns:
+        out["blocked_by"] = "PASS"
 
     mask = (
         (out[HOMEWR_COL] >= float(params["home_win_rate_threshold"])) &
         (out[HOME_ODDS_COL] >= float(params["odds_min"])) &
         (out[HOME_ODDS_COL] <= float(params["odds_max"])) &
         (out["prob_used"] >= float(params["prob_threshold"])) &
-        (out["EV_€_per_100"] > float(min_ev))
+        (out["EV_€_per_100"] > float(min_ev)) &
+        (out["blocked_by"].astype(str) == "PASS")
     )
     shortlist = out.loc[mask].copy()
     cols = [
         DATE_COL, "home_team", "away_team", "home_team_prob", "prob_iso", PROB_ISO_OOS_TIME_COL,
         PROB_LIVE_OOS_PROXY_COL, "prob_live_safe_pre_clip", "prob_base", "prob_used",
-        "odds_1", "implied_prob_1", "model_market_gap", "model_market_gap_flag",
+        "odds_1", "odds_2", "market_implied_p_raw", "market_implied_p_devig",
+        "model_market_gap", "model_market_gap_flag", "blocked_by",
         "live_underdog_upscale_guard_triggered", "live_shrink_triggered",
-        "live_oos_proxy_ready", "live_oos_proxy_train_rows", HOMEWR_COL, "EV_€_per_100",
+        "live_oos_proxy_ready", "live_oos_proxy_used", "live_oos_proxy_train_rows",
+        "live_oos_proxy_bin_n", "live_oos_proxy_bin_winrate", HOMEWR_COL, "EV_€_per_100",
     ]
     for c in cols:
         if c not in shortlist.columns:
