@@ -17,8 +17,12 @@ ODDS_MIN = 2.10
 ODDS_MAX = 3.10
 HOME_WIN_RATE_MIN = 0.55
 PROB_MIN = 0.40
-UNDERDOG_ODDS_THRESHOLD = 2.30
-MODEL_MARKET_GAP_PROB_THRESHOLD = 0.60
+UNDERDOG_ODDS_GUARD_MIN = 2.00
+UNDERDOG_PROB_GUARD_MIN = 0.60
+GAP_GUARD_MIN = 0.12
+UNDERDOG_CAP = 0.55
+TAU_GAP = 0.08
+USE_BLEND_ALWAYS = True
 HARD_VETO_MODEL_MARKET_GAP = True
 
 
@@ -36,13 +40,17 @@ LEDGER_COLUMNS = [
     "prob_base",
     "prob_live_oos_proxy",
     "prob_live_safe_pre_clip",
-    "implied_prob_1",
+    "market_implied_p_raw",
+    "market_implied_p_devig",
     "model_market_gap",
     "model_market_gap_flag",
     "live_underdog_upscale_guard_triggered",
     "live_shrink_triggered",
     "live_oos_proxy_ready",
     "live_oos_proxy_train_rows",
+    "live_oos_proxy_bin_n",
+    "live_oos_proxy_bin_winrate",
+    "blocked_by",
     "ev_per_100",
     "created_at_utc",
     "settled_at_utc",
@@ -232,74 +240,69 @@ def _prepare_combined(df: pd.DataFrame) -> pd.DataFrame:
     combined["date"] = _normalize_date(combined[columns.date])
     combined["home_team"] = _normalize_team(combined[columns.home])
     combined["away_team"] = _normalize_team(combined[columns.away])
-    combined["odds_1"] = pd.to_numeric(combined[columns.odds], errors="coerce")
+    combined["odds_1"] = pd.to_numeric(combined.get("odds_1", combined[columns.odds]), errors="coerce")
+    combined["odds_2"] = pd.to_numeric(combined.get("odds_2", np.nan), errors="coerce")
 
-    combined["prob_selected"] = pd.to_numeric(combined[columns.prob], errors="coerce")
-    combined["prob_iso"] = pd.to_numeric(
-        combined.get("prob_iso_insample", combined.get("prob_iso", combined.get("iso_proba_home_win", np.nan))),
-        errors="coerce",
-    )
+    combined["home_team_prob"] = pd.to_numeric(combined.get("home_team_prob", combined[columns.prob]), errors="coerce")
+    combined["prob_iso"] = pd.to_numeric(combined.get("prob_iso", combined.get("prob_iso_insample", np.nan)), errors="coerce")
     combined["prob_iso_oos_time"] = pd.to_numeric(combined.get("prob_iso_oos_time", np.nan), errors="coerce")
     combined["prob_live_oos_proxy"] = pd.to_numeric(combined.get("prob_live_oos_proxy", np.nan), errors="coerce")
-    combined["prob_live_safe"] = pd.to_numeric(combined.get("prob_live_safe", combined["prob_selected"]), errors="coerce")
+
+    proxy_ready = combined.get("live_oos_proxy_ready", False)
+    proxy_ready = _to_bool_series(pd.Series(proxy_ready, index=combined.index)) if not isinstance(proxy_ready, pd.Series) else _to_bool_series(proxy_ready)
+    prob_live_base = combined["home_team_prob"].copy()
+    prob_live_base = np.where(proxy_ready.fillna(False), combined["prob_live_oos_proxy"].combine_first(combined["home_team_prob"]), combined["home_team_prob"])
+    combined["prob_base"] = pd.to_numeric(combined.get("prob_base", prob_live_base), errors="coerce")
+    combined["prob_live_safe_pre_clip"] = pd.to_numeric(combined.get("prob_live_safe_pre_clip", combined["prob_base"]), errors="coerce").clip(PROB_CLIP_LO, PROB_CLIP_HI)
+
+    combined["market_implied_p_raw"] = pd.to_numeric(
+        combined.get("market_implied_p_raw", np.where(combined["odds_1"] > 0, 1.0 / combined["odds_1"], np.nan)),
+        errors="coerce",
+    )
+    p2_raw = np.where(combined["odds_2"] > 0, 1.0 / combined["odds_2"], np.nan)
+    fallback_devig = combined["market_implied_p_raw"] / (combined["market_implied_p_raw"] + p2_raw)
+    combined["market_implied_p_devig"] = pd.to_numeric(combined.get("market_implied_p_devig", fallback_devig), errors="coerce")
+    p_market = combined["market_implied_p_devig"].where(combined["market_implied_p_devig"].notna(), combined["market_implied_p_raw"])
+
+    combined["model_market_gap"] = pd.to_numeric(combined.get("model_market_gap", combined["prob_live_safe_pre_clip"] - p_market), errors="coerce")
+
+    underdog_guard = (
+        (combined["odds_1"] >= UNDERDOG_ODDS_GUARD_MIN)
+        & (combined["prob_live_safe_pre_clip"] >= UNDERDOG_PROB_GUARD_MIN)
+        & (combined["model_market_gap"] >= GAP_GUARD_MIN)
+    ).fillna(False)
+    combined["live_underdog_upscale_guard_triggered"] = combined.get("live_underdog_upscale_guard_triggered", underdog_guard)
+
+    model_market_gap_flag = (combined["model_market_gap"] >= GAP_GUARD_MIN).fillna(False)
+    combined["model_market_gap_flag"] = _to_bool_series(combined.get("model_market_gap_flag", model_market_gap_flag)).fillna(model_market_gap_flag).astype(bool)
+
+    prob_guarded = np.where(underdog_guard, np.minimum(combined["prob_live_safe_pre_clip"], UNDERDOG_CAP), combined["prob_live_safe_pre_clip"])
+    blend_weight = np.exp(-np.abs(combined["model_market_gap"]) / TAU_GAP) if USE_BLEND_ALWAYS else np.ones(len(combined), dtype=float)
+    prob_blended = blend_weight * prob_guarded + (1.0 - blend_weight) * p_market
+
+    alpha = np.where(prob_blended > 0.60, 0.85, 1.0)
+    alpha = np.where(combined["model_market_gap_flag"], np.minimum(alpha, 0.70), alpha)
+    combined["live_shrink_triggered"] = combined.get("live_shrink_triggered", alpha < 1.0)
+
+    combined["prob_used"] = pd.to_numeric(combined.get("prob_used", 0.5 + alpha * (prob_blended - 0.5)), errors="coerce").clip(PROB_CLIP_LO, PROB_CLIP_HI)
 
     if columns.home_win_rate:
-        combined["home_win_rate"] = pd.to_numeric(
-            combined[columns.home_win_rate], errors="coerce"
-        )
+        combined["home_win_rate"] = pd.to_numeric(combined[columns.home_win_rate], errors="coerce")
     else:
         combined["home_win_rate"] = np.nan
 
-    combined["prob_live_safe_pre_clip"] = pd.to_numeric(
-        combined.get("prob_live_safe_pre_clip", combined["prob_live_safe"]),
-        errors="coerce",
-    )
-    combined["prob_base"] = pd.to_numeric(
-        combined.get("prob_base", combined["prob_live_safe_pre_clip"]),
-        errors="coerce",
-    )
-    combined["prob_used"] = pd.to_numeric(
-        combined.get("prob_used", combined["prob_base"]),
-        errors="coerce",
-    ).clip(PROB_CLIP_LO, PROB_CLIP_HI)
-
-    combined["implied_prob_1"] = pd.to_numeric(
-        combined.get("implied_prob_1", np.where(combined["odds_1"] > 0, 1.0 / combined["odds_1"], np.nan)),
-        errors="coerce",
-    )
-    combined["model_market_gap"] = pd.to_numeric(
-        combined.get("model_market_gap", combined["prob_base"] - combined["implied_prob_1"]),
-        errors="coerce",
-    )
-
-    gap_fallback = (
-        (combined["odds_1"] >= UNDERDOG_ODDS_THRESHOLD)
-        & (combined["prob_used"] >= MODEL_MARKET_GAP_PROB_THRESHOLD)
-    )
-    existing_gap_flag = combined.get("model_market_gap_flag")
-    if existing_gap_flag is None:
-        combined["model_market_gap_flag"] = gap_fallback.fillna(False).astype(bool)
-    else:
-        existing_gap_flag = _to_bool_series(existing_gap_flag)
-        combined["model_market_gap_flag"] = np.where(
-            existing_gap_flag.notna(),
-            existing_gap_flag.astype(bool),
-            gap_fallback.fillna(False).astype(bool),
-        )
-
-    combined["ev_per_100"] = (
-        combined["prob_used"] * (combined["odds_1"] - 1)
-        - (1 - combined["prob_used"])
-    ) * 100
+    combined["ev_per_100"] = (combined["prob_used"] * (combined["odds_1"] - 1) - (1 - combined["prob_used"])) * 100
 
     for debug_col in [
-        "prob_base", "prob_live_oos_proxy", "prob_live_safe_pre_clip", "implied_prob_1",
-        "model_market_gap", "model_market_gap_flag", "live_underdog_upscale_guard_triggered",
-        "live_shrink_triggered", "live_oos_proxy_ready", "live_oos_proxy_train_rows",
+        "prob_base", "prob_live_oos_proxy", "prob_live_safe_pre_clip", "market_implied_p_raw",
+        "market_implied_p_devig", "model_market_gap", "model_market_gap_flag",
+        "live_underdog_upscale_guard_triggered", "live_shrink_triggered", "live_oos_proxy_ready",
+        "live_oos_proxy_train_rows", "live_oos_proxy_bin_n", "live_oos_proxy_bin_winrate", "blocked_by",
     ]:
         if debug_col not in combined.columns:
             combined[debug_col] = np.nan
 
+    combined["blocked_by"] = combined.get("blocked_by", np.where(underdog_guard, "MODEL_MARKET_GAP", "PASS"))
     combined["win"] = _derive_home_won(combined)
 
     bad_prob = combined["prob_iso"] > 1
@@ -424,6 +427,9 @@ def _append_new_bets(ledger: pd.DataFrame, combined: pd.DataFrame) -> pd.DataFra
         & (upcoming["ev_per_100"] > MIN_EV)
     ].copy()
 
+    if "blocked_by" in qualifiers.columns:
+        qualifiers = qualifiers[qualifiers["blocked_by"].fillna("PASS").eq("PASS")].copy()
+
     if HARD_VETO_MODEL_MARKET_GAP and "model_market_gap_flag" in qualifiers.columns:
         gap_flag_raw = _to_bool_series(qualifiers["model_market_gap_flag"])
         gap_flag = np.where(gap_flag_raw.notna(), gap_flag_raw.astype(bool), False)
@@ -460,13 +466,17 @@ def _append_new_bets(ledger: pd.DataFrame, combined: pd.DataFrame) -> pd.DataFra
             "prob_base",
             "prob_live_oos_proxy",
             "prob_live_safe_pre_clip",
-            "implied_prob_1",
+            "market_implied_p_raw",
+            "market_implied_p_devig",
             "model_market_gap",
             "model_market_gap_flag",
             "live_underdog_upscale_guard_triggered",
             "live_shrink_triggered",
             "live_oos_proxy_ready",
             "live_oos_proxy_train_rows",
+            "live_oos_proxy_bin_n",
+            "live_oos_proxy_bin_winrate",
+            "blocked_by",
             "ev_per_100",
             "created_at_utc",
             "settled_at_utc",
