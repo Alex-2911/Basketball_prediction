@@ -29,6 +29,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "compute_oos_chain": True,
 }
 
+REQUIRED_STRATEGY_PARAM_KEYS = (
+    "home_win_rate_threshold",
+    "odds_min",
+    "odds_max",
+    "prob_threshold",
+    "min_ev",
+)
+
 
 def _read_strategy_params_txt(path: Path) -> dict[str, Any]:
     params: dict[str, Any] = {}
@@ -121,6 +129,57 @@ def load_active_strategy_params(repo_root: Path) -> dict[str, Any]:
         return {k: v for k, v in mapped.items() if v is not None}
 
     return {}
+
+
+def load_required_strategy_params(repo_root: Path) -> dict[str, float]:
+    """
+    Load active strategy thresholds from Script 5 artifacts and enforce key presence.
+    """
+    params = load_active_strategy_params(repo_root)
+    missing = [k for k in REQUIRED_STRATEGY_PARAM_KEYS if k not in params]
+    if missing:
+        raise RuntimeError(
+            "Missing required strategy thresholds from Script 5 outputs "
+            f"(metrics_snapshot.json / strategy_params.txt): {missing}"
+        )
+    return {k: float(params[k]) for k in REQUIRED_STRATEGY_PARAM_KEYS}
+
+
+
+
+def build_probability_chain_config(
+    *,
+    date_col: str,
+    result_col: str,
+    result_raw_col: str,
+    pred_proba_col: str,
+    prob_iso_oos_time_col: str = "prob_iso_oos_time",
+    compute_oos_chain: bool,
+    min_train_oos_time: int | None = None,
+    min_step_oos_time: int | None = None,
+    min_train_oos_proxy: int | None = None,
+    today_date=None,
+    tomorrow_date=None,
+) -> dict[str, Any]:
+    cfg: dict[str, Any] = {
+        "date_col": date_col,
+        "result_col": result_col,
+        "result_raw_col": result_raw_col,
+        "pred_proba_col": pred_proba_col,
+        "prob_iso_oos_time_col": prob_iso_oos_time_col,
+        "compute_oos_chain": bool(compute_oos_chain),
+    }
+    if min_train_oos_time is not None:
+        cfg["min_train_oos_time"] = int(min_train_oos_time)
+    if min_step_oos_time is not None:
+        cfg["min_step_oos_time"] = int(min_step_oos_time)
+    if min_train_oos_proxy is not None:
+        cfg["min_train_oos_proxy"] = int(min_train_oos_proxy)
+    if today_date is not None:
+        cfg["today_date"] = today_date
+    if tomorrow_date is not None:
+        cfg["tomorrow_date"] = tomorrow_date
+    return cfg
 
 
 def prepare_live_probability_columns(

@@ -13,7 +13,12 @@ SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from live_probability_pipeline import load_active_strategy_params, prepare_live_probability_columns
+from live_probability_pipeline import (
+    build_probability_chain_config,
+    load_active_strategy_params,
+    load_required_strategy_params,
+    prepare_live_probability_columns,
+)
 
 
 KEY_COLS = ["prob_used", "model_market_gap", "model_market_gap_flag", "blocked_by"]
@@ -73,15 +78,15 @@ def _sample_df() -> pd.DataFrame:
 
 def verify_probability_parity() -> None:
     base = _sample_df()
-    config = {
-        "date_col": "game_date",
-        "result_col": "home_team_won",
-        "result_raw_col": "result_raw",
-        "pred_proba_col": "pred_home_win_proba",
-        "today_date": pd.Timestamp("2026-03-10").date(),
-        "tomorrow_date": pd.Timestamp("2026-03-11").date(),
-        "compute_oos_chain": True,
-    }
+    config = build_probability_chain_config(
+        date_col="game_date",
+        result_col="home_team_won",
+        result_raw_col="result_raw",
+        pred_proba_col="pred_home_win_proba",
+        today_date=pd.Timestamp("2026-03-10").date(),
+        tomorrow_date=pd.Timestamp("2026-03-11").date(),
+        compute_oos_chain=True,
+    )
     script5_view = prepare_live_probability_columns(base, clip_lo=0.35, clip_hi=0.80, config=config)
 
     ledger_input = script5_view.copy()
@@ -89,13 +94,13 @@ def verify_probability_parity() -> None:
         ledger_input,
         clip_lo=0.35,
         clip_hi=0.80,
-        config={
-            "date_col": "game_date",
-            "result_col": "home_team_won",
-            "result_raw_col": "result_raw",
-            "pred_proba_col": "pred_home_win_proba",
-            "compute_oos_chain": False,
-        },
+        config=build_probability_chain_config(
+            date_col="game_date",
+            result_col="home_team_won",
+            result_raw_col="result_raw",
+            pred_proba_col="pred_home_win_proba",
+            compute_oos_chain=False,
+        ),
     )
 
     for c in KEY_COLS:
@@ -132,12 +137,28 @@ def verify_strategy_param_loading() -> None:
         (out / "metrics_snapshot.json").write_text(json.dumps(snapshot), encoding="utf-8")
 
         params = load_active_strategy_params(root)
+        required = load_required_strategy_params(root)
         assert params["home_win_rate_threshold"] == 0.61
+        assert required["home_win_rate_threshold"] == 0.61
         assert params["odds_min"] == 2.15
         assert params["odds_max"] == 3.05
         assert params["prob_threshold"] == 0.57
         assert params["min_ev"] == -4.0
 
+
+
+
+def verify_required_strategy_param_failure() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        out = root / "2026" / "output" / "LightGBM"
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "strategy_params.txt").write_text("home_win_rate_threshold=0.6\nodds_min=2.1\n", encoding="utf-8")
+        try:
+            load_required_strategy_params(root)
+        except RuntimeError:
+            return
+        raise AssertionError("Expected RuntimeError for missing required strategy thresholds")
 
 def verify_strategy_param_fallback() -> None:
     with tempfile.TemporaryDirectory() as tmp:
@@ -149,5 +170,6 @@ def verify_strategy_param_fallback() -> None:
 if __name__ == "__main__":
     verify_probability_parity()
     verify_strategy_param_loading()
+    verify_required_strategy_param_failure()
     verify_strategy_param_fallback()
     print("verify_pipeline_consistency: OK")
