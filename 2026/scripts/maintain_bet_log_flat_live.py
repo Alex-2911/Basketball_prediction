@@ -247,6 +247,9 @@ def _load_shortlist_data(repo_root: Path) -> pd.DataFrame:
     frames = []
     for shortlist_path in shortlist_files:
         shortlist = pd.read_csv(shortlist_path)
+        if shortlist.empty:
+            # Keep empty shortlist files as valid heartbeat artifacts without contributing qualifiers.
+            continue
         shortlist.columns = (
             shortlist.columns.astype(str)
             .str.strip()
@@ -445,7 +448,14 @@ def _append_new_bets(
                 ).tolist()
             )
 
-    if shortlist_keys:
+    has_recent_ledger = False
+    if not ledger.empty:
+        ledger_dates = pd.to_datetime(ledger["date"], errors="coerce")
+        has_recent_ledger = bool((ledger_dates >= pd.Timestamp("2026-02-01")).any())
+
+    # Prefer shortlist only when it has actionable rows and ledger is already up-to-date.
+    # If shortlist is empty (or stale due to upstream blanks), fall back to threshold filtering.
+    if shortlist_keys and has_recent_ledger:
         qualifiers = candidates[candidates["game_key"].isin(shortlist_keys)].copy()
     else:
         qualifiers = candidates[
