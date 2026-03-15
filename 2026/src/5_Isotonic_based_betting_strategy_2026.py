@@ -27,9 +27,7 @@ import pandas as pd
 from sklearn.isotonic import IsotonicRegression
 from sklearn.metrics import brier_score_loss, log_loss
 
-from live_calibration import compute_time_oos_isotonic
-from live_oos_proxy import apply_live_oos_proxy, build_live_oos_proxy
-from live_safety import apply_live_safety
+from live_probability_pipeline import prepare_live_probability_columns
 
 from nba_utils_2026 import (
     get_current_date,
@@ -515,68 +513,29 @@ def compute_calibration_metrics(df_past: pd.DataFrame) -> Tuple[float, float, fl
 
 
 def build_live_probability_columns(df_all: pd.DataFrame, today_date, tomorrow_date) -> tuple[pd.DataFrame, dict]:
-    df = df_all.copy()
-    played_mask = df[RESULT_RAW_COL].notna() & (df[RESULT_RAW_COL].astype(str) != "0")
-    upcoming_mask = (~played_mask) & df[DATE_COL].dt.date.isin([today_date, tomorrow_date])
-
-    df[PROB_ISO_OOS_TIME_COL] = compute_time_oos_isotonic(
-        df.loc[played_mask].copy(),
-        prob_col=PRED_PROBA_COL,
-        target_col=RESULT_COL,
-        date_col=DATE_COL,
-        min_train=MIN_TRAIN_OOS_TIME,
-        min_step=MIN_STEP_OOS_TIME,
+    df = prepare_live_probability_columns(
+        df_all,
+        clip_lo=PROB_CLIP_LO,
+        clip_hi=PROB_CLIP_HI,
+        config={
+            "date_col": DATE_COL,
+            "result_col": RESULT_COL,
+            "result_raw_col": RESULT_RAW_COL,
+            "pred_proba_col": PRED_PROBA_COL,
+            "prob_iso_oos_time_col": PROB_ISO_OOS_TIME_COL,
+            "min_train_oos_time": MIN_TRAIN_OOS_TIME,
+            "min_step_oos_time": MIN_STEP_OOS_TIME,
+            "min_train_oos_proxy": MIN_TRAIN_OOS_PROXY,
+            "today_date": today_date,
+            "tomorrow_date": tomorrow_date,
+            "compute_oos_chain": True,
+        },
     )
-
-    played_df = df.loc[played_mask].copy()
-    played_df["home_team_prob"] = pd.to_numeric(played_df[PRED_PROBA_COL], errors="coerce")
-    played_df["win"] = pd.to_numeric(played_df[RESULT_COL], errors="coerce")
-
-    proxy_obj = build_live_oos_proxy(
-        played_df,
-        prob_source_cols=[PROB_ISO_OOS_TIME_COL, "home_team_prob"],
-        target_col="win",
-        n_bins=25,
-        min_train_rows=MIN_TRAIN_OOS_PROXY,
-        min_bin_n=25,
-        use_wilson_lb=True,
-    )
-
-    df["live_oos_proxy_ready"] = bool(proxy_obj["ready"])
-    df["live_oos_proxy_train_rows"] = int(proxy_obj["train_rows"])
-    df["live_oos_proxy_bin_n"] = 0
-    df["live_oos_proxy_bin_winrate"] = np.nan
-
-    upcoming_df = df.loc[upcoming_mask].copy()
-    upcoming_df["home_team_prob"] = pd.to_numeric(upcoming_df[PRED_PROBA_COL], errors="coerce")
-    upcoming_with_proxy = apply_live_oos_proxy(upcoming_df, proxy_obj, in_col="home_team_prob")
-    for c in [
-        "prob_live_oos_proxy",
-        "live_oos_proxy_ready",
-        "live_oos_proxy_train_rows",
-        "live_oos_proxy_bin_n",
-        "live_oos_proxy_bin_winrate",
-    ]:
-        df.loc[upcoming_with_proxy.index, c] = upcoming_with_proxy[c]
-
-    logging.info(
-        "[LIVE OOS PROXY] ready=%s train_rows=%d win_rate=%.4f",
-        proxy_obj["ready"],
-        proxy_obj["train_rows"],
-        proxy_obj["global_win_rate"] if np.isfinite(proxy_obj["global_win_rate"]) else float("nan"),
-    )
-
-    safety_ready = bool(proxy_obj["ready"])
-    df = apply_live_safety(df, live_oos_proxy_ready=safety_ready)
-    df[PROB_LIVE_SAFE_COL] = df["prob_base"]
-
     meta = {
-        "live_oos_proxy_ready": bool(proxy_obj["ready"]),
-        "live_oos_proxy_train_rows": int(proxy_obj["train_rows"]),
+        "live_oos_proxy_ready": bool(pd.Series(df.get("live_oos_proxy_ready", False)).fillna(False).astype(bool).any()),
+        "live_oos_proxy_train_rows": int(pd.to_numeric(df.get("live_oos_proxy_train_rows", 0), errors="coerce").fillna(0).max() if isinstance(df.get("live_oos_proxy_train_rows", 0), pd.Series) else df.get("live_oos_proxy_train_rows", 0)),
     }
     return df, meta
-
-
 def run_self_test(df_all: pd.DataFrame, live_meta: dict | None = None) -> None:
     required_cols = [
         "home_team_prob", "prob_iso", PROB_ISO_OOS_TIME_COL, PROB_LIVE_OOS_PROXY_COL,
