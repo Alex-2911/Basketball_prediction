@@ -236,6 +236,33 @@ def _load_combined_data(repo_root: Path) -> pd.DataFrame:
     )
 
 
+
+
+def _load_shortlist_data(repo_root: Path) -> pd.DataFrame:
+    shortlist_dir = repo_root / "2026" / "output" / "LightGBM" / "Kelly"
+    shortlist_files = sorted(shortlist_dir.glob("bet_shortlist_*.csv"))
+    if not shortlist_files:
+        return pd.DataFrame()
+
+    frames = []
+    for shortlist_path in shortlist_files:
+        shortlist = pd.read_csv(shortlist_path)
+        shortlist.columns = (
+            shortlist.columns.astype(str)
+            .str.strip()
+            .str.lower()
+            .str.replace(r"\s+", "_", regex=True)
+        )
+        if "game_date" not in shortlist.columns and "date" in shortlist.columns:
+            shortlist["game_date"] = shortlist["date"]
+        frames.append(shortlist)
+
+    if not frames:
+        return pd.DataFrame()
+
+    return pd.concat(frames, ignore_index=True)
+
+
 def _prepare_combined(df: pd.DataFrame) -> pd.DataFrame:
     columns = _resolve_combined_columns(df)
 
@@ -386,23 +413,48 @@ def _dedupe_ledger(ledger: pd.DataFrame) -> pd.DataFrame:
     return ledger.drop_duplicates(subset=["game_key"], keep="first")
 
 
-def _append_new_bets(ledger: pd.DataFrame, combined: pd.DataFrame, params: dict[str, float]) -> pd.DataFrame:
+def _append_new_bets(
+    ledger: pd.DataFrame,
+    combined: pd.DataFrame,
+    params: dict[str, float],
+    shortlist: pd.DataFrame,
+) -> pd.DataFrame:
     existing_keys = set(ledger["game_key"].dropna())
 
-    upcoming = combined[combined["win"].isna()].copy()
     home_win_rate_min = float(params["home_win_rate_threshold"])
     odds_min = float(params["odds_min"])
     odds_max = float(params["odds_max"])
     prob_min = float(params["prob_threshold"])
     min_ev = float(params["min_ev"])
 
-    qualifiers = upcoming[
-        (upcoming["home_win_rate"] >= home_win_rate_min)
-        & (upcoming["odds_1"] >= odds_min)
-        & (upcoming["odds_1"] <= odds_max)
-        & (upcoming["prob_used"] >= prob_min)
-        & (upcoming["ev_per_100"] > min_ev)
-    ].copy()
+    candidates = combined.copy()
+
+    shortlist_keys: set[str] = set()
+    if not shortlist.empty:
+        required = {"home_team", "away_team"}
+        date_col = "game_date" if "game_date" in shortlist.columns else "date"
+        if date_col in shortlist.columns and required.issubset(shortlist.columns):
+            shortlist_keys = set(
+                (
+                    _normalize_date(shortlist[date_col]).fillna("")
+                    + "_"
+                    + _normalize_team(shortlist["home_team"]).fillna("")
+                    + "_"
+                    + _normalize_team(shortlist["away_team"]).fillna("")
+                    + "_HOME"
+                ).tolist()
+            )
+
+    if shortlist_keys:
+        qualifiers = candidates[candidates["game_key"].isin(shortlist_keys)].copy()
+    else:
+        qualifiers = candidates[
+            (candidates["home_win_rate"] >= home_win_rate_min)
+            & (candidates["odds_1"] >= odds_min)
+            & (candidates["odds_1"] <= odds_max)
+            & (candidates["prob_used"] >= prob_min)
+            & (candidates["ev_per_100"] > min_ev)
+        ].copy()
 
     if "blocked_by" in qualifiers.columns:
         qualifiers = qualifiers[qualifiers["blocked_by"].fillna("PASS").eq("PASS")].copy()
@@ -421,11 +473,15 @@ def _append_new_bets(ledger: pd.DataFrame, combined: pd.DataFrame, params: dict[
     new_rows["stake"] = STAKE
     new_rows["odds"] = new_rows["odds_1"]
     new_rows["pick"] = "HOME"
-    new_rows["status"] = "PENDING"
-    new_rows["won"] = np.nan
-    new_rows["pnl"] = np.nan
+    new_rows["status"] = np.where(new_rows["win"].notna(), "SETTLED", "PENDING")
+    new_rows["won"] = new_rows["win"]
+    new_rows["pnl"] = np.where(
+        new_rows["win"].notna(),
+        np.where(new_rows["win"] == 1, STAKE * (new_rows["odds_1"] - 1), -STAKE),
+        np.nan,
+    )
     new_rows["created_at_utc"] = now_utc
-    new_rows["settled_at_utc"] = np.nan
+    new_rows["settled_at_utc"] = np.where(new_rows["win"].notna(), now_utc, np.nan)
     new_rows["source"] = "auto"
 
     append_df = new_rows[
@@ -468,7 +524,6 @@ def _append_new_bets(ledger: pd.DataFrame, combined: pd.DataFrame, params: dict[
     combined_ledger = pd.concat([ledger, append_df], ignore_index=True)
     return combined_ledger
 
-
 def _settle_pending_bets(ledger: pd.DataFrame, combined: pd.DataFrame) -> pd.DataFrame:
     results = combined[combined["win"].notna()].set_index("game_key")
     pending_mask = _normalize_status(ledger["status"]) == "PENDING"
@@ -504,10 +559,12 @@ def main() -> None:
     combined_raw = _load_combined_data(repo_root)
     combined = _prepare_combined(combined_raw)
 
+    shortlist = _load_shortlist_data(repo_root)
+
     ledger = _load_ledger(ledger_path)
     ledger = _settle_pending_bets(ledger, combined)
     active_params = load_required_strategy_params(repo_root)
-    ledger = _append_new_bets(ledger, combined, params=active_params)
+    ledger = _append_new_bets(ledger, combined, params=active_params, shortlist=shortlist)
     ledger = _dedupe_ledger(ledger)
 
     ledger = ledger.sort_values(["date", "home_team", "away_team"], na_position="last")

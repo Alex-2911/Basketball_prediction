@@ -76,6 +76,37 @@ START_BANKROLL = 1000.0
 
 STRATEGY_VARIANTS = {"acc", "iso"}
 
+OUTPUT_BASE_COLUMNS = [
+    "home_team",
+    "away_team",
+    "home_team_prob",
+    "odds_1",
+    "odds_2",
+    "result",
+    "date",
+    "accuracy",
+]
+
+OUTPUT_PROBABILITY_COLUMNS = [
+    "prob_iso",
+    "prob_iso_insample",
+    "prob_iso_oos_time",
+    "prob_live_oos_proxy",
+    "prob_live_safe_pre_clip",
+    "prob_base",
+    "prob_live_safe",
+    "prob_used",
+]
+
+SHORTLIST_COLUMNS = [
+    DATE_COL, "home_team", "away_team", "home_team_prob", "prob_iso", PROB_ISO_OOS_TIME_COL,
+    PROB_LIVE_OOS_PROXY_COL, "prob_live_safe_pre_clip", "prob_base", "prob_used",
+    "odds_1", "market_implied_p_raw", "market_implied_p_devig", "model_market_gap", "model_market_gap_flag",
+    "live_underdog_upscale_guard_triggered", "live_shrink_triggered",
+    "live_oos_proxy_ready", "live_oos_proxy_train_rows", "live_oos_proxy_bin_n",
+    "live_oos_proxy_bin_winrate", "blocked_by", HOMEWR_COL, "EV_€_per_100",
+]
+
 
 @dataclass
 class StrategyParams:
@@ -121,6 +152,32 @@ def to_float_series(s: pd.Series) -> pd.Series:
          .replace("", np.nan)
          .astype(float)
     )
+
+
+
+
+def _normalize_output_column_name(col: str) -> str:
+    normalized = str(col).strip().lower().replace("\n", " ")
+    normalized = "_".join(normalized.split())
+    aliases = {
+        "odds1": "odds_1",
+        "odds2": "odds_2",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def canonicalize_output_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out.columns = [_normalize_output_column_name(c) for c in out.columns]
+    out = out.loc[:, ~pd.Index(out.columns).duplicated(keep="last")]
+
+    for col in OUTPUT_BASE_COLUMNS + OUTPUT_PROBABILITY_COLUMNS:
+        if col not in out.columns:
+            out[col] = np.nan
+
+    ordered = OUTPUT_BASE_COLUMNS + OUTPUT_PROBABILITY_COLUMNS
+    remaining = [c for c in out.columns if c not in ordered]
+    return out[ordered + remaining]
 
 
 def _extract_date_from_filename(filename: str, prefix: str) -> Optional[str]:
@@ -890,18 +947,10 @@ def build_bet_shortlist(df_all: pd.DataFrame, params: dict, min_ev: float) -> pd
     shortlist = out.loc[mask].copy()
     if "blocked_by" in shortlist.columns:
         shortlist = shortlist[shortlist["blocked_by"].fillna("PASS").eq("PASS")].copy()
-    cols = [
-        DATE_COL, "home_team", "away_team", "home_team_prob", "prob_iso", PROB_ISO_OOS_TIME_COL,
-        PROB_LIVE_OOS_PROXY_COL, "prob_live_safe_pre_clip", "prob_base", "prob_used",
-        "odds_1", "market_implied_p_raw", "market_implied_p_devig", "model_market_gap", "model_market_gap_flag",
-        "live_underdog_upscale_guard_triggered", "live_shrink_triggered",
-        "live_oos_proxy_ready", "live_oos_proxy_train_rows", "live_oos_proxy_bin_n",
-        "live_oos_proxy_bin_winrate", "blocked_by", HOMEWR_COL, "EV_€_per_100",
-    ]
-    for c in cols:
+    for c in SHORTLIST_COLUMNS:
         if c not in shortlist.columns:
             shortlist[c] = np.nan
-    return shortlist[cols]
+    return shortlist[SHORTLIST_COLUMNS]
 def resolve_as_of_date_from_df_past(df_past_sorted: pd.DataFrame, fallback: str) -> str:
     if df_past_sorted is None or df_past_sorted.empty:
         return fallback
@@ -1021,6 +1070,7 @@ def main() -> None:
 
     # 7) SAVE ISO COMBINED (unchanged)
     iso_path = kelly_dir / f"combined_nba_predictions_iso_{target_ymd}.csv"
+    df_all = canonicalize_output_dataframe(df_all)
     df_all.to_csv(iso_path, index=False, encoding="utf-8")
     logging.info("Saved ISO combined -> %s", iso_path)
 
@@ -1069,6 +1119,7 @@ def main() -> None:
 
     shortlist = build_bet_shortlist(df_all, local_params, min_EV)
     shortlist_path = kelly_dir / f"bet_shortlist_{target_ymd}.csv"
+    shortlist = shortlist.reindex(columns=SHORTLIST_COLUMNS)
     shortlist.to_csv(shortlist_path, index=False, encoding="utf-8")
     logging.info("Saved bet shortlist -> %s (%d rows)", shortlist_path, len(shortlist))
 

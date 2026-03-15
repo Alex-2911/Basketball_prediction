@@ -170,3 +170,32 @@ Runtime logs include a line like:
 `[LIVE OOS PROXY] ready=True train_rows=312 win_rate=0.5417`
 
 and debug flags such as `model_market_gap_flag`, `live_underdog_upscale_guard_triggered`, and `live_shrink_triggered` are persisted into combined outputs, shortlist files, and live bet logs for full traceability.
+
+## Output schemas and verification
+
+The pipeline enforces canonical snake_case CSV headers for downstream compatibility.
+
+- `2026/output/LightGBM/combined_nba_predictions_acc_<DATE>.csv`
+- `2026/output/LightGBM/Kelly/combined_nba_predictions_iso_<DATE>.csv`
+
+Expected leading columns:
+`home_team,away_team,home_team_prob,odds_1,odds_2,result,date,accuracy,prob_iso_insample,prob_iso_oos_time,prob_live_oos_proxy,prob_live_safe_pre_clip,prob_base,prob_live_safe,prob_used`
+
+- `2026/output/LightGBM/Kelly/bet_shortlist_<DATE>.csv` always exists and always has a single header row.
+- If no games qualify, shortlist contains header only (no blank lines).
+- `2026/output/LightGBM/bet_log_flat_live.csv` is continuously updated from the latest combined predictions and shortlist.
+
+### Automated verification
+
+Run this check locally (also executed in CI after scripts 4 and 5):
+
+```bash
+python 2026/scripts/verify_outputs.py
+```
+
+The verifier checks:
+
+1. Latest ACC and ISO files exist and share the same run date.
+2. ACC/ISO headers are single-line and match the expected schema.
+3. Latest shortlist exists and matches expected schema.
+4. Ledger exists and is not older than latest shortlist date when shortlist rows are present.
