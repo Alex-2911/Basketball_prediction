@@ -99,6 +99,12 @@ jobs:
           python 2026/scripts/verify_outputs.py
           echo "=== Output verification finished ==="
 
+      - name: Run pipeline regression checks
+        run: |
+          echo "=== Running tests/test_pipeline_outputs.py ==="
+          python tests/test_pipeline_outputs.py
+          echo "=== Pipeline regression checks finished ==="
+
       - name: Verify metrics snapshot output
         run: |
           ls -la 2026/output/LightGBM | head -n 50

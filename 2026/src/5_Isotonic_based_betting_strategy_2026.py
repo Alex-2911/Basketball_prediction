@@ -180,6 +180,32 @@ def canonicalize_output_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return out[ordered + remaining]
 
 
+def ensure_probability_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Guarantee probability chain columns exist as numeric values (NaN when unavailable)."""
+    out = df.copy()
+    fallback_map = {
+        "prob_iso": [ISO_COL, "home_team_prob", PRED_PROBA_COL],
+        "prob_iso_insample": ["prob_iso", ISO_COL],
+        "prob_iso_oos_time": ["prob_iso"],
+        "prob_live_oos_proxy": ["prob_iso_oos_time", "prob_iso"],
+        "prob_live_safe_pre_clip": ["prob_base", "prob_live_oos_proxy", "prob_iso_oos_time", "prob_iso"],
+        "prob_base": ["prob_live_safe_pre_clip", "prob_live_oos_proxy", "prob_iso_oos_time", "prob_iso"],
+        "prob_live_safe": ["prob_base", "prob_live_safe_pre_clip", "prob_iso"],
+        "prob_used": ["prob_live_safe", "prob_base", "prob_iso"],
+    }
+
+    for col, fallbacks in fallback_map.items():
+        if col not in out.columns:
+            out[col] = np.nan
+        series = pd.to_numeric(out[col], errors="coerce")
+        for source_col in fallbacks:
+            if source_col in out.columns:
+                series = series.fillna(pd.to_numeric(out[source_col], errors="coerce"))
+        out[col] = series
+
+    return out
+
+
 def _extract_date_from_filename(filename: str, prefix: str) -> Optional[str]:
     if not filename.startswith(prefix) or not filename.endswith(".csv"):
         return None
@@ -1038,14 +1064,16 @@ def main() -> None:
     # 4) SPLIT PAST / FUTURE
     df_past, df_future = split_past_future(df_all, today_date, tomorrow_date)
     if df_past.empty:
-        logging.warning("No past games available – cannot fit isotonic.")
-        return
+        logging.warning("No past games available – isotonic fit skipped; falling back to base probabilities.")
 
     # 5) FIT ISOTONIC + APPLY (in-sample reference only)
-    iso = fit_isotonic(df_past)
+    iso = fit_isotonic(df_past) if not df_past.empty else None
     df_all[ISO_COL] = np.nan
     m_iso = df_all[PRED_PROBA_COL].notna()
-    df_all.loc[m_iso, ISO_COL] = iso.transform(df_all.loc[m_iso, PRED_PROBA_COL].astype(float).values)
+    if iso is not None:
+        df_all.loc[m_iso, ISO_COL] = iso.transform(df_all.loc[m_iso, PRED_PROBA_COL].astype(float).values)
+    else:
+        df_all.loc[m_iso, ISO_COL] = pd.to_numeric(df_all.loc[m_iso, PRED_PROBA_COL], errors="coerce")
     df_all["prob_iso"] = df_all[ISO_COL]
     df_all["home_team_prob"] = pd.to_numeric(df_all[PRED_PROBA_COL], errors="coerce")
     if "odds_1" not in df_all.columns and HOME_ODDS_COL in df_all.columns:
@@ -1053,6 +1081,7 @@ def main() -> None:
 
     # 5b) Build time-OOS calibration + live OOS proxy + live safety
     df_all, live_meta = build_live_probability_columns(df_all, today_date, tomorrow_date)
+    df_all = ensure_probability_columns(df_all)
     logging.info("Probability columns: PROB_COL_HIST=%s PROB_COL_LIVE=%s", PROB_COL_HIST, PROB_COL_LIVE)
 
     # refresh past/future views with calibrated columns
@@ -1071,8 +1100,14 @@ def main() -> None:
     # 7) SAVE ISO COMBINED (unchanged)
     iso_path = kelly_dir / f"combined_nba_predictions_iso_{target_ymd}.csv"
     df_all = canonicalize_output_dataframe(df_all)
+    df_all = ensure_probability_columns(df_all)
     df_all.to_csv(iso_path, index=False, encoding="utf-8")
     logging.info("Saved ISO combined -> %s", iso_path)
+
+    # Keep ACC file schema aligned with enriched probabilities for downstream consumers.
+    acc_path = Path(pred_dir) / f"combined_nba_predictions_acc_{target_ymd}.csv"
+    df_all.to_csv(acc_path, index=False, encoding="utf-8")
+    logging.info("Refreshed ACC combined with calibrated probabilities -> %s", acc_path)
 
     combined_source_path = iso_path if strategy_variant == "iso" else combined_path
 
