@@ -27,7 +27,7 @@ import pandas as pd
 from sklearn.isotonic import IsotonicRegression
 from sklearn.metrics import brier_score_loss, log_loss
 
-from live_probability_pipeline import prepare_live_probability_columns
+from live_probability_pipeline import build_probability_chain_config, prepare_live_probability_columns
 
 from nba_utils_2026 import (
     get_current_date,
@@ -517,19 +517,19 @@ def build_live_probability_columns(df_all: pd.DataFrame, today_date, tomorrow_da
         df_all,
         clip_lo=PROB_CLIP_LO,
         clip_hi=PROB_CLIP_HI,
-        config={
-            "date_col": DATE_COL,
-            "result_col": RESULT_COL,
-            "result_raw_col": RESULT_RAW_COL,
-            "pred_proba_col": PRED_PROBA_COL,
-            "prob_iso_oos_time_col": PROB_ISO_OOS_TIME_COL,
-            "min_train_oos_time": MIN_TRAIN_OOS_TIME,
-            "min_step_oos_time": MIN_STEP_OOS_TIME,
-            "min_train_oos_proxy": MIN_TRAIN_OOS_PROXY,
-            "today_date": today_date,
-            "tomorrow_date": tomorrow_date,
-            "compute_oos_chain": True,
-        },
+        config=build_probability_chain_config(
+            date_col=DATE_COL,
+            result_col=RESULT_COL,
+            result_raw_col=RESULT_RAW_COL,
+            pred_proba_col=PRED_PROBA_COL,
+            prob_iso_oos_time_col=PROB_ISO_OOS_TIME_COL,
+            min_train_oos_time=MIN_TRAIN_OOS_TIME,
+            min_step_oos_time=MIN_STEP_OOS_TIME,
+            min_train_oos_proxy=MIN_TRAIN_OOS_PROXY,
+            today_date=today_date,
+            tomorrow_date=tomorrow_date,
+            compute_oos_chain=True,
+        ),
     )
     meta = {
         "live_oos_proxy_ready": bool(pd.Series(df.get("live_oos_proxy_ready", False)).fillna(False).astype(bool).any()),

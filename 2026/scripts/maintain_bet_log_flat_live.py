@@ -14,17 +14,12 @@ SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from live_probability_pipeline import load_active_strategy_params, prepare_live_probability_columns
+from live_probability_pipeline import build_probability_chain_config, load_required_strategy_params, prepare_live_probability_columns
 
 
 PROB_CLIP_LO = 0.35
 PROB_CLIP_HI = 0.80
-MIN_EV = -5
 STAKE = 100
-ODDS_MIN = 2.10
-ODDS_MAX = 3.10
-HOME_WIN_RATE_MIN = 0.55
-PROB_MIN = 0.40
 UNDERDOG_ODDS_GUARD_MIN = 2.00
 UNDERDOG_PROB_GUARD_MIN = 0.60
 GAP_GUARD_MIN = 0.12
@@ -262,14 +257,14 @@ def _prepare_combined(df: pd.DataFrame) -> pd.DataFrame:
         combined,
         clip_lo=PROB_CLIP_LO,
         clip_hi=PROB_CLIP_HI,
-        config={
-            "date_col": "game_date",
-            "result_col": "home_team_won",
-            "result_raw_col": "result_raw",
-            "pred_proba_col": "pred_home_win_proba",
-            "prob_iso_oos_time_col": "prob_iso_oos_time",
-            "compute_oos_chain": False,
-        },
+        config=build_probability_chain_config(
+            date_col="game_date",
+            result_col="home_team_won",
+            result_raw_col="result_raw",
+            pred_proba_col="pred_home_win_proba",
+            prob_iso_oos_time_col="prob_iso_oos_time",
+            compute_oos_chain=False,
+        ),
     )
 
     if columns.home_win_rate:
@@ -391,16 +386,15 @@ def _dedupe_ledger(ledger: pd.DataFrame) -> pd.DataFrame:
     return ledger.drop_duplicates(subset=["game_key"], keep="first")
 
 
-def _append_new_bets(ledger: pd.DataFrame, combined: pd.DataFrame, params: dict[str, float] | None = None) -> pd.DataFrame:
+def _append_new_bets(ledger: pd.DataFrame, combined: pd.DataFrame, params: dict[str, float]) -> pd.DataFrame:
     existing_keys = set(ledger["game_key"].dropna())
 
     upcoming = combined[combined["win"].isna()].copy()
-    active = params or {}
-    home_win_rate_min = float(active.get("home_win_rate_threshold", HOME_WIN_RATE_MIN))
-    odds_min = float(active.get("odds_min", ODDS_MIN))
-    odds_max = float(active.get("odds_max", ODDS_MAX))
-    prob_min = float(active.get("prob_threshold", PROB_MIN))
-    min_ev = float(active.get("min_ev", MIN_EV))
+    home_win_rate_min = float(params["home_win_rate_threshold"])
+    odds_min = float(params["odds_min"])
+    odds_max = float(params["odds_max"])
+    prob_min = float(params["prob_threshold"])
+    min_ev = float(params["min_ev"])
 
     qualifiers = upcoming[
         (upcoming["home_win_rate"] >= home_win_rate_min)
@@ -512,7 +506,7 @@ def main() -> None:
 
     ledger = _load_ledger(ledger_path)
     ledger = _settle_pending_bets(ledger, combined)
-    active_params = load_active_strategy_params(repo_root)
+    active_params = load_required_strategy_params(repo_root)
     ledger = _append_new_bets(ledger, combined, params=active_params)
     ledger = _dedupe_ledger(ledger)
 
