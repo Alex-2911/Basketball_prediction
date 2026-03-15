@@ -40,6 +40,7 @@ MAX_DAYS_BACK = 120  # Configurable range for searching files
 
 
 LIVE_PROB_COLUMNS = [
+    "prob_iso",
     "prob_iso_insample",
     "prob_iso_oos_time",
     "prob_live_oos_proxy",
@@ -48,6 +49,48 @@ LIVE_PROB_COLUMNS = [
     "prob_live_safe",
     "prob_used",
 ]
+
+CANONICAL_BASE_COLUMNS = [
+    "home_team",
+    "away_team",
+    "home_team_prob",
+    "odds_1",
+    "odds_2",
+    "result",
+    "date",
+    "accuracy",
+]
+
+
+def normalize_column_name(col: str) -> str:
+    """Normalize headers to canonical snake_case names."""
+    normalized = str(col).strip().lower().replace("\n", " ")
+    normalized = "_".join(normalized.split())
+    alias_map = {
+        "odds1": "odds_1",
+        "odds2": "odds_2",
+        "odds_1.0": "odds_1",
+        "odds_2.0": "odds_2",
+    }
+    return alias_map.get(normalized, normalized)
+
+
+def normalize_prediction_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Return DataFrame with stable, canonical column names and order."""
+    out = df.copy()
+    out.columns = [normalize_column_name(c) for c in out.columns]
+    out = out.loc[:, ~pd.Index(out.columns).duplicated(keep="last")]
+
+    for col in CANONICAL_BASE_COLUMNS + LIVE_PROB_COLUMNS:
+        if col not in out.columns:
+            out[col] = np.nan
+
+    if out["prob_iso"].isna().all() and "prob_iso_insample" in out.columns:
+        out["prob_iso"] = out["prob_iso_insample"]
+
+    ordered = CANONICAL_BASE_COLUMNS + LIVE_PROB_COLUMNS
+    remaining = [c for c in out.columns if c not in ordered]
+    return out[ordered + remaining]
 
 # Get current date information
 today, today_str, today_str_format = get_current_date()
@@ -123,9 +166,10 @@ def process_prediction_file(predict_file, last_prediction, prediction_dir):
     # Read prediction file; use default encoding and convert decimal comma to period
     predict_df = pd.read_csv(predict_file)
     # Normalize decimal columns in odds
-    for col in ['odds 1', 'odds 2']:
+    for col in ['odds 1', 'odds 2', 'odds_1', 'odds_2']:
         if col in predict_df.columns:
             predict_df[col] = predict_df[col].astype(str).str.replace(',', '.').astype(float)
+    predict_df = normalize_prediction_dataframe(predict_df)
 
     # Path for combined data (one file per prediction date)
     combined_file_path = os.path.join(prediction_dir, f'combined_nba_predictions_acc_{last_prediction}.csv')
@@ -134,13 +178,12 @@ def process_prediction_file(predict_file, last_prediction, prediction_dir):
         combined_df = pd.read_csv(combined_file_path)
     except FileNotFoundError:
         combined_df = pd.DataFrame()
+    combined_df = normalize_prediction_dataframe(combined_df)
 
     # Append and sort by date descending
     predict_df['accuracy'] = np.nan  # add placeholder column
     combined_df = pd.concat([combined_df, predict_df], ignore_index=True)
-    for col in LIVE_PROB_COLUMNS:
-        if col not in combined_df.columns:
-            combined_df[col] = np.nan
+    combined_df = normalize_prediction_dataframe(combined_df)
     combined_df = combined_df.sort_values(by='date', ascending=False)
     # Display top rows for user
     logging.info("Combined predictions (latest 10 rows):\n%s", combined_df.head(10).to_string(index=False))
@@ -223,6 +266,7 @@ def update_betting_statistics(combined_df, most_recent_date, prediction_dir):
     season_df = season_df.sort_values('date', ascending=False).drop_duplicates(
         subset=['date', 'home_team', 'away_team'], keep='first'
     )
+    season_df = normalize_prediction_dataframe(season_df)
     season_df.to_csv(save_path, index=False)
     logging.info(f"Updated betting statistics saved to {save_path}")
     return season_df
