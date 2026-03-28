@@ -1,10 +1,10 @@
 {
   "meta": {
-    "eval_base_date_max": "2026-03-25",
+    "eval_base_date_max": "2026-03-27",
     "strategy_variant": "iso",
     "strategy_variant_label": "ISO/KELLY",
     "params_source": "/home/runner/work/Basketball_prediction/Basketball_prediction/web/public/data/strategy_params.json",
-    "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-03-26.csv",
+    "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-03-28.csv",
     "local_matched_games_source": null
   },
   "params_used_type": "LOCAL",
@@ -27,18 +27,18 @@
       "roi_%": 0.0,
       "prob_thr_eff": 0.45
     },
-    "window_start": "2026-03-25",
-    "window_end": "2026-03-25",
-    "window_games": 12,
+    "window_start": "2026-03-27",
+    "window_end": "2026-03-27",
+    "window_games": 10,
     "matched_games": 0
   },
   "bankroll": {
     "deposit_eur": 1000.0,
-    "bankroll_last_200_eur": 1387.99,
+    "bankroll_last_200_eur": 1151.45,
     "flat_stake_eur": 100.0
   },
   "live_oos_proxy": {
     "ready": false,
-    "train_rows": 12
+    "train_rows": 10
   }
 }
