@@ -4,8 +4,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: nba-collect-previous-game
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 on:
   schedule:
