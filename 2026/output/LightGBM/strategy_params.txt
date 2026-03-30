@@ -1,4 +1,4 @@
-as_of_date=2026-03-27
+as_of_date=2026-03-29
 min_ev=-5.0
 stake=100.0
 home_win_rate_threshold=0.5
