@@ -516,6 +516,7 @@ def attach_home_win_rate(df: pd.DataFrame, hwr_path: str) -> pd.DataFrame:
         df[HOMEWR_COL] = 0.0
         return df
 
+    base_df = df.drop(columns=[HOMEWR_COL], errors="ignore").copy()
     hwr = pd.read_csv(hwr_path, encoding="utf-8")
     cols = list(hwr.columns)
 
@@ -532,10 +533,10 @@ def attach_home_win_rate(df: pd.DataFrame, hwr_path: str) -> pd.DataFrame:
         win_col = next((c for c in cols if "win rate" in c.lower()), cols[-1])
 
     hwr["_team_norm"] = hwr[team_col].astype(str).str.strip().map(normalize_team_code)
-    df["_home_team_norm"] = df["home_team"].astype(str).str.strip().map(normalize_team_code)
+    base_df["_home_team_norm"] = base_df["home_team"].astype(str).str.strip().map(normalize_team_code)
 
     hwr_m = hwr[["_team_norm", win_col]].drop_duplicates("_team_norm")
-    out = df.merge(hwr_m, left_on="_home_team_norm", right_on="_team_norm", how="left")
+    out = base_df.merge(hwr_m, left_on="_home_team_norm", right_on="_team_norm", how="left")
 
     out.rename(columns={win_col: HOMEWR_COL}, inplace=True)
     out[HOMEWR_COL] = pd.to_numeric(out[HOMEWR_COL], errors="coerce").fillna(0.0)
