@@ -17,7 +17,6 @@ import argparse
 import json
 import logging
 import os
-import shutil
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -904,6 +903,54 @@ def log_local_matched_write_intent(*, dest_path: Path, source_name: str, df: pd.
     )
 
 
+def summarize_local_matched_df(df: pd.DataFrame) -> dict:
+    row_count = int(len(df))
+    unique_games = 0
+    if row_count > 0 and {"date", "home_team", "away_team"}.issubset(df.columns):
+        unique_games = int(df[["date", "home_team", "away_team"]].drop_duplicates().shape[0])
+    parsed_dates = pd.to_datetime(df["date"], errors="coerce") if ("date" in df.columns and row_count > 0) else pd.Series(dtype="datetime64[ns]")
+    if parsed_dates.notna().any():
+        min_date = parsed_dates.min().strftime("%Y-%m-%d")
+        max_date = parsed_dates.max().strftime("%Y-%m-%d")
+    else:
+        min_date = None
+        max_date = None
+    return {
+        "rows": row_count,
+        "unique_games": unique_games,
+        "min_date": min_date,
+        "max_date": max_date,
+    }
+
+
+def write_csv_with_audit(df: pd.DataFrame, dest_path: Path, *, source_name: str, allow_header_only: bool) -> tuple[bool, bool]:
+    """
+    Returns (written, unchanged_content).
+    """
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    if df.empty and not allow_header_only:
+        raise RuntimeError(f"Refusing to write header-only local_matched file without explicit allow_header_only=True: {dest_path}")
+
+    stats = summarize_local_matched_df(df)
+    logging.info(
+        "[LOCAL MATCHED EXPORT] write audit | source=%s rows=%d unique_games=%d min_date=%s max_date=%s path=%s",
+        source_name,
+        stats["rows"],
+        stats["unique_games"],
+        stats["min_date"] or "NA",
+        stats["max_date"] or "NA",
+        dest_path,
+    )
+    if df.empty:
+        logging.warning("[LOCAL MATCHED EXPORT] header-only file is about to be written -> %s", dest_path)
+
+    existing_content = dest_path.read_text(encoding="utf-8") if dest_path.exists() else None
+    new_content = df.to_csv(index=False, encoding="utf-8")
+    unchanged = existing_content is not None and existing_content == new_content
+    dest_path.write_text(new_content, encoding="utf-8")
+    return True, unchanged
+
+
 def rebuild_historical_subset_from_hist_df(
     hist_df: pd.DataFrame,
     *,
@@ -982,13 +1029,20 @@ def write_latest_local_matched_csv(
                 )
         else:
             if df_past_sorted is None or df_past_sorted.empty:
-                log_local_matched_write_intent(
-                    dest_path=out_path,
+                empty_df = pd.DataFrame(columns=cols)
+                written, unchanged = write_csv_with_audit(
+                    empty_df,
+                    out_path,
                     source_name="df_past_sorted(empty)",
-                    df=pd.DataFrame(columns=cols),
+                    allow_header_only=True,
                 )
-                pd.DataFrame(columns=cols).to_csv(out_path, index=False, encoding="utf-8")
-                logging.info("Wrote EMPTY local_matched_games_latest.csv -> %s", out_path)
+                logging.warning("local_matched_games export is genuinely empty for current strategy/window.")
+                logging.info(
+                    "[LOCAL MATCHED EXPORT] latest alias written=%s unchanged_content=%s path=%s",
+                    str(written).lower(),
+                    str(unchanged).lower(),
+                    out_path,
+                )
                 return
 
             # --- cutoff to yesterday ---
@@ -997,13 +1051,20 @@ def write_latest_local_matched_csv(
             
             max_played_ts = pd.to_datetime(df[DATE_COL], errors="coerce").max()
             if pd.isna(max_played_ts):
-                log_local_matched_write_intent(
-                    dest_path=out_path,
+                empty_df = pd.DataFrame(columns=cols)
+                written, unchanged = write_csv_with_audit(
+                    empty_df,
+                    out_path,
                     source_name="df_past_sorted(no_played_dates)",
-                    df=pd.DataFrame(columns=cols),
+                    allow_header_only=True,
                 )
-                pd.DataFrame(columns=cols).to_csv(out_path, index=False, encoding="utf-8")
-                logging.info("Wrote EMPTY local_matched_games_latest.csv -> %s (no played dates)", out_path)
+                logging.warning("local_matched_games export is genuinely empty for current strategy/window.")
+                logging.info(
+                    "[LOCAL MATCHED EXPORT] latest alias written=%s unchanged_content=%s path=%s",
+                    str(written).lower(),
+                    str(unchanged).lower(),
+                    out_path,
+                )
                 return
             
             cutoff_date = max_played_ts.date()
@@ -1029,13 +1090,20 @@ def write_latest_local_matched_csv(
             source_name = "df_past_sorted(last_window_filtered)"
 
         if subset.empty:
-            log_local_matched_write_intent(
-                dest_path=out_path,
+            empty_df = pd.DataFrame(columns=cols)
+            written, unchanged = write_csv_with_audit(
+                empty_df,
+                out_path,
                 source_name=source_name,
-                df=pd.DataFrame(columns=cols),
+                allow_header_only=True,
             )
-            pd.DataFrame(columns=cols).to_csv(out_path, index=False, encoding="utf-8")
-            logging.info("Wrote EMPTY (no matches) local_matched_games_latest.csv -> %s", out_path)
+            logging.warning("local_matched_games export is genuinely empty for current strategy/window.")
+            logging.info(
+                "[LOCAL MATCHED EXPORT] latest alias written=%s unchanged_content=%s path=%s",
+                str(written).lower(),
+                str(unchanged).lower(),
+                out_path,
+            )
             return
 
         export_df = prepare_local_matched_export(subset, stake=float(stake))
@@ -1043,14 +1111,24 @@ def write_latest_local_matched_csv(
             if c not in export_df.columns:
                 export_df[c] = np.nan
 
-        log_local_matched_write_intent(dest_path=out_path, source_name=source_name, df=export_df[cols])
-        export_df[cols].to_csv(out_path, index=False, encoding="utf-8")
+        written, unchanged = write_csv_with_audit(
+            export_df[cols],
+            out_path,
+            source_name=source_name,
+            allow_header_only=True,
+        )
         logging.info(
             "Wrote local_matched_games_latest.csv -> %s (%d rows) [window_n=%d cutoff<=%s]",
             out_path,
             len(export_df),
             int(window_n),
             str(cutoff_date) if cutoff_date is not None else "historical_subset",
+        )
+        logging.info(
+            "[LOCAL MATCHED EXPORT] latest alias written=%s unchanged_content=%s path=%s",
+            str(written).lower(),
+            str(unchanged).lower(),
+            out_path,
         )
 
   
@@ -1107,10 +1185,14 @@ def write_strategy_params(params_used: dict, *, min_ev: float, as_of_date: str, 
     logging.info("Saved %s", out_json_dated)
 
 
-def write_local_matched_artifacts(export_df: pd.DataFrame, *, as_of_date: str, output_dir: Path) -> None:
+def write_local_matched_artifacts(
+    export_df: pd.DataFrame,
+    *,
+    as_of_date: str,
+    output_dir: Path,
+    source_name: str,
+) -> str:
     output_dir.mkdir(parents=True, exist_ok=True)
-    dated_path = output_dir / f"local_matched_games_{as_of_date}.csv"
-    latest_path = output_dir / "local_matched_games_latest.csv"
     normalized_df = export_df.copy()
     for col in LOCAL_MATCHED_EXPORT_COLUMNS:
         if col not in normalized_df.columns:
@@ -1144,6 +1226,14 @@ def write_local_matched_artifacts(export_df: pd.DataFrame, *, as_of_date: str, o
         if normalized_df["date"].isna().any():
             raise RuntimeError("local_matched_games dated export has null date values after normalization")
 
+    resolved_local_matched_date = (
+        str(pd.to_datetime(normalized_df["date"], errors="coerce").max().date())
+        if not normalized_df.empty
+        else as_of_date
+    )
+    dated_path = output_dir / f"local_matched_games_{resolved_local_matched_date}.csv"
+    latest_path = output_dir / "local_matched_games_latest.csv"
+
     logging.info("local_matched export output path: %s", dated_path)
     logging.info("local_matched export rows before normalization: %d", row_count_before)
     logging.info("local_matched export rows after normalization: %d", int(len(normalized_df)))
@@ -1158,15 +1248,37 @@ def write_local_matched_artifacts(export_df: pd.DataFrame, *, as_of_date: str, o
         int(len(normalized_df)),
     )
 
-    log_local_matched_write_intent(dest_path=dated_path, source_name="historical_strategy_subset", df=normalized_df)
-    normalized_df.to_csv(dated_path, index=False, encoding="utf-8")
-    shutil.copyfile(dated_path, latest_path)
+    dated_written, dated_unchanged = write_csv_with_audit(
+        normalized_df,
+        dated_path,
+        source_name=source_name,
+        allow_header_only=True,
+    )
+    latest_written, latest_unchanged = write_csv_with_audit(
+        normalized_df,
+        latest_path,
+        source_name=f"{source_name} (latest_alias)",
+        allow_header_only=True,
+    )
+    logging.info(
+        "[LOCAL MATCHED EXPORT] dated written=%s unchanged_content=%s path=%s",
+        str(dated_written).lower(),
+        str(dated_unchanged).lower(),
+        dated_path,
+    )
+    logging.info(
+        "[LOCAL MATCHED EXPORT] latest alias written=%s unchanged_content=%s path=%s",
+        str(latest_written).lower(),
+        str(latest_unchanged).lower(),
+        latest_path,
+    )
     logging.info("Saved %s (%d rows)", dated_path, len(normalized_df))
-    logging.info("Updated %s -> mirror of %s", latest_path, dated_path.name)
+    logging.info("Updated %s -> mirror content of %s", latest_path, dated_path.name)
+    return resolved_local_matched_date
 
 
-def validate_dated_dashboard_artifacts(*, output_dir: Path, as_of_date: str) -> None:
-    matched_dated = output_dir / f"local_matched_games_{as_of_date}.csv"
+def validate_dated_dashboard_artifacts(*, output_dir: Path, as_of_date: str, local_matched_date: str) -> None:
+    matched_dated = output_dir / f"local_matched_games_{local_matched_date}.csv"
     matched_latest = output_dir / "local_matched_games_latest.csv"
     strategy_json_dated = output_dir / f"strategy_params_{as_of_date}.json"
     strategy_txt_dated = output_dir / f"strategy_params_{as_of_date}.txt"
@@ -1501,11 +1613,20 @@ def main() -> None:
       historical_subset=historical_subset_for_export,
     )
 
-    write_local_matched_artifacts(matched_export_latest, as_of_date=as_of_date, output_dir=out_dir)
+    resolved_local_matched_date = write_local_matched_artifacts(
+        matched_export_latest,
+        as_of_date=as_of_date,
+        output_dir=out_dir,
+        source_name=local_matched_export_source,
+    )
 
     # Also write strategy params TXT (generated each run)
     write_strategy_params(local_params, min_ev=min_EV, as_of_date=as_of_date, stake=FLAT_STAKE, output_dir=out_dir)
-    validate_dated_dashboard_artifacts(output_dir=out_dir, as_of_date=as_of_date)
+    validate_dated_dashboard_artifacts(
+        output_dir=out_dir,
+        as_of_date=as_of_date,
+        local_matched_date=resolved_local_matched_date,
+    )
 
     # Minimal snapshot for trace (keep structure, but based on LOCAL params + last-200)
     snapshot = {
