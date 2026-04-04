@@ -887,6 +887,7 @@ def write_latest_local_matched_csv(
     stake: float,
     prob_clip_lo: float,
     prob_clip_hi: float,
+    historical_subset: Optional[pd.DataFrame] = None,
 ) -> None:
     """
     Writes web/public/data/local_matched_games_latest.csv as:
@@ -907,41 +908,49 @@ def write_latest_local_matched_csv(
 
         cols = LOCAL_MATCHED_EXPORT_COLUMNS
 
-        if df_past_sorted is None or df_past_sorted.empty:
-            pd.DataFrame(columns=cols).to_csv(out_path, index=False, encoding="utf-8")
-            logging.info("Wrote EMPTY local_matched_games_latest.csv -> %s", out_path)
-            return
+        if historical_subset is not None:
+            subset = historical_subset.copy()
+            cutoff_date = None
+            logging.info(
+                "[LOCAL MATCHED EXPORT] web latest source=historical_subset rows=%d",
+                int(len(subset)),
+            )
+        else:
+            if df_past_sorted is None or df_past_sorted.empty:
+                pd.DataFrame(columns=cols).to_csv(out_path, index=False, encoding="utf-8")
+                logging.info("Wrote EMPTY local_matched_games_latest.csv -> %s", out_path)
+                return
 
-        # --- cutoff to yesterday ---
-        df = df_past_sorted.copy()
-        df = _ensure_datetime(df, DATE_COL)
-        
-        max_played_ts = pd.to_datetime(df[DATE_COL], errors="coerce").max()
-        if pd.isna(max_played_ts):
-            pd.DataFrame(columns=cols).to_csv(out_path, index=False, encoding="utf-8")
-            logging.info("Wrote EMPTY local_matched_games_latest.csv -> %s (no played dates)", out_path)
-            return
-        
-        cutoff_date = max_played_ts.date()
-        df = df[df[DATE_COL].dt.date <= cutoff_date].copy()
+            # --- cutoff to yesterday ---
+            df = df_past_sorted.copy()
+            df = _ensure_datetime(df, DATE_COL)
+            
+            max_played_ts = pd.to_datetime(df[DATE_COL], errors="coerce").max()
+            if pd.isna(max_played_ts):
+                pd.DataFrame(columns=cols).to_csv(out_path, index=False, encoding="utf-8")
+                logging.info("Wrote EMPTY local_matched_games_latest.csv -> %s (no played dates)", out_path)
+                return
+            
+            cutoff_date = max_played_ts.date()
+            df = df[df[DATE_COL].dt.date <= cutoff_date].copy()
 
-        # last N played games inside cutoff
-        df = df.sort_values(DATE_COL).tail(int(window_n)).copy()
+            # last N played games inside cutoff
+            df = df.sort_values(DATE_COL).tail(int(window_n)).copy()
 
-        # compute prob_used + EV
-        df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=PROB_COL_HIST, dst="prob_used")
-        df = _compute_ev_per_100(df, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100")
+            # compute prob_used + EV
+            df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=PROB_COL_HIST, dst="prob_used")
+            df = _compute_ev_per_100(df, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100")
 
-        # apply filters (same as evaluate_params_on_hist_window)
-        prob_thr_eff = max(float(params_used["prob_threshold"]), float(prob_clip_lo))
-        mask = (
-            (df[HOMEWR_COL] >= float(params_used["home_win_rate_threshold"])) &
-            (df[HOME_ODDS_COL] >= float(params_used["odds_min"])) &
-            (df[HOME_ODDS_COL] <= float(params_used["odds_max"])) &
-            (df["prob_used"] >= prob_thr_eff) &
-            (df["EV_€_per_100"] > float(min_ev))
-        )
-        subset = df.loc[mask].copy()
+            # apply filters (same as evaluate_params_on_hist_window)
+            prob_thr_eff = max(float(params_used["prob_threshold"]), float(prob_clip_lo))
+            mask = (
+                (df[HOMEWR_COL] >= float(params_used["home_win_rate_threshold"])) &
+                (df[HOME_ODDS_COL] >= float(params_used["odds_min"])) &
+                (df[HOME_ODDS_COL] <= float(params_used["odds_max"])) &
+                (df["prob_used"] >= prob_thr_eff) &
+                (df["EV_€_per_100"] > float(min_ev))
+            )
+            subset = df.loc[mask].copy()
 
         if subset.empty:
             pd.DataFrame(columns=cols).to_csv(out_path, index=False, encoding="utf-8")
@@ -959,7 +968,7 @@ def write_latest_local_matched_csv(
             out_path,
             len(export_df),
             int(window_n),
-            str(cutoff_date),
+            str(cutoff_date) if cutoff_date is not None else "historical_subset",
         )
 
   
@@ -1320,10 +1329,44 @@ def main() -> None:
         prob_clip_hi=PROB_CLIP_HI,
     )
 
+    historical_subset_for_export = subset_local.copy() if subset_local is not None else pd.DataFrame()
+    local_matched_export_source = "historical_strategy_subset"
+    if historical_subset_for_export.empty:
+        _, fallback_subset = evaluate_params_on_hist_window(
+            hist_window_200,
+            local_params,
+            min_ev=min_EV,
+            flat_stake_backtest=FLAT_STAKE,
+            prob_clip_lo=PROB_CLIP_LO,
+            prob_clip_hi=PROB_CLIP_HI,
+        )
+        if fallback_subset is not None and not fallback_subset.empty:
+            historical_subset_for_export = fallback_subset.copy()
+            local_matched_export_source = "hist_df+params_used"
+            logging.info(
+                "[LOCAL MATCHED EXPORT] fallback source=hist_df+params_used rows=%d",
+                int(len(historical_subset_for_export)),
+            )
+
     matched_export_latest = prepare_local_matched_export(
-        subset_local if subset_local is not None else pd.DataFrame(),
+        historical_subset_for_export,
         stake=FLAT_STAKE,
     )
+    logging.info(
+        "[LOCAL MATCHED EXPORT] source=%s rows=%d",
+        local_matched_export_source,
+        int(len(matched_export_latest)),
+    )
+    if not matched_export_latest.empty:
+        logging.info(
+            "[LOCAL MATCHED EXPORT] date range=%s -> %s",
+            str(matched_export_latest["date"].iloc[0]),
+            str(matched_export_latest["date"].iloc[-1]),
+        )
+    else:
+        logging.warning(
+            "[LOCAL MATCHED EXPORT] WARNING: historical subset empty; writing header-only file"
+        )
 
     shortlist = build_bet_shortlist(df_all, local_params, min_EV)
     shortlist_path = kelly_dir / f"bet_shortlist_{target_ymd}.csv"
@@ -1355,6 +1398,7 @@ def main() -> None:
       stake=FLAT_STAKE,
       prob_clip_lo=PROB_CLIP_LO,
       prob_clip_hi=PROB_CLIP_HI,
+      historical_subset=historical_subset_for_export,
     )
 
     write_local_matched_artifacts(matched_export_latest, as_of_date=as_of_date, output_dir=out_dir)
@@ -1371,7 +1415,7 @@ def main() -> None:
             "strategy_variant_label": strategy_variant_label,
             "params_source": params_source,
             "combined_file_path": str(combined_source_path),
-            "local_matched_games_source": None,
+            "local_matched_games_source": local_matched_export_source,
         },
         "params_used_type": "LOCAL",
         "params_used": local_params,
