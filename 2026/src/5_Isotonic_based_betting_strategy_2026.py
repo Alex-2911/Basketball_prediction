@@ -1645,6 +1645,21 @@ def main() -> None:
     logging.info("Refreshed ACC combined with calibrated probabilities -> %s", acc_path)
 
     combined_source_path = iso_path if strategy_variant == "iso" else combined_path
+    snapshot_combined_source_path = combined_source_path
+    if as_of_date != target_ymd:
+        snapshot_path = (
+            kelly_dir / f"combined_nba_predictions_iso_{as_of_date}.csv"
+            if strategy_variant == "iso"
+            else Path(pred_dir) / f"combined_nba_predictions_acc_{as_of_date}.csv"
+        )
+        if not snapshot_path.exists():
+            df_all.to_csv(snapshot_path, index=False, encoding="utf-8")
+            logging.info(
+                "Wrote as-of aligned combined snapshot for metrics date %s -> %s",
+                as_of_date,
+                snapshot_path,
+            )
+        snapshot_combined_source_path = snapshot_path
 
     # ------------------------------------------------------------------
     # CORE: generate LOCAL params from LAST 200 played games (dashboard)
@@ -1813,19 +1828,22 @@ def main() -> None:
 
     snapshot = {
         "meta": {
+            "as_of_date": as_of_date,
             "eval_base_date_max": as_of_date,
             "strategy_variant": strategy_variant,
             "strategy_variant_label": strategy_variant_label,
             "params_source": params_source,
-            "combined_file_path": str(combined_source_path),
+            "combined_file_path": str(snapshot_combined_source_path),
             "local_matched_games_source": local_matched_export_source,
             "local_search_status": local_search_status,
         },
+        "as_of_date": as_of_date,
         "params_used_type": params_used_type,
         "fallback_used": fallback_used,
         "fallback_reason": fallback_reason,
         "local_search_status": local_search_status,
         "params_source": params_source,
+        "params_source_type": params_used_type,
         "params_used": local_params,
         "local_window_200": {
             "min_EV_applied": float(min_EV),
@@ -1855,8 +1873,11 @@ def main() -> None:
         "strategy_variant": strategy_variant,
         "strategy_variant_label": strategy_variant_label,
         "params_source": params_source,
-        "combined_file_path": str(combined_source_path),
+        "combined_file_path": str(snapshot_combined_source_path),
         "local_matched_games_latest_written": (not insufficient_history),
+        "params_used_type": params_used_type,
+        "fallback_used": fallback_used,
+        "fallback_reason": fallback_reason,
         "local_search_status": "skipped_insufficient_history" if insufficient_history else "ran",
         "local_window_games": int(len(hist_window_200)),
         "local_matched_games": int(len(matched_export_latest)),
