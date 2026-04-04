@@ -1,18 +1,21 @@
 {
   "meta": {
+    "as_of_date": "2026-04-03",
     "eval_base_date_max": "2026-04-03",
     "strategy_variant": "iso",
     "strategy_variant_label": "ISO/KELLY",
     "params_source": "/home/runner/work/Basketball_prediction/Basketball_prediction/web/public/data/strategy_params.json",
-    "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-04-04.csv",
+    "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-04-03.csv",
     "local_matched_games_source": "historical_strategy_subset",
     "local_search_status": "skipped_insufficient_history"
   },
+  "as_of_date": "2026-04-03",
   "params_used_type": "fallback",
   "fallback_used": true,
   "fallback_reason": "skipped_insufficient_history",
   "local_search_status": "skipped_insufficient_history",
   "params_source": "/home/runner/work/Basketball_prediction/Basketball_prediction/web/public/data/strategy_params.json",
+  "params_source_type": "fallback",
   "params_used": {
     "home_win_rate_threshold": 0.5,
     "odds_min": 2.3,
