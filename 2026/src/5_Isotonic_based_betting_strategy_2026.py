@@ -1259,6 +1259,8 @@ def write_local_matched_artifacts(
     as_of_date: str,
     output_dir: Path,
     source_name: str,
+    allow_header_only: bool,
+    intentional_empty: bool,
 ) -> str:
     output_dir.mkdir(parents=True, exist_ok=True)
     normalized_df = export_df.copy()
@@ -1271,7 +1273,13 @@ def write_local_matched_artifacts(
     date_source_col = next((c for c in DATE_SOURCE_CANDIDATES if c in normalized_df.columns), None)
     if row_count_before == 0:
         date_source_col = "date"
-        logging.warning("local_matched export is genuinely empty after fallback; writing intentional header-only dated artifact.")
+        if not intentional_empty:
+            raise RuntimeError(
+                "Refusing to write header-only local_matched artifacts without an explicit genuine-empty confirmation."
+            )
+        logging.warning(
+            "[LOCAL_MATCHED][WARN] genuine empty export after fallback; writing intentional header-only dated artifact."
+        )
     else:
         if date_source_col is None:
             raise RuntimeError("local_matched_games dated export missing required date column")
@@ -1320,13 +1328,13 @@ def write_local_matched_artifacts(
         normalized_df,
         dated_path,
         source_name=source_name,
-        allow_header_only=True,
+        allow_header_only=allow_header_only,
     )
     latest_written, latest_unchanged = write_csv_with_audit(
         normalized_df,
         latest_path,
         source_name=f"{source_name} (latest_alias)",
-        allow_header_only=True,
+        allow_header_only=allow_header_only,
     )
     logging.info(
         "[LOCAL MATCHED EXPORT] dated written=%s unchanged_content=%s path=%s",
@@ -1610,6 +1618,26 @@ def main() -> None:
         historical_subset_for_export,
         stake=FLAT_STAKE,
     )
+    if matched_export_latest.empty and not historical_subset_for_export.empty:
+        logging.warning(
+            "[LOCAL_MATCHED] normalized export became empty; forcing fallback reconstruction from hist_df + params_used"
+        )
+        rebuilt_subset = rebuild_historical_subset_from_hist_df(
+            df_past_sorted,
+            params_used=local_params,
+            window_n=FAIR_COMPARE_N,
+            min_ev=min_EV,
+            prob_clip_lo=PROB_CLIP_LO,
+            prob_clip_hi=PROB_CLIP_HI,
+        )
+        if not rebuilt_subset.empty:
+            historical_subset_for_export = rebuilt_subset.copy()
+            local_matched_export_source = "hist_df+params_used(rebuild_after_empty_normalization)"
+            local_matched_fallback_used = True
+            matched_export_latest = prepare_local_matched_export(
+                historical_subset_for_export,
+                stake=FLAT_STAKE,
+            )
     logging.info("[LOCAL MATCHED EXPORT] source=%s rows=%d fallback_used=%s", local_matched_export_source, int(len(matched_export_latest)), str(local_matched_fallback_used).lower())
     if not matched_export_latest.empty:
         logging.info(
@@ -1666,6 +1694,8 @@ def main() -> None:
         as_of_date=as_of_date,
         output_dir=out_dir,
         source_name=local_matched_export_source,
+        allow_header_only=bool(matched_export_latest.empty),
+        intentional_empty=bool(matched_export_latest.empty),
     )
 
     # Also write strategy params TXT (generated each run)
