@@ -110,6 +110,12 @@ OUTPUT_PROBABILITY_COLUMNS = [
     "prob_used",
 ]
 
+LOCAL_MATCHED_EXPORT_COLUMNS = [
+    "date", "home_team", "away_team",
+    "home_win_rate", "prob_iso", "prob_used",
+    "odds_1", "EV_€_per_100", "win", "pnl", "stake"
+]
+
 SHORTLIST_COLUMNS = [
     DATE_COL, "home_team", "away_team", "home_team_prob", "prob_iso", PROB_ISO_OOS_TIME_COL,
     PROB_LIVE_OOS_PROXY_COL, "prob_live_safe_pre_clip", "prob_base", "prob_used",
@@ -802,6 +808,11 @@ def find_best_local_params_lastN(
 
 def prepare_local_matched_export(matched_subset: pd.DataFrame, stake: float) -> pd.DataFrame:
     df = matched_subset.copy()
+    if df.empty:
+        logging.info("local_matched export is empty before normalization; writing schema-only export.")
+        return pd.DataFrame(columns=LOCAL_MATCHED_EXPORT_COLUMNS)
+
+    row_count_before = int(len(df))
     date_source_col = next((c for c in DATE_SOURCE_CANDIDATES if c in df.columns), None)
     if date_source_col is None:
         raise RuntimeError(
@@ -819,7 +830,10 @@ def prepare_local_matched_export(matched_subset: pd.DataFrame, stake: float) -> 
         )
     df = df.loc[valid_date_mask].copy()
     if df.empty:
-        raise RuntimeError("local_matched_games dated export has 0 valid date rows after normalization")
+        raise RuntimeError(
+            "local_matched_games dated export has rows but 0 valid date rows after normalization "
+            f"(source={date_source_col})"
+        )
     df["date"] = parsed_dates.loc[valid_date_mask].dt.strftime("%Y-%m-%d")
 
     if "home_win_rate" not in df.columns:
@@ -843,22 +857,24 @@ def prepare_local_matched_export(matched_subset: pd.DataFrame, stake: float) -> 
     df["win"] = df["win"].clip(0, 1).astype(int)
     df["stake"] = float(stake)
 
-    cols = [
-        "date", "home_team", "away_team",
-        "home_win_rate", "prob_iso", "prob_used",
-        "odds_1", "EV_€_per_100", "win", "pnl", "stake"
-    ]
-    for c in cols:
+    for c in LOCAL_MATCHED_EXPORT_COLUMNS:
         if c not in df.columns:
             df[c] = np.nan
 
-    out = df[cols].copy()
+    out = df[LOCAL_MATCHED_EXPORT_COLUMNS].copy()
 
     # IMPORTANT: prevent duplicates (your current latest CSV has duplicates)
     out = out.sort_values(["date", "home_team", "away_team", "EV_€_per_100"], ascending=[True, True, True, False])
     out = out.drop_duplicates(subset=["date", "home_team", "away_team"], keep="first")
 
-    return out.sort_values("date").reset_index(drop=True)
+    out = out.sort_values("date").reset_index(drop=True)
+    logging.info(
+        "local_matched export prepared: before_normalization=%d after_normalization=%d date_source=%s",
+        row_count_before,
+        int(len(out)),
+        date_source_col,
+    )
+    return out
 
 
 def write_latest_local_matched_csv(
@@ -889,11 +905,7 @@ def write_latest_local_matched_csv(
         out_path = repo_root / "web" / "public" / "data" / "local_matched_games_latest.csv"
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-        cols = [
-            "date", "home_team", "away_team",
-            "home_win_rate", "prob_iso", "prob_used",
-            "odds_1", "EV_€_per_100", "win", "pnl", "stake"
-        ]
+        cols = LOCAL_MATCHED_EXPORT_COLUMNS
 
         if df_past_sorted is None or df_past_sorted.empty:
             pd.DataFrame(columns=cols).to_csv(out_path, index=False, encoding="utf-8")
@@ -1009,26 +1021,42 @@ def write_local_matched_artifacts(export_df: pd.DataFrame, *, as_of_date: str, o
     dated_path = output_dir / f"local_matched_games_{as_of_date}.csv"
     latest_path = output_dir / "local_matched_games_latest.csv"
     normalized_df = export_df.copy()
+    for col in LOCAL_MATCHED_EXPORT_COLUMNS:
+        if col not in normalized_df.columns:
+            normalized_df[col] = np.nan
+    normalized_df = normalized_df[LOCAL_MATCHED_EXPORT_COLUMNS].copy()
+
+    row_count_before = int(len(normalized_df))
     date_source_col = next((c for c in DATE_SOURCE_CANDIDATES if c in normalized_df.columns), None)
-    if date_source_col is None:
-        raise RuntimeError("local_matched_games dated export missing required date column")
-    parsed_dates = pd.to_datetime(normalized_df[date_source_col], errors="coerce")
-    valid_mask = parsed_dates.notna()
-    dropped = int((~valid_mask).sum())
-    if dropped:
-        logging.warning(
-            "Dropping %d invalid local_matched rows before writing artifacts (date source=%s).",
-            dropped,
-            date_source_col,
-        )
-    normalized_df = normalized_df.loc[valid_mask].copy()
-    if normalized_df.empty:
-        raise RuntimeError("local_matched_games dated export has 0 valid date rows after normalization")
-    normalized_df["date"] = parsed_dates.loc[valid_mask].dt.strftime("%Y-%m-%d")
-    if normalized_df["date"].isna().any():
-        raise RuntimeError("local_matched_games dated export has null date values after normalization")
+    if row_count_before == 0:
+        date_source_col = "date"
+        logging.info("local_matched export is empty; writing schema-only dated artifact.")
+    else:
+        if date_source_col is None:
+            raise RuntimeError("local_matched_games dated export missing required date column")
+        parsed_dates = pd.to_datetime(normalized_df[date_source_col], errors="coerce")
+        valid_mask = parsed_dates.notna()
+        dropped = int((~valid_mask).sum())
+        if dropped:
+            logging.warning(
+                "Dropping %d invalid local_matched rows before writing artifacts (date source=%s).",
+                dropped,
+                date_source_col,
+            )
+        normalized_df = normalized_df.loc[valid_mask].copy()
+        if normalized_df.empty:
+            raise RuntimeError(
+                "local_matched_games dated export has rows but 0 valid date rows after normalization "
+                f"(source={date_source_col})"
+            )
+        normalized_df["date"] = parsed_dates.loc[valid_mask].dt.strftime("%Y-%m-%d")
+        if normalized_df["date"].isna().any():
+            raise RuntimeError("local_matched_games dated export has null date values after normalization")
 
     logging.info("local_matched export output path: %s", dated_path)
+    logging.info("local_matched export rows before normalization: %d", row_count_before)
+    logging.info("local_matched export rows after normalization: %d", int(len(normalized_df)))
+    logging.info("local_matched export writing empty valid export: %s", "yes" if normalized_df.empty else "no")
     logging.info("local_matched export date source column: %s", date_source_col)
     logging.info("local_matched export columns: %s", list(normalized_df.columns))
     logging.info("local_matched export head(3):\n%s", normalized_df.head(3).to_string(index=False))
@@ -1073,6 +1101,13 @@ def validate_dated_dashboard_artifacts(*, output_dir: Path, as_of_date: str) -> 
     matched_df = pd.read_csv(matched_dated)
     if "date" not in matched_df.columns:
         raise RuntimeError("local_matched_games dated export missing required date column")
+    if matched_df.empty:
+        logging.info("Validated empty local_matched dated export with schema-only header.")
+        logging.info("Validated dated dashboard artifacts for as_of_date=%s", as_of_date)
+        logging.info("- %s", matched_dated)
+        logging.info("- %s", strategy_json_dated)
+        logging.info("- %s", strategy_txt_dated)
+        return
     valid_dates = pd.to_datetime(matched_df["date"], errors="coerce").notna()
     valid_date_count = int(valid_dates.sum())
     if valid_date_count <= 0:
@@ -1285,7 +1320,10 @@ def main() -> None:
         prob_clip_hi=PROB_CLIP_HI,
     )
 
-    matched_export_latest = prepare_local_matched_export(subset_local, stake=FLAT_STAKE) if subset_local is not None else pd.DataFrame()
+    matched_export_latest = prepare_local_matched_export(
+        subset_local if subset_local is not None else pd.DataFrame(),
+        stake=FLAT_STAKE,
+    )
 
     shortlist = build_bet_shortlist(df_all, local_params, min_EV)
     shortlist_path = kelly_dir / f"bet_shortlist_{target_ymd}.csv"
