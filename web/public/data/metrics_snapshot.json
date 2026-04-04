@@ -8,7 +8,11 @@
     "local_matched_games_source": "historical_strategy_subset",
     "local_search_status": "skipped_insufficient_history"
   },
-  "params_used_type": "LOCAL",
+  "params_used_type": "fallback",
+  "fallback_used": true,
+  "fallback_reason": "skipped_insufficient_history",
+  "local_search_status": "skipped_insufficient_history",
+  "params_source": "/home/runner/work/Basketball_prediction/Basketball_prediction/web/public/data/strategy_params.json",
   "params_used": {
     "home_win_rate_threshold": 0.5,
     "odds_min": 2.3,
