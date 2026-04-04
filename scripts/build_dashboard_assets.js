@@ -17,6 +17,13 @@ const outputDir = path.resolve(
 const webDataDir = path.join(repoRoot, 'web', 'public', 'data');
 
 const REQUIRED_WINDOW_SIZE = Number(process.env.N_WINDOW || 200);
+const HARD_DEFAULT_PARAMS = {
+  home_win_rate_threshold: 0.5,
+  odds_min: 2.3,
+  odds_max: 3.2,
+  prob_threshold: 0.45,
+  min_ev: 0,
+};
 
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
@@ -26,9 +33,10 @@ function parseStrategyParams(txt) {
   const params = {};
   txt.split(/\r?\n/).forEach((line) => {
     if (!line.trim()) return;
-    const [key, value] = line.split('=');
+    const separator = line.includes(':') ? ':' : '=';
+    const [key, ...valueParts] = line.split(separator);
     if (!key) return;
-    const trimmedValue = value?.trim();
+    const trimmedValue = valueParts.join(separator).trim();
     if (trimmedValue === undefined) return;
     const num = Number(trimmedValue);
     params[key.trim()] = Number.isNaN(num) ? trimmedValue : num;
@@ -226,6 +234,78 @@ function coerceDateISO(value) {
   return parsed.toISOString().slice(0, 10);
 }
 
+function extractDateFromName(fileName) {
+  const match = String(fileName).match(/(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : null;
+}
+
+function listDatedCandidates(dir, prefix, suffix) {
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir)
+    .filter((name) => name.startsWith(prefix) && name.endsWith(suffix))
+    .map((name) => ({ name, date: extractDateFromName(name) }))
+    .filter((entry) => Boolean(entry.date))
+    .sort((a, b) => (a.date > b.date ? 1 : -1));
+}
+
+function selectDatedAtOrBefore(candidates, snapshotDate) {
+  if (!candidates.length) return null;
+  if (!snapshotDate) return candidates[candidates.length - 1];
+  const filtered = candidates.filter((entry) => entry.date <= snapshotDate);
+  return filtered.length ? filtered[filtered.length - 1] : null;
+}
+
+function resolveParamsSource(outputRoot, snapshotDate) {
+  const metricsCandidates = listDatedCandidates(outputRoot, 'metrics_snapshot_', '.json');
+  const exactMetrics = metricsCandidates.find((entry) => entry.date === snapshotDate);
+  const datedMetrics = exactMetrics || selectDatedAtOrBefore(metricsCandidates, snapshotDate);
+  if (datedMetrics) {
+    return {
+      sourceType: 'metrics_snapshot_dated',
+      filePath: path.join(outputRoot, datedMetrics.name),
+      artifactDate: datedMetrics.date,
+    };
+  }
+
+  const strategyJsonCandidates = listDatedCandidates(outputRoot, 'strategy_params_', '.json');
+  const exactStrategyJson = strategyJsonCandidates.find((entry) => entry.date === snapshotDate);
+  const datedStrategyJson =
+    exactStrategyJson || selectDatedAtOrBefore(strategyJsonCandidates, snapshotDate);
+  if (datedStrategyJson) {
+    return {
+      sourceType: 'strategy_params_dated_json',
+      filePath: path.join(outputRoot, datedStrategyJson.name),
+      artifactDate: datedStrategyJson.date,
+    };
+  }
+
+  const strategyTxtCandidates = listDatedCandidates(outputRoot, 'strategy_params_', '.txt');
+  const exactStrategyTxt = strategyTxtCandidates.find((entry) => entry.date === snapshotDate);
+  const datedStrategyTxt = exactStrategyTxt || selectDatedAtOrBefore(strategyTxtCandidates, snapshotDate);
+  if (datedStrategyTxt) {
+    return {
+      sourceType: 'strategy_params_dated_txt',
+      filePath: path.join(outputRoot, datedStrategyTxt.name),
+      artifactDate: datedStrategyTxt.date,
+    };
+  }
+
+  return {
+    sourceType: 'default',
+    filePath: null,
+    artifactDate: null,
+  };
+}
+
+function readParamsPayload(source) {
+  if (!source.filePath) return {};
+  if (source.filePath.endsWith('.json')) {
+    return safeReadJson(source.filePath, source.filePath);
+  }
+  return parseStrategyParams(fs.readFileSync(source.filePath, 'utf8'));
+}
+
 function isPlayedRow(row) {
   const result = row.result ?? row.result_raw ?? '';
   const trimmed = String(result).trim();
@@ -254,12 +334,6 @@ function computeWindowFromPlayedGames(combinedRows, windowSize) {
 
 function main() {
   ensureDir(webDataDir);
-
-  // ----------------------------
-  // Required: metrics snapshot
-  // ----------------------------
-  const metricsPath = path.join(outputDir, 'metrics_snapshot.json');
-  const metricsSnapshot = safeReadJson(metricsPath, 'metrics_snapshot.json');
 
   // ----------------------------
   // Prefer ISO combined (Kelly/combined_nba_predictions_iso_*)
@@ -301,22 +375,25 @@ function main() {
   );
   console.log(`Computed window from ${playedCount} played games.`);
 
-  // ----------------------------
-  // strategy_params.txt -> strategy_params.json (optional)
-  // ----------------------------
-  const strategyParamsTxtPath = path.join(outputDir, 'strategy_params.txt');
-  let strategyParams = {};
-  if (fs.existsSync(strategyParamsTxtPath)) {
-    const raw = fs.readFileSync(strategyParamsTxtPath, 'utf8');
-    strategyParams = parseStrategyParams(raw);
-  }
-
-  // ----------------------------
-  // as_of_date: prefer strategy_params.txt, else metrics_snapshot meta
-  // ----------------------------
+  const selectedSnapshotDate = process.env.SNAPSHOT_DATE || windowEnd;
+  const paramsSource = resolveParamsSource(outputDir, selectedSnapshotDate);
+  const paramsPayload = readParamsPayload(paramsSource);
+  const strategyParams = paramsSource.sourceType.includes('strategy_params')
+    ? paramsPayload
+    : {};
+  const metricsSnapshot = paramsSource.sourceType === 'metrics_snapshot_dated'
+    ? paramsPayload
+    : null;
+  const paramsUsed =
+    metricsSnapshot?.params_used ||
+    (Object.keys(strategyParams).length ? strategyParams : HARD_DEFAULT_PARAMS);
+  const sourceFallbackUsed = Boolean(metricsSnapshot?.fallback_used ?? strategyParams?.fallback_used);
+  const sourceFallbackReason = metricsSnapshot?.fallback_reason || strategyParams?.fallback_reason || null;
   const asOfDate =
     strategyParams.as_of_date ||
     metricsSnapshot?.meta?.eval_base_date_max ||
+    paramsSource.artifactDate ||
+    selectedSnapshotDate ||
     new Date().toISOString().slice(0, 10);
 
   // ----------------------------
@@ -349,18 +426,52 @@ function main() {
     localMatchedParsed.delimiter
   );
 
-  // ----------------------------
-  // bet log (optional)
-  // ----------------------------
-  const betLogPath = path.join(outputDir, 'bet_log_flat_live.csv');
-  const betLogExists = fs.existsSync(betLogPath);
+  const betLogCandidates = [
+    path.join(repoRoot, '2026', 'bet_log', 'bet_log_flat_live.csv'),
+    path.join(outputDir, 'bet_log_flat_live.csv'),
+    path.join(webDataDir, 'bet_log_flat_live.csv'),
+  ].filter((candidate, index, arr) => fs.existsSync(candidate) && arr.indexOf(candidate) === index);
+  const canonicalBetLogPath = path.join(repoRoot, '2026', 'bet_log', 'bet_log_flat_live.csv');
+  let selectedBetLogPath = fs.existsSync(canonicalBetLogPath) ? canonicalBetLogPath : (betLogCandidates[0] || null);
+  let betLogLatestDateInFile = null;
+  let betLogFreshnessWarning = null;
+  if (selectedBetLogPath) {
+    const scanBetLogDate = (filePath) => {
+      const parsed = parseDelimitedWithDelimiter(fs.readFileSync(filePath, 'utf8'));
+      if (!parsed.rows.length) return null;
+      const dateKey = resolveHeader(parsed.headers, ['date', 'game_date']);
+      if (!dateKey) return null;
+      return parsed.rows
+        .map((row) => coerceDateISO(row[dateKey]))
+        .filter(Boolean)
+        .sort()
+        .slice(-1)[0] || null;
+    };
+    const datedCandidates = betLogCandidates.map((filePath) => ({
+      filePath,
+      latestDate: scanBetLogDate(filePath),
+    }));
+    const freshest = datedCandidates
+      .filter((entry) => entry.latestDate)
+      .sort((a, b) => (a.latestDate > b.latestDate ? -1 : 1))[0] || null;
+    betLogLatestDateInFile = scanBetLogDate(selectedBetLogPath);
+    if (
+      freshest &&
+      freshest.filePath !== selectedBetLogPath &&
+      freshest.latestDate &&
+      betLogLatestDateInFile &&
+      freshest.latestDate > betLogLatestDateInFile
+    ) {
+      betLogFreshnessWarning =
+        `Canonical bet log is stale (${path.relative(repoRoot, selectedBetLogPath)}:${betLogLatestDateInFile}) ` +
+        `vs newer candidate (${path.relative(repoRoot, freshest.filePath)}:${freshest.latestDate}).`;
+      console.warn(betLogFreshnessWarning);
+    }
+  }
 
   // ----------------------------
   // Active filters text
-  // Prefer your new Script 5 structure:
-  // metricsSnapshot.params_used + strategyParams.min_ev
   // ----------------------------
-  const paramsUsed = metricsSnapshot.params_used || metricsSnapshot.filter_params || {};
   const minEV = (strategyParams.min_ev !== undefined) ? strategyParams.min_ev : paramsUsed.min_EV;
 
   const activeFiltersText = [
@@ -401,7 +512,7 @@ function main() {
     window_end: windowEnd,
     active_filters_text: activeFiltersText,
     params_used_label: 'Historical',
-    params_source_label: metricsSnapshot.params_used_type || 'Unknown',
+    params_source_label: metricsSnapshot?.params_used_type || (paramsSource.sourceType === 'default' ? 'default' : 'strategy_params'),
     effective_params: {
       as_of_date: asOfDate,
       window_size: REQUIRED_WINDOW_SIZE,
@@ -416,12 +527,23 @@ function main() {
       profit_eur: strategyParams['profit_€'] ?? strategyParams.profit_eur ?? null,
       roi_pct: strategyParams['roi_%'] ?? strategyParams.roi_pct ?? null,
     },
+    params_source_file: paramsSource.filePath ? path.relative(repoRoot, paramsSource.filePath) : null,
+    params_source_type: paramsSource.sourceType,
+    params_artifact_date: paramsSource.artifactDate,
+    fallback_used: sourceFallbackUsed || paramsSource.sourceType === 'default',
+    fallback_reason: sourceFallbackUsed
+      ? sourceFallbackReason
+      : (paramsSource.sourceType === 'default' ? 'hardcoded_defaults' : null),
     params_sources: {
-      metrics_snapshot: 'metrics_snapshot.json',
+      metrics_snapshot: paramsSource.sourceType === 'metrics_snapshot_dated'
+        ? path.basename(paramsSource.filePath)
+        : null,
       strategy_params_json: fs.existsSync(path.join(webDataDir, 'strategy_params.json'))
         ? 'strategy_params.json'
         : null,
-      strategy_params_txt: fs.existsSync(strategyParamsTxtPath) ? 'strategy_params.txt' : null,
+      strategy_params_txt: paramsSource.sourceType.includes('strategy_params')
+        ? path.basename(paramsSource.filePath)
+        : null,
     },
     strategy_as_of_date: strategyAsOfDate,
     last_update_utc: new Date().toISOString(),
@@ -430,7 +552,10 @@ function main() {
       combined_source: combinedIsoName ? `Kelly/${combinedIsoName}` : (combinedAccName || null),
       local_matched: 'local_matched_games_latest.csv',
       local_matched_source: path.relative(repoRoot, localMatchedSourcePath),
-      bet_log: betLogExists ? 'bet_log_flat_live.csv' : null,
+      bet_log: selectedBetLogPath ? 'bet_log_flat_live.csv' : null,
+      bet_log_source_file: selectedBetLogPath ? path.relative(repoRoot, selectedBetLogPath) : null,
+      bet_log_latest_date_in_file: betLogLatestDateInFile,
+      bet_log_freshness_warning: betLogFreshnessWarning,
     },
     strategy_matches_window: inWindowLocalMatches.length,
   };
@@ -438,7 +563,26 @@ function main() {
   // ----------------------------
   // Copy artifacts into web/public/data
   // ----------------------------
-  copyFile(metricsPath, path.join(webDataDir, 'metrics_snapshot.json'));
+  if (paramsSource.sourceType === 'metrics_snapshot_dated' && paramsSource.filePath) {
+    copyFile(paramsSource.filePath, path.join(webDataDir, 'metrics_snapshot.json'));
+  } else {
+    const synthesizedMetrics = {
+      meta: {
+        eval_base_date_max: asOfDate,
+        params_source: paramsSource.filePath ? path.relative(repoRoot, paramsSource.filePath) : 'hardcoded_defaults',
+      },
+      params_used_type: dashboardState.params_source_label,
+      params_used: paramsUsed,
+      fallback_used: dashboardState.fallback_used,
+      fallback_reason: dashboardState.fallback_reason,
+      params_source: dashboardState.params_source_file,
+    };
+    fs.writeFileSync(
+      path.join(webDataDir, 'metrics_snapshot.json'),
+      JSON.stringify(synthesizedMetrics, null, 2),
+      'utf8'
+    );
+  }
   const filteredCombinedRows = combinedRows.filter((row) => {
     const resultRawValue = row.result_raw ?? '';
     const resultValue = row.result ?? '';
@@ -462,11 +606,11 @@ function main() {
   // Always ensure deployed local_matched_games_latest.csv matches our chosen source
   copyFile(localMatchedSourcePath, path.join(webDataDir, 'local_matched_games_latest.csv'));
 
-  if (betLogExists) {
-    copyFile(betLogPath, path.join(webDataDir, 'bet_log_flat_live.csv'));
+  if (selectedBetLogPath) {
+    copyFile(selectedBetLogPath, path.join(webDataDir, 'bet_log_flat_live.csv'));
   }
 
-  if (Object.keys(strategyParams).length) {
+  if (Object.keys(strategyParams).length || paramsSource.sourceType === 'default') {
     fs.writeFileSync(
       path.join(webDataDir, 'strategy_params.json'),
       JSON.stringify(strategyParams, null, 2),
@@ -479,6 +623,15 @@ function main() {
     JSON.stringify(dashboardState, null, 2),
     'utf8'
   );
+
+  if (paramsSource.artifactDate && paramsSource.artifactDate > selectedSnapshotDate) {
+    throw new Error(
+      `Snapshot consistency check failed: params artifact date ${paramsSource.artifactDate} > selected snapshot ${selectedSnapshotDate}.`
+    );
+  }
+  if (!dashboardState.fallback_used && dashboardState.fallback_reason) {
+    throw new Error('Snapshot consistency check failed: fallback_reason set while fallback_used=false.');
+  }
 
   // Sanity output
   const combinedHeader = fs.readFileSync(path.join(webDataDir, 'combined_latest.csv'), 'utf8')

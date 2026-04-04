@@ -1806,6 +1806,11 @@ def main() -> None:
         )
 
     # Minimal snapshot for trace (keep structure, but based on LOCAL params + last-200)
+    fallback_used = bool(insufficient_history)
+    fallback_reason = "skipped_insufficient_history" if fallback_used else None
+    params_used_type = "fallback" if fallback_used else "LOCAL"
+    local_search_status = "skipped_insufficient_history" if fallback_used else "ran"
+
     snapshot = {
         "meta": {
             "eval_base_date_max": as_of_date,
@@ -1814,9 +1819,13 @@ def main() -> None:
             "params_source": params_source,
             "combined_file_path": str(combined_source_path),
             "local_matched_games_source": local_matched_export_source,
-            "local_search_status": "skipped_insufficient_history" if insufficient_history else "ran",
+            "local_search_status": local_search_status,
         },
-        "params_used_type": "LOCAL",
+        "params_used_type": params_used_type,
+        "fallback_used": fallback_used,
+        "fallback_reason": fallback_reason,
+        "local_search_status": local_search_status,
+        "params_source": params_source,
         "params_used": local_params,
         "local_window_200": {
             "min_EV_applied": float(min_EV),
@@ -1837,7 +1846,10 @@ def main() -> None:
         },
     }
 
-    write_json(out_dir / "metrics_snapshot.json", snapshot)
+    metrics_snapshot_path = out_dir / "metrics_snapshot.json"
+    metrics_snapshot_dated_path = out_dir / f"metrics_snapshot_{as_of_date}.json"
+    write_json(metrics_snapshot_path, snapshot)
+    write_json(metrics_snapshot_dated_path, snapshot)
     write_json(out_dir / "summary.json", {
         "as_of_date": as_of_date,
         "strategy_variant": strategy_variant,
