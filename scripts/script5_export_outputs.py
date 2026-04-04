@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import date
 from pathlib import Path
 
@@ -24,6 +25,11 @@ REQUIRED_COLUMNS = [
 ]
 
 STRATEGY_VARIANTS = {"acc", "iso"}
+
+
+def extract_date_from_filename(name: str) -> str | None:
+    match = re.search(r"(\d{4}-\d{2}-\d{2})", str(name))
+    return match.group(1) if match else None
 
 
 def resolve_source_root(base_dir: Path) -> Path:
@@ -270,6 +276,7 @@ def build_metrics_snapshot(
 
     return {
         "meta": {
+            "as_of_date": as_of_date,
             "eval_base_date_max": as_of_date,
             "strategy_results_label": "Simulated (last 200 games window)",
             "live_bets_label": "Live bets (2026 YTD, unfiltered)",
@@ -286,11 +293,13 @@ def build_metrics_snapshot(
             "real_bets_note": real_bets_note,
             "local_search_status": local_search_status,
         },
+        "as_of_date": as_of_date,
         "params_used_type": params_used_type,
         "fallback_used": fallback_used,
         "fallback_reason": fallback_reason,
         "local_search_status": local_search_status,
         "params_source": params_source,
+        "params_source_type": params_used_type,
         "params_used": params,
         "realized": {
             "count": realized_count,
@@ -414,6 +423,14 @@ def main() -> int:
     else:
         real_bets_note = "available"
 
+    snapshot_combined_path = combined_path
+    if combined_path is not None:
+        combined_date = extract_date_from_filename(combined_path.name)
+        if combined_date and combined_date != as_of_date:
+            dated_candidate = combined_path.parent / combined_path.name.replace(combined_date, as_of_date, 1)
+            if dated_candidate.exists():
+                snapshot_combined_path = dated_candidate
+
     snapshot = build_metrics_snapshot(
         export_df,
         as_of_date=as_of_date,
@@ -423,7 +440,7 @@ def main() -> int:
         strategy_variant=strategy_variant,
         strategy_variant_label=strategy_variant_label,
         params_source=params_source,
-        combined_file_path=str(combined_path) if combined_path else None,
+        combined_file_path=str(snapshot_combined_path) if snapshot_combined_path else None,
         local_matched_games_source=str(local_matched_path) if local_matched_path else None,
         real_bets_available=real_bets_available,
         real_bets_note=real_bets_note,
@@ -456,7 +473,7 @@ def main() -> int:
         "strategy_variant": strategy_variant,
         "strategy_variant_label": strategy_variant_label,
         "params_source": params_source,
-        "combined_file_path": str(combined_path) if combined_path else None,
+        "combined_file_path": str(snapshot_combined_path) if snapshot_combined_path else None,
         "local_matched_games_source": str(local_matched_path) if local_matched_path else None,
         "real_bets_available": real_bets_available,
         "real_bets_note": real_bets_note,

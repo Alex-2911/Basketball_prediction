@@ -391,6 +391,7 @@ function main() {
   const sourceFallbackReason = metricsSnapshot?.fallback_reason || strategyParams?.fallback_reason || null;
   const asOfDate =
     strategyParams.as_of_date ||
+    metricsSnapshot?.as_of_date ||
     metricsSnapshot?.meta?.eval_base_date_max ||
     paramsSource.artifactDate ||
     selectedSnapshotDate ||
@@ -474,13 +475,17 @@ function main() {
   // ----------------------------
   const minEV = (strategyParams.min_ev !== undefined) ? strategyParams.min_ev : paramsUsed.min_EV;
 
-  const activeFiltersText = [
+  const activeFiltersParts = [
     `HW \u2265 ${formatNumber(paramsUsed.home_win_rate_threshold, 2)}`,
     `odds ${formatNumber(paramsUsed.odds_min, 2)}\u2013${formatNumber(paramsUsed.odds_max, 2)}`,
     `p \u2265 ${formatNumber(paramsUsed.prob_threshold, 2)}`,
     `EV > ${formatMinEv(minEV)}`,
     `window ${REQUIRED_WINDOW_SIZE} games (${windowStart} \u2192 ${windowEnd})`,
-  ].join(' | ');
+  ];
+  if (sourceFallbackUsed) {
+    activeFiltersParts.push(`fallback (${sourceFallbackReason || 'safe_fallback_used'})`);
+  }
+  const activeFiltersText = activeFiltersParts.join(' | ');
 
   // ----------------------------
   // Windowed local matches count
@@ -511,8 +516,10 @@ function main() {
     window_start: windowStart,
     window_end: windowEnd,
     active_filters_text: activeFiltersText,
+    snapshot_date_selected: selectedSnapshotDate,
     params_used_label: 'Historical',
     params_source_label: metricsSnapshot?.params_used_type || (paramsSource.sourceType === 'default' ? 'default' : 'strategy_params'),
+    params_used: paramsUsed,
     effective_params: {
       as_of_date: asOfDate,
       window_size: REQUIRED_WINDOW_SIZE,
@@ -546,6 +553,8 @@ function main() {
         : null,
     },
     strategy_as_of_date: strategyAsOfDate,
+    bet_log_source_file: selectedBetLogPath ? path.relative(repoRoot, selectedBetLogPath) : null,
+    bet_log_latest_date_in_file: betLogLatestDateInFile,
     last_update_utc: new Date().toISOString(),
     source_files: {
       combined: 'combined_latest.csv',
@@ -553,8 +562,6 @@ function main() {
       local_matched: 'local_matched_games_latest.csv',
       local_matched_source: path.relative(repoRoot, localMatchedSourcePath),
       bet_log: selectedBetLogPath ? 'bet_log_flat_live.csv' : null,
-      bet_log_source_file: selectedBetLogPath ? path.relative(repoRoot, selectedBetLogPath) : null,
-      bet_log_latest_date_in_file: betLogLatestDateInFile,
       bet_log_freshness_warning: betLogFreshnessWarning,
     },
     strategy_matches_window: inWindowLocalMatches.length,
@@ -631,6 +638,25 @@ function main() {
   }
   if (!dashboardState.fallback_used && dashboardState.fallback_reason) {
     throw new Error('Snapshot consistency check failed: fallback_reason set while fallback_used=false.');
+  }
+  if (
+    paramsSource.sourceType === 'metrics_snapshot_dated' &&
+    paramsSource.artifactDate &&
+    paramsSource.artifactDate !== selectedSnapshotDate
+  ) {
+    console.warn(
+      `Snapshot selection warning: selected snapshot ${selectedSnapshotDate} resolved to dated metrics artifact ${paramsSource.artifactDate}.`
+    );
+  }
+  if (
+    metricsSnapshot?.meta?.eval_base_date_max &&
+    paramsSource.artifactDate &&
+    metricsSnapshot.meta.eval_base_date_max !== paramsSource.artifactDate
+  ) {
+    throw new Error(
+      `Snapshot consistency check failed: metrics meta eval_base_date_max (${metricsSnapshot.meta.eval_base_date_max}) ` +
+      `!= artifact date (${paramsSource.artifactDate}).`
+    );
   }
 
   // Sanity output
