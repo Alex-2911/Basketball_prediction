@@ -250,6 +250,10 @@ def build_metrics_snapshot(
     local_matched_games_source: str | None,
     real_bets_available: bool,
     real_bets_note: str,
+    params_used_type: str,
+    fallback_used: bool,
+    fallback_reason: str | None,
+    local_search_status: str,
 ) -> dict:
     realized_count = int(len(export_df))
     profit_sum = float(export_df["pnl"].sum()) if realized_count > 0 else 0.0
@@ -280,8 +284,13 @@ def build_metrics_snapshot(
             "local_matched_games_source": local_matched_games_source,
             "real_bets_available": real_bets_available,
             "real_bets_note": real_bets_note,
+            "local_search_status": local_search_status,
         },
-        "params_used_type": os.environ.get("PARAMS_USED_TYPE", "LOCAL"),
+        "params_used_type": params_used_type,
+        "fallback_used": fallback_used,
+        "fallback_reason": fallback_reason,
+        "local_search_status": local_search_status,
+        "params_source": params_source,
         "params_used": params,
         "realized": {
             "count": realized_count,
@@ -386,6 +395,15 @@ def main() -> int:
         "prob_threshold": os.environ.get("PROB_THRESHOLD", 0.0),
     }
     min_ev = float(os.environ.get("MIN_EV", 0.0))
+    local_search_status = os.environ.get("LOCAL_SEARCH_STATUS", "unknown")
+    raw_params_used_type = os.environ.get("PARAMS_USED_TYPE", "LOCAL").strip().lower()
+    explicit_fallback = os.environ.get("FALLBACK_USED", "").strip().lower() in {"1", "true", "yes"}
+    derived_fallback = raw_params_used_type != "local" or local_search_status.startswith("skipped")
+    fallback_used = bool(explicit_fallback or derived_fallback)
+    params_used_type = "fallback" if fallback_used else "LOCAL"
+    fallback_reason = os.environ.get("FALLBACK_REASON")
+    if fallback_used and not fallback_reason:
+        fallback_reason = local_search_status if local_search_status != "unknown" else "safe_fallback_used"
 
     bet_log_path = find_bet_log(output_dir)
     real_bets_available = bool(bet_log_path and bet_log_path.exists())
@@ -409,10 +427,16 @@ def main() -> int:
         local_matched_games_source=str(local_matched_path) if local_matched_path else None,
         real_bets_available=real_bets_available,
         real_bets_note=real_bets_note,
+        params_used_type=params_used_type,
+        fallback_used=fallback_used,
+        fallback_reason=fallback_reason,
+        local_search_status=local_search_status,
     )
 
     metrics_path = output_dir / "metrics_snapshot.json"
+    metrics_dated_path = output_dir / f"metrics_snapshot_{as_of_date}.json"
     metrics_path.write_text(json.dumps(snapshot, indent=2), encoding="utf-8")
+    metrics_dated_path.write_text(json.dumps(snapshot, indent=2), encoding="utf-8")
 
     if not export_df.empty:
         export_path = output_dir / f"local_matched_games_{as_of_date}.csv"
