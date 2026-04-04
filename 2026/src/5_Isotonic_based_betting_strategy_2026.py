@@ -403,11 +403,15 @@ def load_combined_df(pred_dir: str, ymd: str) -> pd.DataFrame:
 
     if RESULT_COL not in df.columns:
         df[RESULT_COL] = np.nan
-        if "home_team" in df.columns and "result" in df.columns:
-            mask = df["result"].notna() & (df["result"].astype(str) != "0")
-            df.loc[mask, RESULT_COL] = (
-                df.loc[mask, "result"].astype(str) == df.loc[mask, "home_team"].astype(str)
-            ).astype(int)
+    if "home_team" in df.columns and "result" in df.columns:
+        mask = (
+            df["result"].notna()
+            & (df["result"].astype(str) != "0")
+            & df[RESULT_COL].isna()
+        )
+        df.loc[mask, RESULT_COL] = (
+            df.loc[mask, "result"].astype(str) == df.loc[mask, "home_team"].astype(str)
+        ).astype(int)
 
     return df
 
@@ -565,10 +569,11 @@ def split_past_future(df_all: pd.DataFrame, today_date, tomorrow_date) -> Tuple[
 # ISOTONIC / METRICS
 # -----------------------------
 
-def fit_isotonic(df_past: pd.DataFrame) -> IsotonicRegression:
+def fit_isotonic(df_past: pd.DataFrame) -> Optional[IsotonicRegression]:
     m = df_past[RESULT_COL].notna() & df_past[PRED_PROBA_COL].notna()
     if m.sum() == 0:
-        raise RuntimeError("No valid rows for isotonic fit.")
+        logging.warning("No valid rows for isotonic fit; using base probabilities.")
+        return None
     y = df_past.loc[m, RESULT_COL].astype(int).values
     p = df_past.loc[m, PRED_PROBA_COL].astype(float).values
     iso = IsotonicRegression(out_of_bounds="clip")
