@@ -88,6 +88,17 @@ OUTPUT_BASE_COLUMNS = [
     "accuracy",
 ]
 
+DATE_SOURCE_CANDIDATES = [
+    "date",
+    DATE_COL,
+    "game_date",
+    "date_x",
+    "Date",
+    "DATE",
+    "datetime",
+    "timestamp",
+]
+
 OUTPUT_PROBABILITY_COLUMNS = [
     "prob_iso",
     "prob_iso_insample",
@@ -791,10 +802,25 @@ def find_best_local_params_lastN(
 
 def prepare_local_matched_export(matched_subset: pd.DataFrame, stake: float) -> pd.DataFrame:
     df = matched_subset.copy()
-    if "date" not in df.columns:
-        df["date"] = df[DATE_COL]
-    df = _ensure_datetime(df, "date")
-    df["date"] = df["date"].dt.strftime("%Y-%m-%d")
+    date_source_col = next((c for c in DATE_SOURCE_CANDIDATES if c in df.columns), None)
+    if date_source_col is None:
+        raise RuntimeError(
+            "local_matched_games dated export missing required date column "
+            f"(checked candidates={DATE_SOURCE_CANDIDATES})"
+        )
+    parsed_dates = pd.to_datetime(df[date_source_col], errors="coerce")
+    valid_date_mask = parsed_dates.notna()
+    invalid_count = int((~valid_date_mask).sum())
+    if invalid_count > 0:
+        logging.warning(
+            "Dropping %d local_matched rows with invalid %s values during date normalization.",
+            invalid_count,
+            date_source_col,
+        )
+    df = df.loc[valid_date_mask].copy()
+    if df.empty:
+        raise RuntimeError("local_matched_games dated export has 0 valid date rows after normalization")
+    df["date"] = parsed_dates.loc[valid_date_mask].dt.strftime("%Y-%m-%d")
 
     if "home_win_rate" not in df.columns:
         df["home_win_rate"] = df[HOMEWR_COL]
@@ -982,9 +1008,40 @@ def write_local_matched_artifacts(export_df: pd.DataFrame, *, as_of_date: str, o
     output_dir.mkdir(parents=True, exist_ok=True)
     dated_path = output_dir / f"local_matched_games_{as_of_date}.csv"
     latest_path = output_dir / "local_matched_games_latest.csv"
-    export_df.to_csv(dated_path, index=False, encoding="utf-8")
+    normalized_df = export_df.copy()
+    date_source_col = next((c for c in DATE_SOURCE_CANDIDATES if c in normalized_df.columns), None)
+    if date_source_col is None:
+        raise RuntimeError("local_matched_games dated export missing required date column")
+    parsed_dates = pd.to_datetime(normalized_df[date_source_col], errors="coerce")
+    valid_mask = parsed_dates.notna()
+    dropped = int((~valid_mask).sum())
+    if dropped:
+        logging.warning(
+            "Dropping %d invalid local_matched rows before writing artifacts (date source=%s).",
+            dropped,
+            date_source_col,
+        )
+    normalized_df = normalized_df.loc[valid_mask].copy()
+    if normalized_df.empty:
+        raise RuntimeError("local_matched_games dated export has 0 valid date rows after normalization")
+    normalized_df["date"] = parsed_dates.loc[valid_mask].dt.strftime("%Y-%m-%d")
+    if normalized_df["date"].isna().any():
+        raise RuntimeError("local_matched_games dated export has null date values after normalization")
+
+    logging.info("local_matched export output path: %s", dated_path)
+    logging.info("local_matched export date source column: %s", date_source_col)
+    logging.info("local_matched export columns: %s", list(normalized_df.columns))
+    logging.info("local_matched export head(3):\n%s", normalized_df.head(3).to_string(index=False))
+    logging.info(
+        "local_matched export non-null date=%d valid parsed=%d rows=%d",
+        int(normalized_df["date"].notna().sum()),
+        int(pd.to_datetime(normalized_df["date"], errors="coerce").notna().sum()),
+        int(len(normalized_df)),
+    )
+
+    normalized_df.to_csv(dated_path, index=False, encoding="utf-8")
     shutil.copyfile(dated_path, latest_path)
-    logging.info("Saved %s (%d rows)", dated_path, len(export_df))
+    logging.info("Saved %s (%d rows)", dated_path, len(normalized_df))
     logging.info("Updated %s -> mirror of %s", latest_path, dated_path.name)
 
 
@@ -1012,6 +1069,16 @@ def validate_dated_dashboard_artifacts(*, output_dir: Path, as_of_date: str) -> 
 
     if matched_dated.read_text(encoding="utf-8") != matched_latest.read_text(encoding="utf-8"):
         raise RuntimeError("Validation failed. local_matched_games_latest.csv does not mirror dated local_matched file.")
+
+    matched_df = pd.read_csv(matched_dated)
+    if "date" not in matched_df.columns:
+        raise RuntimeError("local_matched_games dated export missing required date column")
+    valid_dates = pd.to_datetime(matched_df["date"], errors="coerce").notna()
+    valid_date_count = int(valid_dates.sum())
+    if valid_date_count <= 0:
+        raise RuntimeError("local_matched_games dated export has 0 valid date rows after normalization")
+    if not valid_dates.all():
+        raise RuntimeError("local_matched_games dated export includes invalid date rows after normalization")
 
     logging.info("Validated dated dashboard artifacts for as_of_date=%s", as_of_date)
     logging.info("- %s", matched_dated)
