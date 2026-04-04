@@ -877,6 +877,56 @@ def prepare_local_matched_export(matched_subset: pd.DataFrame, stake: float) -> 
     return out
 
 
+def log_local_matched_write_intent(*, dest_path: Path, source_name: str, df: pd.DataFrame) -> None:
+    row_count = int(len(df))
+    if row_count <= 0:
+        logging.warning(
+            "[LOCAL MATCHED EXPORT] writing header-only file -> %s | source=%s rows=0",
+            dest_path,
+            source_name,
+        )
+        return
+
+    parsed_dates = pd.to_datetime(df["date"], errors="coerce") if "date" in df.columns else pd.Series(dtype="datetime64[ns]")
+    if parsed_dates.notna().any():
+        min_date = parsed_dates.min().strftime("%Y-%m-%d")
+        max_date = parsed_dates.max().strftime("%Y-%m-%d")
+    else:
+        min_date = "NA"
+        max_date = "NA"
+    logging.info(
+        "[LOCAL MATCHED EXPORT] writing file -> %s | source=%s rows=%d min_date=%s max_date=%s",
+        dest_path,
+        source_name,
+        row_count,
+        min_date,
+        max_date,
+    )
+
+
+def rebuild_historical_subset_from_hist_df(
+    hist_df: pd.DataFrame,
+    *,
+    params_used: dict,
+    window_n: int,
+    min_ev: float,
+    prob_clip_lo: float,
+    prob_clip_hi: float,
+) -> pd.DataFrame:
+    if hist_df is None or hist_df.empty:
+        return pd.DataFrame()
+    hist_window = _ensure_datetime(hist_df.copy(), DATE_COL).sort_values(DATE_COL).tail(int(window_n)).copy()
+    _, rebuilt_subset = evaluate_params_on_hist_window(
+        hist_window,
+        params_used,
+        min_ev=min_ev,
+        flat_stake_backtest=FLAT_STAKE,
+        prob_clip_lo=prob_clip_lo,
+        prob_clip_hi=prob_clip_hi,
+    )
+    return rebuilt_subset.copy() if rebuilt_subset is not None else pd.DataFrame()
+
+
 def write_latest_local_matched_csv(
     df_past_sorted: pd.DataFrame,
     *,
@@ -908,6 +958,7 @@ def write_latest_local_matched_csv(
 
         cols = LOCAL_MATCHED_EXPORT_COLUMNS
 
+        source_name = "historical_subset"
         if historical_subset is not None:
             subset = historical_subset.copy()
             cutoff_date = None
@@ -915,8 +966,27 @@ def write_latest_local_matched_csv(
                 "[LOCAL MATCHED EXPORT] web latest source=historical_subset rows=%d",
                 int(len(subset)),
             )
+            if subset.empty:
+                subset = rebuild_historical_subset_from_hist_df(
+                    df_past_sorted,
+                    params_used=params_used,
+                    window_n=window_n,
+                    min_ev=min_ev,
+                    prob_clip_lo=prob_clip_lo,
+                    prob_clip_hi=prob_clip_hi,
+                )
+                source_name = "hist_df+params_used"
+                logging.info(
+                    "[LOCAL MATCHED EXPORT] web latest fallback source=hist_df+params_used rows=%d",
+                    int(len(subset)),
+                )
         else:
             if df_past_sorted is None or df_past_sorted.empty:
+                log_local_matched_write_intent(
+                    dest_path=out_path,
+                    source_name="df_past_sorted(empty)",
+                    df=pd.DataFrame(columns=cols),
+                )
                 pd.DataFrame(columns=cols).to_csv(out_path, index=False, encoding="utf-8")
                 logging.info("Wrote EMPTY local_matched_games_latest.csv -> %s", out_path)
                 return
@@ -927,6 +997,11 @@ def write_latest_local_matched_csv(
             
             max_played_ts = pd.to_datetime(df[DATE_COL], errors="coerce").max()
             if pd.isna(max_played_ts):
+                log_local_matched_write_intent(
+                    dest_path=out_path,
+                    source_name="df_past_sorted(no_played_dates)",
+                    df=pd.DataFrame(columns=cols),
+                )
                 pd.DataFrame(columns=cols).to_csv(out_path, index=False, encoding="utf-8")
                 logging.info("Wrote EMPTY local_matched_games_latest.csv -> %s (no played dates)", out_path)
                 return
@@ -951,8 +1026,14 @@ def write_latest_local_matched_csv(
                 (df["EV_€_per_100"] > float(min_ev))
             )
             subset = df.loc[mask].copy()
+            source_name = "df_past_sorted(last_window_filtered)"
 
         if subset.empty:
+            log_local_matched_write_intent(
+                dest_path=out_path,
+                source_name=source_name,
+                df=pd.DataFrame(columns=cols),
+            )
             pd.DataFrame(columns=cols).to_csv(out_path, index=False, encoding="utf-8")
             logging.info("Wrote EMPTY (no matches) local_matched_games_latest.csv -> %s", out_path)
             return
@@ -962,6 +1043,7 @@ def write_latest_local_matched_csv(
             if c not in export_df.columns:
                 export_df[c] = np.nan
 
+        log_local_matched_write_intent(dest_path=out_path, source_name=source_name, df=export_df[cols])
         export_df[cols].to_csv(out_path, index=False, encoding="utf-8")
         logging.info(
             "Wrote local_matched_games_latest.csv -> %s (%d rows) [window_n=%d cutoff<=%s]",
@@ -1076,6 +1158,7 @@ def write_local_matched_artifacts(export_df: pd.DataFrame, *, as_of_date: str, o
         int(len(normalized_df)),
     )
 
+    log_local_matched_write_intent(dest_path=dated_path, source_name="historical_strategy_subset", df=normalized_df)
     normalized_df.to_csv(dated_path, index=False, encoding="utf-8")
     shutil.copyfile(dated_path, latest_path)
     logging.info("Saved %s (%d rows)", dated_path, len(normalized_df))
@@ -1332,7 +1415,24 @@ def main() -> None:
     historical_subset_for_export = subset_local.copy() if subset_local is not None else pd.DataFrame()
     local_matched_export_source = "historical_strategy_subset"
     if historical_subset_for_export.empty:
-        _, fallback_subset = evaluate_params_on_hist_window(
+        fallback_subset = rebuild_historical_subset_from_hist_df(
+            df_past_sorted,
+            params_used=local_params,
+            window_n=FAIR_COMPARE_N,
+            min_ev=min_EV,
+            prob_clip_lo=PROB_CLIP_LO,
+            prob_clip_hi=PROB_CLIP_HI,
+        )
+        if not fallback_subset.empty:
+            historical_subset_for_export = fallback_subset.copy()
+            local_matched_export_source = "hist_df+params_used"
+            logging.info(
+                "[LOCAL MATCHED EXPORT] fallback source=hist_df+params_used rows=%d",
+                int(len(historical_subset_for_export)),
+            )
+
+    if historical_subset_for_export.empty and not hist_window_200.empty:
+        _, fallback_subset_window = evaluate_params_on_hist_window(
             hist_window_200,
             local_params,
             min_ev=min_EV,
@@ -1340,11 +1440,11 @@ def main() -> None:
             prob_clip_lo=PROB_CLIP_LO,
             prob_clip_hi=PROB_CLIP_HI,
         )
-        if fallback_subset is not None and not fallback_subset.empty:
-            historical_subset_for_export = fallback_subset.copy()
-            local_matched_export_source = "hist_df+params_used"
+        if fallback_subset_window is not None and not fallback_subset_window.empty:
+            historical_subset_for_export = fallback_subset_window.copy()
+            local_matched_export_source = "hist_window_200+params_used"
             logging.info(
-                "[LOCAL MATCHED EXPORT] fallback source=hist_df+params_used rows=%d",
+                "[LOCAL MATCHED EXPORT] fallback source=hist_window_200+params_used rows=%d",
                 int(len(historical_subset_for_export)),
             )
 
