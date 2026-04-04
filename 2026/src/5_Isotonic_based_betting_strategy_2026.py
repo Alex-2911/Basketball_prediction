@@ -923,9 +923,10 @@ def summarize_local_matched_df(df: pd.DataFrame) -> dict:
     }
 
 
-def write_csv_with_audit(df: pd.DataFrame, dest_path: Path, *, source_name: str, allow_header_only: bool) -> tuple[bool, bool]:
+def write_csv_with_audit(df: pd.DataFrame, dest_path: Path, *, source_name: str, allow_header_only: bool) -> tuple[bool, bool, str]:
     """
-    Returns (written, unchanged_content).
+    Returns (written, unchanged_content, action) where action is one of
+    {'rewritten', 'unchanged'}.
     """
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     if df.empty and not allow_header_only:
@@ -947,8 +948,49 @@ def write_csv_with_audit(df: pd.DataFrame, dest_path: Path, *, source_name: str,
     existing_content = dest_path.read_text(encoding="utf-8") if dest_path.exists() else None
     new_content = df.to_csv(index=False, encoding="utf-8")
     unchanged = existing_content is not None and existing_content == new_content
+    if unchanged:
+        return True, True, "unchanged"
     dest_path.write_text(new_content, encoding="utf-8")
-    return True, unchanged
+    return True, False, "rewritten"
+
+
+def write_local_matched_export_report(
+    *,
+    output_dir: Path,
+    as_of_date: str,
+    params_used: dict,
+    selected_source: str,
+    source_rows: int,
+    rows_exported: int,
+    date_min: str,
+    date_max: str,
+    max_date_used_for_filename: str,
+    dated_path: Path,
+    latest_path: Path,
+    dated_status: str,
+    latest_status: str,
+    reason_if_nothing_written: str,
+) -> Path:
+    run_date = datetime.utcnow().strftime("%Y-%m-%d")
+    report_path = output_dir / f"local_matched_games_export_report_{run_date}.txt"
+    lines = [
+        f"timestamp_utc={datetime.utcnow().isoformat()}Z",
+        f"as_of_date={as_of_date}",
+        f"params_used={json.dumps(params_used, sort_keys=True)}",
+        f"selected_source={selected_source}",
+        f"source_rows={source_rows}",
+        f"rows_exported={rows_exported}",
+        f"date_range={date_min}..{date_max}",
+        f"max_date_used_for_filename={max_date_used_for_filename}",
+        f"dated_output={dated_path}",
+        f"latest_output={latest_path}",
+        f"dated_status={dated_status}",
+        f"latest_status={latest_status}",
+        f"reason_if_nothing_written={reason_if_nothing_written}",
+    ]
+    report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    logging.info("[LOCAL MATCHED EXPORT] report=%s", report_path)
+    return report_path
 
 
 def rebuild_historical_subset_from_hist_df(
@@ -1098,7 +1140,7 @@ def write_latest_local_matched_csv(
         else:
             if df_past_sorted is None or df_past_sorted.empty:
                 empty_df = pd.DataFrame(columns=cols)
-                written, unchanged = write_csv_with_audit(
+                written, unchanged, _ = write_csv_with_audit(
                     empty_df,
                     out_path,
                     source_name="df_past_sorted(empty)",
@@ -1120,7 +1162,7 @@ def write_latest_local_matched_csv(
             max_played_ts = pd.to_datetime(df[DATE_COL], errors="coerce").max()
             if pd.isna(max_played_ts):
                 empty_df = pd.DataFrame(columns=cols)
-                written, unchanged = write_csv_with_audit(
+                written, unchanged, _ = write_csv_with_audit(
                     empty_df,
                     out_path,
                     source_name="df_past_sorted(no_played_dates)",
@@ -1159,7 +1201,7 @@ def write_latest_local_matched_csv(
 
         if subset.empty:
             empty_df = pd.DataFrame(columns=cols)
-            written, unchanged = write_csv_with_audit(
+            written, unchanged, _ = write_csv_with_audit(
                 empty_df,
                 out_path,
                 source_name=source_name,
@@ -1179,7 +1221,7 @@ def write_latest_local_matched_csv(
             if c not in export_df.columns:
                 export_df[c] = np.nan
 
-        written, unchanged = write_csv_with_audit(
+        written, unchanged, _ = write_csv_with_audit(
             export_df[cols],
             out_path,
             source_name=source_name,
@@ -1258,6 +1300,7 @@ def write_local_matched_artifacts(
     *,
     as_of_date: str,
     output_dir: Path,
+    params_used: dict,
     source_name: str,
     allow_header_only: bool,
     intentional_empty: bool,
@@ -1309,12 +1352,20 @@ def write_local_matched_artifacts(
     )
     dated_path = output_dir / f"local_matched_games_{resolved_local_matched_date}.csv"
     latest_path = output_dir / "local_matched_games_latest.csv"
+    summary = summarize_local_matched_df(normalized_df)
 
-    logging.info("local_matched export output path: %s", dated_path)
+    logging.info("local_matched export source dataframe: %s", source_name)
+    logging.info("local_matched export output paths: dated=%s latest=%s", dated_path, latest_path)
     logging.info("local_matched export rows before normalization: %d", row_count_before)
     logging.info("local_matched export rows after normalization: %d", int(len(normalized_df)))
     logging.info("local_matched export writing empty valid export: %s", "yes" if normalized_df.empty else "no")
     logging.info("local_matched export date source column: %s", date_source_col)
+    logging.info("local_matched export naming max date: %s", resolved_local_matched_date)
+    logging.info(
+        "local_matched export date range: %s..%s",
+        summary["min_date"] or "NA",
+        summary["max_date"] or "NA",
+    )
     logging.info("local_matched export columns: %s", list(normalized_df.columns))
     logging.info("local_matched export head(3):\n%s", normalized_df.head(3).to_string(index=False))
     logging.info(
@@ -1324,34 +1375,59 @@ def write_local_matched_artifacts(
         int(len(normalized_df)),
     )
 
-    dated_written, dated_unchanged = write_csv_with_audit(
+    dated_written, dated_unchanged, dated_action = write_csv_with_audit(
         normalized_df,
         dated_path,
         source_name=source_name,
         allow_header_only=allow_header_only,
     )
-    latest_written, latest_unchanged = write_csv_with_audit(
+    latest_written, latest_unchanged, latest_action = write_csv_with_audit(
         normalized_df,
         latest_path,
         source_name=f"{source_name} (latest_alias)",
         allow_header_only=allow_header_only,
     )
+    if normalized_df.empty:
+        dated_action = "skipped_empty_source"
+        latest_action = "skipped_empty_source"
     logging.info(
-        "[LOCAL MATCHED EXPORT] dated written=%s unchanged_content=%s path=%s",
+        "[LOCAL MATCHED EXPORT] dated written=%s unchanged_content=%s action=%s path=%s",
         str(dated_written).lower(),
         str(dated_unchanged).lower(),
+        dated_action,
         dated_path,
     )
     logging.info(
-        "[LOCAL MATCHED EXPORT] latest alias written=%s unchanged_content=%s path=%s",
+        "[LOCAL MATCHED EXPORT] latest alias written=%s unchanged_content=%s action=%s path=%s",
         str(latest_written).lower(),
         str(latest_unchanged).lower(),
+        latest_action,
         latest_path,
     )
     if latest_unchanged:
         logging.info("[LOCAL_MATCHED] latest alias unchanged by content")
+        logging.info("[LOCAL MATCHED EXPORT] export evaluated successfully, no content change")
     else:
         logging.info("[LOCAL_MATCHED] latest alias updated with new content")
+
+    reason_if_nothing_written = "" if not normalized_df.empty else "skipped due to empty source dataframe"
+    write_local_matched_export_report(
+        output_dir=output_dir,
+        as_of_date=as_of_date,
+        params_used=params_used,
+        selected_source=source_name,
+        source_rows=row_count_before,
+        rows_exported=int(len(normalized_df)),
+        date_min=summary["min_date"] or "NA",
+        date_max=summary["max_date"] or "NA",
+        max_date_used_for_filename=resolved_local_matched_date,
+        dated_path=dated_path,
+        latest_path=latest_path,
+        dated_status=dated_action,
+        latest_status=latest_action,
+        reason_if_nothing_written=reason_if_nothing_written,
+    )
+
     logging.info("Saved %s (%d rows)", dated_path, len(normalized_df))
     logging.info("Updated %s -> mirror content of %s", latest_path, dated_path.name)
     return resolved_local_matched_date
@@ -1693,6 +1769,7 @@ def main() -> None:
         matched_export_latest,
         as_of_date=as_of_date,
         output_dir=out_dir,
+        params_used=local_params,
         source_name=local_matched_export_source,
         allow_header_only=bool(matched_export_latest.empty),
         intentional_empty=bool(matched_export_latest.empty),
