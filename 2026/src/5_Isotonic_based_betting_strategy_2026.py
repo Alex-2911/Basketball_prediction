@@ -17,6 +17,7 @@ import argparse
 import json
 import logging
 import os
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -946,15 +947,76 @@ def write_json(path: Path, payload: dict) -> None:
 
 def write_strategy_params(params_used: dict, *, min_ev: float, as_of_date: str, stake: float, output_dir: Path) -> None:
     """
-    Keep as txt for assets builder, but write the GENERATED params each run.
+    Keep txt/json aliases for local tooling and persist dated strategy params
+    for historical snapshot resolution.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     out = output_dir / "strategy_params.txt"
+    out_dated = output_dir / f"strategy_params_{as_of_date}.txt"
+    out_json = output_dir / "strategy_params.json"
+    out_json_dated = output_dir / f"strategy_params_{as_of_date}.json"
     lines = [f"as_of_date={as_of_date}", f"min_ev={float(min_ev)}", f"stake={float(stake)}"]
     for k in sorted(params_used.keys()):
         lines.append(f"{k}={params_used[k]}")
-    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    txt_payload = "\n".join(lines) + "\n"
+    out.write_text(txt_payload, encoding="utf-8")
+    out_dated.write_text(txt_payload, encoding="utf-8")
+
+    json_payload = {
+        "as_of_date": as_of_date,
+        "min_ev": float(min_ev),
+        "stake": float(stake),
+        "params_used": {k: params_used[k] for k in sorted(params_used.keys())},
+        "source": "script5_local_last200",
+    }
+    json_text = json.dumps(json_payload, indent=2)
+    out_json.write_text(json_text, encoding="utf-8")
+    out_json_dated.write_text(json_text, encoding="utf-8")
     logging.info("Saved %s", out)
+    logging.info("Saved %s", out_dated)
+    logging.info("Saved %s", out_json)
+    logging.info("Saved %s", out_json_dated)
+
+
+def write_local_matched_artifacts(export_df: pd.DataFrame, *, as_of_date: str, output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    dated_path = output_dir / f"local_matched_games_{as_of_date}.csv"
+    latest_path = output_dir / "local_matched_games_latest.csv"
+    export_df.to_csv(dated_path, index=False, encoding="utf-8")
+    shutil.copyfile(dated_path, latest_path)
+    logging.info("Saved %s (%d rows)", dated_path, len(export_df))
+    logging.info("Updated %s -> mirror of %s", latest_path, dated_path.name)
+
+
+def validate_dated_dashboard_artifacts(*, output_dir: Path, as_of_date: str) -> None:
+    matched_dated = output_dir / f"local_matched_games_{as_of_date}.csv"
+    matched_latest = output_dir / "local_matched_games_latest.csv"
+    strategy_json_dated = output_dir / f"strategy_params_{as_of_date}.json"
+    strategy_txt_dated = output_dir / f"strategy_params_{as_of_date}.txt"
+    strategy_json_alias = output_dir / "strategy_params.json"
+    strategy_txt_alias = output_dir / "strategy_params.txt"
+
+    required = [matched_dated, matched_latest, strategy_json_dated, strategy_txt_dated, strategy_json_alias, strategy_txt_alias]
+    missing = [str(p) for p in required if not p.exists()]
+    if missing:
+        raise RuntimeError(f"Validation failed. Missing dashboard artifacts: {missing}")
+
+    strategy_payload = json.loads(strategy_json_dated.read_text(encoding="utf-8"))
+    if str(strategy_payload.get("as_of_date")) != as_of_date:
+        raise RuntimeError(
+            "Validation failed. strategy_params dated JSON has mismatched as_of_date: "
+            f"expected={as_of_date} got={strategy_payload.get('as_of_date')}"
+        )
+    if f"as_of_date={as_of_date}" not in strategy_txt_dated.read_text(encoding="utf-8"):
+        raise RuntimeError("Validation failed. strategy_params dated TXT is missing matching as_of_date.")
+
+    if matched_dated.read_text(encoding="utf-8") != matched_latest.read_text(encoding="utf-8"):
+        raise RuntimeError("Validation failed. local_matched_games_latest.csv does not mirror dated local_matched file.")
+
+    logging.info("Validated dated dashboard artifacts for as_of_date=%s", as_of_date)
+    logging.info("- %s", matched_dated)
+    logging.info("- %s", strategy_json_dated)
+    logging.info("- %s", strategy_txt_dated)
 
 
 # -----------------------------
@@ -1190,9 +1252,11 @@ def main() -> None:
       prob_clip_hi=PROB_CLIP_HI,
     )
 
+    write_local_matched_artifacts(matched_export_latest, as_of_date=as_of_date, output_dir=out_dir)
 
     # Also write strategy params TXT (generated each run)
     write_strategy_params(local_params, min_ev=min_EV, as_of_date=as_of_date, stake=FLAT_STAKE, output_dir=out_dir)
+    validate_dated_dashboard_artifacts(output_dir=out_dir, as_of_date=as_of_date)
 
     # Minimal snapshot for trace (keep structure, but based on LOCAL params + last-200)
     snapshot = {
