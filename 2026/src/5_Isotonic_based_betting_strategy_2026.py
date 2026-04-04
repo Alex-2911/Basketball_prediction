@@ -71,6 +71,7 @@ PROB_CLIP_HI = 0.80
 # IMPORTANT: dashboard window is last 200 played games
 LOCAL_SEARCH_N = 200
 FAIR_COMPARE_N = 200
+MIN_HIST_ROWS_FOR_LOCAL = 100
 
 START_BANKROLL = 1000.0
 
@@ -675,6 +676,10 @@ def run_self_test(df_all: pd.DataFrame, live_meta: dict | None = None) -> None:
         reduced = suspicious["prob_used"] <= 0.55
         if not reduced.any():
             raise AssertionError("Expected underdog/high-prob rows to cap/shrink prob_used")
+
+
+def classify_local_search_history(hist_rows: int, min_required: int = MIN_HIST_ROWS_FOR_LOCAL) -> str:
+    return "insufficient_history" if int(hist_rows) < int(min_required) else "ok"
 
 def evaluate_params_on_hist_window(
     hist_window: pd.DataFrame,
@@ -1646,16 +1651,31 @@ def main() -> None:
     # ------------------------------------------------------------------
     min_EV = MIN_EV_DEFAULT
     hist_window_200 = df_past_sorted.tail(int(FAIR_COMPARE_N)).copy()  # last 200 played games
+    hist_rows = int(len(df_past_sorted))
+    history_status = classify_local_search_history(hist_rows, MIN_HIST_ROWS_FOR_LOCAL)
+    insufficient_history = history_status == "insufficient_history"
 
-    local_params, _ = find_best_local_params_lastN(
-        df_past_sorted,
-        window_n=LOCAL_SEARCH_N,          # =200
-        flat_stake_backtest=FLAT_STAKE,
-        min_ev=min_EV,
-        prob_clip_lo=PROB_CLIP_LO,
-        prob_clip_hi=PROB_CLIP_HI,
-        min_trades_local=10,
-    )
+    if insufficient_history:
+        logging.warning(
+            "LOCAL search skipped_insufficient_history: hist_rows=%d min_required=%d",
+            hist_rows,
+            int(MIN_HIST_ROWS_FOR_LOCAL),
+        )
+        logging.warning(
+            "Preserving previous local_matched/strategy_params artifacts because historical input is insufficient."
+        )
+
+    local_params = None
+    if not insufficient_history:
+        local_params, _ = find_best_local_params_lastN(
+            df_past_sorted,
+            window_n=LOCAL_SEARCH_N,          # =200
+            flat_stake_backtest=FLAT_STAKE,
+            min_ev=min_EV,
+            prob_clip_lo=PROB_CLIP_LO,
+            prob_clip_hi=PROB_CLIP_HI,
+            min_trades_local=10,
+        )
 
     # fallback if search found nothing
     if not local_params:
@@ -1749,39 +1769,41 @@ def main() -> None:
         o = float(r[HOME_ODDS_COL])
         bankroll_last_200 += FLAT_STAKE * (p * (o - 1.0) - (1.0 - p))
 
-    # -------------------------
-    # Write the ONLY file you want to be correct on dashboard:
-    # web/public/data/local_matched_games_latest.csv
-    # -------------------------
-    write_latest_local_matched_csv(
-      df_past_sorted,
-      params_used=local_params,
-      target_dt=target_dt,
-      window_n=FAIR_COMPARE_N,   # 200
-      min_ev=min_EV,
-      stake=FLAT_STAKE,
-      prob_clip_lo=PROB_CLIP_LO,
-      prob_clip_hi=PROB_CLIP_HI,
-      historical_subset=historical_subset_for_export,
-    )
+    resolved_local_matched_date = as_of_date
+    if not insufficient_history:
+        # -------------------------
+        # Write the ONLY file you want to be correct on dashboard:
+        # web/public/data/local_matched_games_latest.csv
+        # -------------------------
+        write_latest_local_matched_csv(
+          df_past_sorted,
+          params_used=local_params,
+          target_dt=target_dt,
+          window_n=FAIR_COMPARE_N,   # 200
+          min_ev=min_EV,
+          stake=FLAT_STAKE,
+          prob_clip_lo=PROB_CLIP_LO,
+          prob_clip_hi=PROB_CLIP_HI,
+          historical_subset=historical_subset_for_export,
+        )
 
-    resolved_local_matched_date = write_local_matched_artifacts(
-        matched_export_latest,
-        as_of_date=as_of_date,
-        output_dir=out_dir,
-        params_used=local_params,
-        source_name=local_matched_export_source,
-        allow_header_only=bool(matched_export_latest.empty),
-        intentional_empty=bool(matched_export_latest.empty),
-    )
+        resolved_local_matched_date = write_local_matched_artifacts(
+            matched_export_latest,
+            as_of_date=as_of_date,
+            output_dir=out_dir,
+            params_used=local_params,
+            source_name=local_matched_export_source,
+            allow_header_only=bool(matched_export_latest.empty),
+            intentional_empty=bool(matched_export_latest.empty),
+        )
 
-    # Also write strategy params TXT (generated each run)
-    write_strategy_params(local_params, min_ev=min_EV, as_of_date=as_of_date, stake=FLAT_STAKE, output_dir=out_dir)
-    validate_dated_dashboard_artifacts(
-        output_dir=out_dir,
-        as_of_date=as_of_date,
-        local_matched_date=resolved_local_matched_date,
-    )
+        # Also write strategy params TXT (generated each run)
+        write_strategy_params(local_params, min_ev=min_EV, as_of_date=as_of_date, stake=FLAT_STAKE, output_dir=out_dir)
+        validate_dated_dashboard_artifacts(
+            output_dir=out_dir,
+            as_of_date=as_of_date,
+            local_matched_date=resolved_local_matched_date,
+        )
 
     # Minimal snapshot for trace (keep structure, but based on LOCAL params + last-200)
     snapshot = {
@@ -1792,6 +1814,7 @@ def main() -> None:
             "params_source": params_source,
             "combined_file_path": str(combined_source_path),
             "local_matched_games_source": local_matched_export_source,
+            "local_search_status": "skipped_insufficient_history" if insufficient_history else "ran",
         },
         "params_used_type": "LOCAL",
         "params_used": local_params,
@@ -1821,7 +1844,8 @@ def main() -> None:
         "strategy_variant_label": strategy_variant_label,
         "params_source": params_source,
         "combined_file_path": str(combined_source_path),
-        "local_matched_games_latest_written": True,
+        "local_matched_games_latest_written": (not insufficient_history),
+        "local_search_status": "skipped_insufficient_history" if insufficient_history else "ran",
         "local_window_games": int(len(hist_window_200)),
         "local_matched_games": int(len(matched_export_latest)),
         "prob_col_hist": PROB_COL_HIST,
@@ -1829,12 +1853,13 @@ def main() -> None:
     })
 
     run_self_test(df_all, live_meta=live_meta)
-    logging.info("DONE. local_matched_games_latest.csv updated using LOCAL params on last-200 window ending %s.", as_of_date)
-
-    p = find_repo_root() / "web" / "public" / "data" / "local_matched_games_latest.csv"
-
-    logging.info("AFTER WRITE: latest size=%d bytes mtime=%s", p.stat().st_size, datetime.fromtimestamp(p.stat().st_mtime))
-    logging.info("AFTER WRITE HEAD:\n%s", "\n".join(p.read_text(encoding="utf-8").splitlines()[:5]))
+    if insufficient_history:
+        logging.info("DONE. LOCAL search skipped due to insufficient history; prior local artifacts preserved.")
+    else:
+        logging.info("DONE. local_matched_games_latest.csv updated using LOCAL params on last-200 window ending %s.", as_of_date)
+        p = find_repo_root() / "web" / "public" / "data" / "local_matched_games_latest.csv"
+        logging.info("AFTER WRITE: latest size=%d bytes mtime=%s", p.stat().st_size, datetime.fromtimestamp(p.stat().st_mtime))
+        logging.info("AFTER WRITE HEAD:\n%s", "\n".join(p.read_text(encoding="utf-8").splitlines()[:5]))
 
        
 if __name__ == "__main__":
