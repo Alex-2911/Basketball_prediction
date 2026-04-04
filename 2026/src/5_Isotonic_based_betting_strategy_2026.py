@@ -974,6 +974,74 @@ def rebuild_historical_subset_from_hist_df(
     return rebuilt_subset.copy() if rebuilt_subset is not None else pd.DataFrame()
 
 
+def resolve_historical_subset_for_local_matched_export(
+    *,
+    subset_local: Optional[pd.DataFrame],
+    hist_df: pd.DataFrame,
+    hist_window_200: pd.DataFrame,
+    params_used: dict,
+    min_ev: float,
+    prob_clip_lo: float,
+    prob_clip_hi: float,
+) -> tuple[pd.DataFrame, str, bool]:
+    """
+    Resolve one canonical dataframe for local_matched export (historical strategy subset only).
+    Returns (subset_df, source_name, fallback_used).
+    """
+    source_name = "historical_strategy_subset"
+    fallback_used = False
+    resolved_subset = subset_local.copy() if subset_local is not None else pd.DataFrame()
+
+    if resolved_subset.empty:
+        fallback_subset = rebuild_historical_subset_from_hist_df(
+            hist_df,
+            params_used=params_used,
+            window_n=FAIR_COMPARE_N,
+            min_ev=min_ev,
+            prob_clip_lo=prob_clip_lo,
+            prob_clip_hi=prob_clip_hi,
+        )
+        if not fallback_subset.empty:
+            resolved_subset = fallback_subset.copy()
+            source_name = "hist_df+params_used"
+            fallback_used = True
+            logging.info("[LOCAL_MATCHED] fallback reconstruction used from hist_df + params_used")
+
+    if resolved_subset.empty and not hist_window_200.empty:
+        _, fallback_subset_window = evaluate_params_on_hist_window(
+            hist_window_200,
+            params_used,
+            min_ev=min_ev,
+            flat_stake_backtest=FLAT_STAKE,
+            prob_clip_lo=prob_clip_lo,
+            prob_clip_hi=prob_clip_hi,
+        )
+        if fallback_subset_window is not None and not fallback_subset_window.empty:
+            resolved_subset = fallback_subset_window.copy()
+            source_name = "hist_window_200+params_used"
+            fallback_used = True
+            logging.info("[LOCAL_MATCHED] fallback reconstruction used from hist_window_200 + params_used")
+
+    summary = summarize_local_matched_df(prepare_local_matched_export(resolved_subset, stake=FLAT_STAKE) if not resolved_subset.empty else pd.DataFrame(columns=LOCAL_MATCHED_EXPORT_COLUMNS))
+    if summary["rows"] > 0:
+        logging.info(
+            "[LOCAL_MATCHED] source=%s rows=%d unique_games=%d date_range=%s..%s fallback_used=%s",
+            source_name,
+            summary["rows"],
+            summary["unique_games"],
+            summary["min_date"],
+            summary["max_date"],
+            str(fallback_used).lower(),
+        )
+    else:
+        logging.warning(
+            "[LOCAL_MATCHED][WARN] export is genuinely empty after fallback | source=%s fallback_used=%s",
+            source_name,
+            str(fallback_used).lower(),
+        )
+    return resolved_subset, source_name, fallback_used
+
+
 def write_latest_local_matched_csv(
     df_past_sorted: pd.DataFrame,
     *,
@@ -1203,7 +1271,7 @@ def write_local_matched_artifacts(
     date_source_col = next((c for c in DATE_SOURCE_CANDIDATES if c in normalized_df.columns), None)
     if row_count_before == 0:
         date_source_col = "date"
-        logging.info("local_matched export is empty; writing schema-only dated artifact.")
+        logging.warning("local_matched export is genuinely empty after fallback; writing intentional header-only dated artifact.")
     else:
         if date_source_col is None:
             raise RuntimeError("local_matched_games dated export missing required date column")
@@ -1272,6 +1340,10 @@ def write_local_matched_artifacts(
         str(latest_unchanged).lower(),
         latest_path,
     )
+    if latest_unchanged:
+        logging.info("[LOCAL_MATCHED] latest alias unchanged by content")
+    else:
+        logging.info("[LOCAL_MATCHED] latest alias updated with new content")
     logging.info("Saved %s (%d rows)", dated_path, len(normalized_df))
     logging.info("Updated %s -> mirror content of %s", latest_path, dated_path.name)
     return resolved_local_matched_date
@@ -1524,51 +1596,21 @@ def main() -> None:
         prob_clip_hi=PROB_CLIP_HI,
     )
 
-    historical_subset_for_export = subset_local.copy() if subset_local is not None else pd.DataFrame()
-    local_matched_export_source = "historical_strategy_subset"
-    if historical_subset_for_export.empty:
-        fallback_subset = rebuild_historical_subset_from_hist_df(
-            df_past_sorted,
-            params_used=local_params,
-            window_n=FAIR_COMPARE_N,
-            min_ev=min_EV,
-            prob_clip_lo=PROB_CLIP_LO,
-            prob_clip_hi=PROB_CLIP_HI,
-        )
-        if not fallback_subset.empty:
-            historical_subset_for_export = fallback_subset.copy()
-            local_matched_export_source = "hist_df+params_used"
-            logging.info(
-                "[LOCAL MATCHED EXPORT] fallback source=hist_df+params_used rows=%d",
-                int(len(historical_subset_for_export)),
-            )
-
-    if historical_subset_for_export.empty and not hist_window_200.empty:
-        _, fallback_subset_window = evaluate_params_on_hist_window(
-            hist_window_200,
-            local_params,
-            min_ev=min_EV,
-            flat_stake_backtest=FLAT_STAKE,
-            prob_clip_lo=PROB_CLIP_LO,
-            prob_clip_hi=PROB_CLIP_HI,
-        )
-        if fallback_subset_window is not None and not fallback_subset_window.empty:
-            historical_subset_for_export = fallback_subset_window.copy()
-            local_matched_export_source = "hist_window_200+params_used"
-            logging.info(
-                "[LOCAL MATCHED EXPORT] fallback source=hist_window_200+params_used rows=%d",
-                int(len(historical_subset_for_export)),
-            )
+    historical_subset_for_export, local_matched_export_source, local_matched_fallback_used = resolve_historical_subset_for_local_matched_export(
+        subset_local=subset_local,
+        hist_df=df_past_sorted,
+        hist_window_200=hist_window_200,
+        params_used=local_params,
+        min_ev=min_EV,
+        prob_clip_lo=PROB_CLIP_LO,
+        prob_clip_hi=PROB_CLIP_HI,
+    )
 
     matched_export_latest = prepare_local_matched_export(
         historical_subset_for_export,
         stake=FLAT_STAKE,
     )
-    logging.info(
-        "[LOCAL MATCHED EXPORT] source=%s rows=%d",
-        local_matched_export_source,
-        int(len(matched_export_latest)),
-    )
+    logging.info("[LOCAL MATCHED EXPORT] source=%s rows=%d fallback_used=%s", local_matched_export_source, int(len(matched_export_latest)), str(local_matched_fallback_used).lower())
     if not matched_export_latest.empty:
         logging.info(
             "[LOCAL MATCHED EXPORT] date range=%s -> %s",
@@ -1585,6 +1627,12 @@ def main() -> None:
     shortlist = shortlist.reindex(columns=SHORTLIST_COLUMNS)
     shortlist.to_csv(shortlist_path, index=False, encoding="utf-8")
     logging.info("Saved bet shortlist -> %s (%d rows)", shortlist_path, len(shortlist))
+    logging.info(
+        "[LOCAL_MATCHED] verification live_shortlist_rows=%d resolved_historical_rows=%d export_rows=%d",
+        int(len(shortlist)),
+        int(len(historical_subset_for_export)),
+        int(len(matched_export_latest)),
+    )
 
     # Bankroll over last-200 window (model EV, same style)
     last_200_games = hist_window_200.copy()
