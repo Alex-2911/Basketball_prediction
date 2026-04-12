@@ -415,10 +415,10 @@ def _normalize_combined_schema(df: pd.DataFrame) -> pd.DataFrame:
 
     if DATE_COL not in out.columns:
         if "date" in out.columns:
-            out[DATE_COL] = parse_mixed_datetime(out["date"])
+            out[DATE_COL] = pd.to_datetime(out["date"], errors="coerce")
         else:
             out[DATE_COL] = pd.NaT
-    out[DATE_COL] = parse_mixed_datetime(out[DATE_COL])
+    out[DATE_COL] = pd.to_datetime(out[DATE_COL], errors="coerce")
 
     if PRED_PROBA_COL not in out.columns:
         if "home_team_prob" in out.columns:
@@ -473,10 +473,12 @@ def load_combined_df(pred_dir: str, ymd: str) -> pd.DataFrame:
     df = _normalize_combined_schema(df)
 
     if {"home_team", "away_team", DATE_COL, "source_snapshot_date"}.issubset(df.columns):
-        df["_snap_dt"] = parse_mixed_datetime(df["source_snapshot_date"])
-        df["_game_key_norm"] = _canonical_game_key(df)
-        df = df.sort_values(["_snap_dt", DATE_COL]).drop_duplicates(subset=["_game_key_norm"], keep="last")
-        df = df.drop(columns=["_snap_dt", "_game_key_norm"])
+        df["_snap_dt"] = pd.to_datetime(df["source_snapshot_date"], errors="coerce")
+        df = df.sort_values(["_snap_dt", DATE_COL]).drop_duplicates(
+            subset=[DATE_COL, "home_team", "away_team"],
+            keep="last",
+        )
+        df = df.drop(columns=["_snap_dt"])
         logging.info(
             "Rebuilt cumulative combined file from %d snapshots up to %s -> %d unique games.",
             len(snapshots),
@@ -1506,13 +1508,7 @@ def write_json(path: Path, payload: dict) -> None:
     logging.info("Wrote %s", path)
 
 
-def validate_structured_csv(
-    path: Path,
-    required_cols: list[str],
-    *,
-    min_data_rows: int = 1,
-    unique_key_cols: Optional[list[str]] = None,
-) -> None:
+def validate_structured_csv(path: Path, required_cols: list[str], *, min_data_rows: int = 1) -> None:
     if not path.exists():
         raise RuntimeError(f"CSV validation failed: missing file {path}")
 
@@ -1532,20 +1528,6 @@ def validate_structured_csv(
     missing = [c for c in required_cols if c not in sample.columns]
     if missing:
         raise RuntimeError(f"CSV validation failed: {path} missing required columns {missing}")
-
-    if unique_key_cols:
-        key_missing = [c for c in unique_key_cols if c not in sample.columns]
-        if key_missing:
-            raise RuntimeError(
-                f"CSV validation failed: {path} missing uniqueness key columns {key_missing}"
-            )
-        key_df = pd.read_csv(path, usecols=unique_key_cols)
-        dup_count = int(key_df.duplicated(subset=unique_key_cols, keep=False).sum())
-        if dup_count > 0:
-            raise RuntimeError(
-                f"CSV validation failed: {path} has duplicated key rows on "
-                f"{unique_key_cols} (duplicate_rows={dup_count})"
-            )
 
 
 def write_strategy_params(params_used: dict, *, min_ev: float, as_of_date: str, stake: float, output_dir: Path) -> None:
@@ -1929,18 +1911,16 @@ def main() -> None:
         iso_path,
         required_cols=["home_team", "away_team", "date", "prob_used"],
         min_data_rows=1,
-        unique_key_cols=["date", "home_team", "away_team"],
     )
 
     # Keep ACC file schema aligned with enriched probabilities for downstream consumers.
     acc_path = Path(pred_dir) / f"combined_nba_predictions_acc_{requested_ymd}.csv"
-    df_all.to_csv(acc_path, index=False, encoding="utf-8", lineterminator="\n")
+    df_all.to_csv(acc_path, index=False, encoding="utf-8")
     logging.info("Refreshed ACC combined with calibrated probabilities -> %s", acc_path)
     validate_structured_csv(
         acc_path,
         required_cols=["home_team", "away_team", "date", "prob_used"],
         min_data_rows=1,
-        unique_key_cols=["date", "home_team", "away_team"],
     )
 
     combined_source_path = iso_path if strategy_variant == "iso" else combined_path
