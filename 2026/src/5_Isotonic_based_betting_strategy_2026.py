@@ -1893,7 +1893,7 @@ def main() -> None:
 
     # Keep ACC file schema aligned with enriched probabilities for downstream consumers.
     acc_path = Path(pred_dir) / f"combined_nba_predictions_acc_{requested_ymd}.csv"
-    df_all.to_csv(acc_path, index=False, encoding="utf-8", lineterminator="\n")
+    df_all.to_csv(acc_path, index=False, encoding="utf-8")
     logging.info("Refreshed ACC combined with calibrated probabilities -> %s", acc_path)
     validate_structured_csv(
         acc_path,
