@@ -304,8 +304,24 @@ def resolve_params_source(output_dir: Path, variant: str) -> Path:
 
 def _ensure_datetime(df: pd.DataFrame, col: str) -> pd.DataFrame:
     out = df.copy()
-    out[col] = pd.to_datetime(out[col], errors="coerce")
+    out[col] = parse_mixed_datetime(out[col])
     return out
+
+
+def parse_mixed_datetime(values):
+    """Robust parser for mixed date-only and timestamp strings."""
+    try:
+        return pd.to_datetime(values, errors="coerce", format="mixed")
+    except TypeError:
+        return pd.to_datetime(values, errors="coerce")
+
+
+def _canonical_game_key(df: pd.DataFrame) -> pd.Series:
+    date_source = "date" if "date" in df.columns else DATE_COL
+    date_part = parse_mixed_datetime(df.get(date_source)).dt.strftime("%Y-%m-%d").fillna("")
+    home_part = df.get("home_team", pd.Series(index=df.index, dtype=object)).astype(str).str.strip().str.upper()
+    away_part = df.get("away_team", pd.Series(index=df.index, dtype=object)).astype(str).str.strip().str.upper()
+    return date_part + "|" + home_part + "|" + away_part
 
 
 def _validate_params(params: dict, required=None, name="params"):
@@ -500,7 +516,7 @@ def merge_today_predictions(df_all: pd.DataFrame, today_pred_path: Optional[Path
         tmp["odds_2"] = to_float_series(tmp["odds_2"])
 
     if "date" in tmp.columns:
-        tmp["date"] = pd.to_datetime(tmp["date"], errors="coerce")
+        tmp["date"] = parse_mixed_datetime(tmp["date"])
     else:
         tmp["date"] = pd.NaT
     tmp.loc[tmp["date"].isna(), "date"] = pd.Timestamp(today_date)
@@ -508,7 +524,7 @@ def merge_today_predictions(df_all: pd.DataFrame, today_pred_path: Optional[Path
     if "result" not in tmp.columns:
         tmp["result"] = np.nan
 
-    tmp[DATE_COL] = pd.to_datetime(tmp["date"], errors="coerce")
+    tmp[DATE_COL] = parse_mixed_datetime(tmp["date"])
     if PRED_PROBA_COL not in tmp.columns and "home_team_prob" in tmp.columns:
         tmp[PRED_PROBA_COL] = tmp["home_team_prob"]
     if HOME_ODDS_COL not in tmp.columns and "odds_1" in tmp.columns:
@@ -542,6 +558,12 @@ def merge_today_predictions(df_all: pd.DataFrame, today_pred_path: Optional[Path
     new_rows[RESULT_RAW_COL] = new_rows.get("result", np.nan)
 
     df_all = pd.concat([df_all, new_rows[df_all.columns]], ignore_index=True)
+    if {"home_team", "away_team"}.issubset(df_all.columns):
+        df_all["_game_key_norm"] = _canonical_game_key(df_all)
+        if DATE_COL in df_all.columns:
+            df_all = df_all.sort_values(DATE_COL)
+        df_all = df_all.drop_duplicates(subset=["_game_key_norm"], keep="last")
+        df_all = df_all.drop(columns=["_game_key_norm"], errors="ignore")
     return df_all
 
 
@@ -608,7 +630,7 @@ def attach_home_win_rate(df: pd.DataFrame, hwr_path: str) -> pd.DataFrame:
 
 def split_past_future(df_all: pd.DataFrame, today_date, tomorrow_date) -> Tuple[pd.DataFrame, pd.DataFrame]:
     df = df_all.copy()
-    df[DATE_COL] = pd.to_datetime(df[DATE_COL], errors="coerce")
+    df[DATE_COL] = parse_mixed_datetime(df[DATE_COL])
     df["game_day"] = df[DATE_COL].dt.date
 
     if RESULT_RAW_COL not in df.columns:
@@ -1383,7 +1405,7 @@ def write_latest_local_matched_csv(
             df = df_past_sorted.copy()
             df = _ensure_datetime(df, DATE_COL)
             
-            max_played_ts = pd.to_datetime(df[DATE_COL], errors="coerce").max()
+            max_played_ts = parse_mixed_datetime(df[DATE_COL]).max()
             if pd.isna(max_played_ts):
                 empty_df = pd.DataFrame(columns=cols)
                 written, unchanged, _ = write_csv_with_audit(
@@ -1572,7 +1594,7 @@ def write_local_matched_artifacts(
     else:
         if date_source_col is None:
             raise RuntimeError("local_matched_games dated export missing required date column")
-        parsed_dates = pd.to_datetime(normalized_df[date_source_col], errors="coerce")
+        parsed_dates = parse_mixed_datetime(normalized_df[date_source_col])
         valid_mask = parsed_dates.notna()
         dropped = int((~valid_mask).sum())
         if dropped:
@@ -1592,7 +1614,7 @@ def write_local_matched_artifacts(
             raise RuntimeError("local_matched_games dated export has null date values after normalization")
 
     resolved_local_matched_date = (
-        str(pd.to_datetime(normalized_df["date"], errors="coerce").max().date())
+        str(parse_mixed_datetime(normalized_df["date"]).max().date())
         if not normalized_df.empty
         else as_of_date
     )
@@ -1617,7 +1639,7 @@ def write_local_matched_artifacts(
     logging.info(
         "local_matched export non-null date=%d valid parsed=%d rows=%d",
         int(normalized_df["date"].notna().sum()),
-        int(pd.to_datetime(normalized_df["date"], errors="coerce").notna().sum()),
+        int(parse_mixed_datetime(normalized_df["date"]).notna().sum()),
         int(len(normalized_df)),
     )
 
@@ -1714,7 +1736,7 @@ def validate_dated_dashboard_artifacts(*, output_dir: Path, as_of_date: str, loc
         logging.info("- %s", strategy_json_dated)
         logging.info("- %s", strategy_txt_dated)
         return
-    valid_dates = pd.to_datetime(matched_df["date"], errors="coerce").notna()
+    valid_dates = parse_mixed_datetime(matched_df["date"]).notna()
     valid_date_count = int(valid_dates.sum())
     if valid_date_count <= 0:
         raise RuntimeError("local_matched_games dated export has 0 valid date rows after normalization")
@@ -1759,7 +1781,7 @@ def build_bet_shortlist(df_all: pd.DataFrame, params: dict, min_ev: float) -> pd
 def resolve_as_of_date_from_df_past(df_past_sorted: pd.DataFrame, fallback: str) -> str:
     if df_past_sorted is None or df_past_sorted.empty:
         return fallback
-    dt = pd.to_datetime(df_past_sorted[DATE_COL], errors="coerce")
+    dt = parse_mixed_datetime(df_past_sorted[DATE_COL])
     if dt.notna().any():
         return dt.max().strftime("%Y-%m-%d")
     return fallback
