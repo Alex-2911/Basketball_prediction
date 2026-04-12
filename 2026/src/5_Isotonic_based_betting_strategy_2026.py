@@ -1762,6 +1762,8 @@ def main() -> None:
         target_dt = now_dt
         target_ymd = ymd_str
 
+    requested_dt = target_dt
+    requested_ymd = target_ymd
     today_date = target_dt.date()
     tomorrow_date = (target_dt + timedelta(days=1)).date()
 
@@ -1781,12 +1783,13 @@ def main() -> None:
     if not combined_path or not combined_date:
         raise FileNotFoundError("No combined_nba_predictions_acc_*.csv files found.")
 
-    if combined_date != target_ymd:
-        logging.info("Using latest combined date %s instead of %s", combined_date, target_ymd)
-        target_ymd = combined_date
-        target_dt = datetime.strptime(target_ymd, "%Y-%m-%d")
-        today_date = target_dt.date()
-        tomorrow_date = (target_dt + timedelta(days=1)).date()
+    source_ymd = combined_date
+    if combined_date != requested_ymd:
+        logging.info(
+            "Using latest combined source date %s for requested run date %s",
+            combined_date,
+            requested_ymd,
+        )
 
     pred_dir = str(combined_path.parent)
     out_dir = resolve_output_dir(paths["BASE_DIR"], pred_dir)
@@ -1799,20 +1802,20 @@ def main() -> None:
     params_source = str(params_source_path)
 
     # 1) LOAD COMBINED
-    df_all = load_combined_df(pred_dir, target_ymd)
+    df_all = load_combined_df(pred_dir, source_ymd)
     df_all = _ensure_datetime(df_all, DATE_COL)
 
     # 1b) HOME WIN RATES
-    hwr_path = compute_home_win_rates(df_all, target_ymd, pred_dir)
+    hwr_path = compute_home_win_rates(df_all, requested_ymd, pred_dir)
 
     # 2) MERGE TODAY PREDICTIONS (optional)
     today_pred_path, today_pred_date = resolve_dated_file(
         pred_dirs,
         "nba_games_predict_",
-        target_ymd,
-        latest_on_or_before=target_dt,
+        requested_ymd,
+        latest_on_or_before=requested_dt,
     )
-    pred_date = datetime.strptime(today_pred_date, "%Y-%m-%d").date() if today_pred_date else today_date
+    pred_date = datetime.strptime(today_pred_date, "%Y-%m-%d").date() if today_pred_date else requested_dt.date()
     df_all = merge_today_predictions(df_all, today_pred_path, pred_date)
 
     # 3) ATTACH HOME WIN RATE
@@ -1855,20 +1858,20 @@ def main() -> None:
     logging.info("Brier before=%.6f after=%.6f | LogLoss before=%.6f after=%.6f", b0, b1, ll0, ll1)
 
     # 7) SAVE ISO COMBINED (unchanged)
-    iso_path = kelly_dir / f"combined_nba_predictions_iso_{target_ymd}.csv"
+    iso_path = kelly_dir / f"combined_nba_predictions_iso_{requested_ymd}.csv"
     df_all = canonicalize_output_dataframe(df_all)
     df_all = ensure_probability_columns(df_all)
     df_all.to_csv(iso_path, index=False, encoding="utf-8")
     logging.info("Saved ISO combined -> %s", iso_path)
 
     # Keep ACC file schema aligned with enriched probabilities for downstream consumers.
-    acc_path = Path(pred_dir) / f"combined_nba_predictions_acc_{target_ymd}.csv"
+    acc_path = Path(pred_dir) / f"combined_nba_predictions_acc_{requested_ymd}.csv"
     df_all.to_csv(acc_path, index=False, encoding="utf-8")
     logging.info("Refreshed ACC combined with calibrated probabilities -> %s", acc_path)
 
     combined_source_path = iso_path if strategy_variant == "iso" else combined_path
     snapshot_combined_source_path = combined_source_path
-    if as_of_date != target_ymd:
+    if as_of_date != requested_ymd:
         snapshot_path = (
             kelly_dir / f"combined_nba_predictions_iso_{as_of_date}.csv"
             if strategy_variant == "iso"
