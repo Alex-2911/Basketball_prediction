@@ -8,6 +8,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 import numpy as np
 import pandas as pd
+import pytest
 
 
 def _load_module(module_name: str, rel_path: str):
