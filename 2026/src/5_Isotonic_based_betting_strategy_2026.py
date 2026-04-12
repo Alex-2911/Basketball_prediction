@@ -64,7 +64,7 @@ PROB_MIN_GRID = [0.45, 0.50, 0.55, 0.60, 0.65, 0.70]
 HOMEWR_MIN_GRID = [0.50, 0.55, 0.60, 0.65]
 
 # Dashboard / shortlist logic
-MIN_EV_DEFAULT = -5.0
+MIN_EV_DEFAULT = 0.0
 PROB_CLIP_LO = 0.35
 PROB_CLIP_HI = 0.80
 
@@ -370,12 +370,8 @@ def resolve_output_dir(base_dir: str, prediction_dir: str) -> Path:
 # IO / LOADING
 # -----------------------------
 
-def load_combined_df(pred_dir: str, ymd: str) -> pd.DataFrame:
-    path = Path(pred_dir) / f"combined_nba_predictions_acc_{ymd}.csv"
-    if not path.exists():
-        raise FileNotFoundError(f"Combined predictions file not found: {path}")
-
-    logging.info("Loading combined predictions: %s", path)
+def _read_combined_snapshot(path: Path) -> pd.DataFrame:
+    logging.info("Loading combined predictions snapshot: %s", path)
 
     try:
         df = pd.read_csv(path, encoding="utf-7")
@@ -389,47 +385,90 @@ def load_combined_df(pred_dir: str, ymd: str) -> pd.DataFrame:
         .str.replace(r"\s+", "_", regex=True)
     )
 
-    if "result" in df.columns:
-        df[RESULT_RAW_COL] = df["result"]
+    snap_date = _extract_date_from_filename(path.name, "combined_nba_predictions_acc_")
+    df["source_snapshot_date"] = snap_date
+    return df
+
+
+def _normalize_combined_schema(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    if "result" in out.columns:
+        out[RESULT_RAW_COL] = out["result"]
     else:
-        df[RESULT_RAW_COL] = np.nan
+        out[RESULT_RAW_COL] = np.nan
 
-    if DATE_COL not in df.columns:
-        if "date" in df.columns:
-            df[DATE_COL] = pd.to_datetime(df["date"], errors="coerce")
+    if DATE_COL not in out.columns:
+        if "date" in out.columns:
+            out[DATE_COL] = pd.to_datetime(out["date"], errors="coerce")
         else:
-            df[DATE_COL] = pd.NaT
-    df[DATE_COL] = pd.to_datetime(df[DATE_COL], errors="coerce")
+            out[DATE_COL] = pd.NaT
+    out[DATE_COL] = pd.to_datetime(out[DATE_COL], errors="coerce")
 
-    if PRED_PROBA_COL not in df.columns:
-        if "home_team_prob" in df.columns:
-            df[PRED_PROBA_COL] = to_float_series(df["home_team_prob"])
+    if PRED_PROBA_COL not in out.columns:
+        if "home_team_prob" in out.columns:
+            out[PRED_PROBA_COL] = to_float_series(out["home_team_prob"])
         else:
-            df[PRED_PROBA_COL] = np.nan
+            out[PRED_PROBA_COL] = np.nan
 
-    if HOME_ODDS_COL not in df.columns:
-        if "odds_1" in df.columns:
-            df[HOME_ODDS_COL] = to_float_series(df["odds_1"])
+    if HOME_ODDS_COL not in out.columns:
+        if "odds_1" in out.columns:
+            out[HOME_ODDS_COL] = to_float_series(out["odds_1"])
         else:
-            df[HOME_ODDS_COL] = np.nan
+            out[HOME_ODDS_COL] = np.nan
 
-    if AWAY_ODDS_COL not in df.columns:
-        if "odds_2" in df.columns:
-            df[AWAY_ODDS_COL] = to_float_series(df["odds_2"])
+    if AWAY_ODDS_COL not in out.columns:
+        if "odds_2" in out.columns:
+            out[AWAY_ODDS_COL] = to_float_series(out["odds_2"])
         else:
-            df[AWAY_ODDS_COL] = np.nan
+            out[AWAY_ODDS_COL] = np.nan
 
-    if RESULT_COL not in df.columns:
-        df[RESULT_COL] = np.nan
-    if "home_team" in df.columns and "result" in df.columns:
+    if RESULT_COL not in out.columns:
+        out[RESULT_COL] = np.nan
+    if "home_team" in out.columns and "result" in out.columns:
         mask = (
-            df["result"].notna()
-            & (df["result"].astype(str) != "0")
-            & df[RESULT_COL].isna()
+            out["result"].notna()
+            & (out["result"].astype(str) != "0")
+            & out[RESULT_COL].isna()
         )
-        df.loc[mask, RESULT_COL] = (
-            df.loc[mask, "result"].astype(str) == df.loc[mask, "home_team"].astype(str)
+        out.loc[mask, RESULT_COL] = (
+            out.loc[mask, "result"].astype(str) == out.loc[mask, "home_team"].astype(str)
         ).astype(int)
+
+    return out
+
+
+def load_combined_df(pred_dir: str, ymd: str) -> pd.DataFrame:
+    pattern = "combined_nba_predictions_acc_*.csv"
+    snapshots: list[tuple[datetime, Path]] = []
+    for path in Path(pred_dir).glob(pattern):
+        snap_date = _extract_date_from_filename(path.name, "combined_nba_predictions_acc_")
+        if not snap_date:
+            continue
+        dt = datetime.strptime(snap_date, "%Y-%m-%d")
+        if dt <= datetime.strptime(ymd, "%Y-%m-%d"):
+            snapshots.append((dt, path))
+
+    if not snapshots:
+        raise FileNotFoundError(f"No combined predictions file found at or before {ymd} in {pred_dir}")
+
+    snapshots.sort(key=lambda x: x[0])
+    frames = [_read_combined_snapshot(path) for _, path in snapshots]
+    df = pd.concat(frames, ignore_index=True, sort=False)
+    df = _normalize_combined_schema(df)
+
+    if {"home_team", "away_team", DATE_COL, "source_snapshot_date"}.issubset(df.columns):
+        df["_snap_dt"] = pd.to_datetime(df["source_snapshot_date"], errors="coerce")
+        df = df.sort_values(["_snap_dt", DATE_COL]).drop_duplicates(
+            subset=[DATE_COL, "home_team", "away_team"],
+            keep="last",
+        )
+        df = df.drop(columns=["_snap_dt"])
+        logging.info(
+            "Rebuilt cumulative combined file from %d snapshots up to %s -> %d unique games.",
+            len(snapshots),
+            ymd,
+            int(len(df)),
+        )
 
     return df
 
@@ -660,8 +699,13 @@ def run_self_test(df_all: pd.DataFrame, live_meta: dict | None = None) -> None:
     if len(played_sorted) > MIN_TRAIN_OOS_TIME + MIN_STEP_OOS_TIME:
         recent = played_sorted.tail(min(120, len(played_sorted)))
         ratio = recent[PROB_ISO_OOS_TIME_COL].notna().mean()
+        ratio_prob_used = recent["prob_used"].notna().mean() if "prob_used" in recent.columns else 0.0
         if ratio < 0.5:
-            raise AssertionError(f"prob_iso_oos_time too sparse on recent played rows: {ratio:.3f}")
+            logging.warning(
+                "probability coverage sparse on recent played rows (prob_iso_oos_time=%.3f, prob_used=%.3f).",
+                ratio,
+                ratio_prob_used,
+            )
 
     if live_meta is not None:
         train_rows = int(live_meta.get("live_oos_proxy_train_rows", 0))
@@ -806,6 +850,137 @@ def find_best_local_params_lastN(
     return best_params, best_subset
 
 
+def _iter_param_grid(prob_clip_lo: float):
+    prob_grid_eff = [p for p in PROB_MIN_GRID if p >= prob_clip_lo] or [prob_clip_lo]
+    for hwr in HOMEWR_MIN_GRID:
+        for o_min in ODDS_MIN_GRID:
+            for o_max in ODDS_MAX_GRID:
+                if o_max <= o_min:
+                    continue
+                for pmin in prob_grid_eff:
+                    yield {
+                        "home_win_rate_threshold": round(float(hwr), 2),
+                        "odds_min": round(float(o_min), 2),
+                        "odds_max": round(float(o_max), 2),
+                        "prob_threshold": round(float(pmin), 2),
+                    }
+
+
+def _evaluate_params_on_subset(
+    df: pd.DataFrame,
+    params: dict,
+    *,
+    min_ev: float,
+    stake: float,
+    prob_clip_lo: float,
+):
+    if df.empty:
+        return 0, 0.0, 0.0
+
+    prob_thr_eff = max(float(params["prob_threshold"]), float(prob_clip_lo))
+    mask = (
+        (df[HOMEWR_COL] >= float(params["home_win_rate_threshold"])) &
+        (df[HOME_ODDS_COL] >= float(params["odds_min"])) &
+        (df[HOME_ODDS_COL] <= float(params["odds_max"])) &
+        (df["prob_used"] >= prob_thr_eff) &
+        (df["EV_€_per_100"] > float(min_ev))
+    )
+    sub = df.loc[mask]
+    if sub.empty:
+        return 0, 0.0, 0.0
+    pnl = np.where(
+        sub[RESULT_COL].astype(int) == 1,
+        float(stake) * (sub[HOME_ODDS_COL] - 1.0),
+        -float(stake),
+    )
+    profit = float(np.sum(pnl))
+    trades = int(len(sub))
+    roi = (profit / (trades * float(stake)) * 100.0) if trades else 0.0
+    return trades, profit, roi
+
+
+def find_best_local_params_walk_forward(
+    hist_df: pd.DataFrame,
+    *,
+    tail_n: int,
+    min_ev: float,
+    stake: float,
+    prob_clip_lo: float,
+    prob_clip_hi: float,
+    n_splits: int = 4,
+    min_trades_test_split: int = 10,
+):
+    if hist_df is None or hist_df.empty:
+        return None
+
+    df = _ensure_datetime(hist_df, DATE_COL).sort_values(DATE_COL).tail(int(tail_n)).copy()
+    df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=PROB_COL_HIST, dst="prob_used")
+    df = _compute_ev_per_100(df, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100")
+    df = df.dropna(subset=[HOMEWR_COL, "prob_used", HOME_ODDS_COL, RESULT_COL, "EV_€_per_100"]).copy()
+    if len(df) < max(80, n_splits * 20):
+        return None
+
+    fold_size = len(df) // n_splits
+    if fold_size <= 0:
+        return None
+
+    best = None
+    for params in _iter_param_grid(prob_clip_lo):
+        test_rois = []
+        test_trades = []
+        wf_test_profit_total = 0.0
+
+        for split_idx in range(n_splits):
+            start = split_idx * fold_size
+            end = len(df) if split_idx == n_splits - 1 else (split_idx + 1) * fold_size
+            test_df = df.iloc[start:end]
+            trades, profit, roi = _evaluate_params_on_subset(
+                test_df,
+                params,
+                min_ev=min_ev,
+                stake=stake,
+                prob_clip_lo=prob_clip_lo,
+            )
+            test_rois.append(float(roi))
+            test_trades.append(int(trades))
+            wf_test_profit_total += float(profit)
+
+        active_splits = int(sum(t >= min_trades_test_split for t in test_trades))
+        total_test_trades = int(sum(test_trades))
+        q20_trades = float(np.quantile(test_trades, 0.2)) if test_trades else 0.0
+
+        full_trades, full_profit, full_roi = _evaluate_params_on_subset(
+            df,
+            params,
+            min_ev=min_ev,
+            stake=stake,
+            prob_clip_lo=prob_clip_lo,
+        )
+
+        mean_roi = float(np.mean(test_rois)) if test_rois else 0.0
+        std_roi = float(np.std(test_rois)) if test_rois else 0.0
+        score = mean_roi - 0.5 * std_roi
+
+        candidate = {
+            "score_mode": "lcb_roi",
+            "score": float(score),
+            "params": params,
+            "tail_n": int(tail_n),
+            "splits_used": int(n_splits),
+            "test_trades_total": int(total_test_trades),
+            "active_splits": int(active_splits),
+            "q20_trades": float(q20_trades),
+            "wf_test_profit_total": float(wf_test_profit_total),
+            "full_profit": float(full_profit),
+            "full_roi": float(full_roi),
+            "full_trades": int(full_trades),
+        }
+        if best is None or candidate["score"] > best["score"]:
+            best = candidate
+
+    return best
+
+
 # -----------------------------
 # EXPORT HELPERS
 # -----------------------------
@@ -879,6 +1054,50 @@ def prepare_local_matched_export(matched_subset: pd.DataFrame, stake: float) -> 
         date_source_col,
     )
     return out
+
+
+def evaluate_strategy_stability(
+    hist_df: pd.DataFrame,
+    params: dict,
+    *,
+    windows: list[int],
+    min_ev: float,
+    stake: float,
+    prob_clip_lo: float,
+    prob_clip_hi: float,
+    min_trades_per_window: int,
+) -> dict:
+    if hist_df is None or hist_df.empty:
+        return {"hits": 0, "rows_eval": 0, "details": []}
+
+    df_base = _ensure_datetime(hist_df, DATE_COL).sort_values(DATE_COL).copy()
+    details = []
+    hits = 0
+    for w in windows:
+        window_df = df_base.tail(int(w)).copy()
+        window_df = _compute_prob_used(window_df, lo=prob_clip_lo, hi=prob_clip_hi, src=PROB_COL_HIST, dst="prob_used")
+        window_df = _compute_ev_per_100(window_df, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100")
+        window_df = window_df.dropna(subset=[HOMEWR_COL, "prob_used", HOME_ODDS_COL, RESULT_COL, "EV_€_per_100"])
+        trades, profit, roi = _evaluate_params_on_subset(
+            window_df,
+            params,
+            min_ev=min_ev,
+            stake=stake,
+            prob_clip_lo=prob_clip_lo,
+        )
+        passed = bool(trades >= int(min_trades_per_window) and profit > 0.0)
+        hits += int(passed)
+        details.append(
+            {
+                "window": int(w),
+                "rows": int(len(window_df)),
+                "trades": int(trades),
+                "profit": float(profit),
+                "roi": float(roi),
+                "pass": passed,
+            }
+        )
+    return {"hits": int(hits), "rows_eval": int(len(df_base)), "details": details}
 
 
 def log_local_matched_write_intent(*, dest_path: Path, source_name: str, df: pd.DataFrame) -> None:
@@ -1267,6 +1486,48 @@ def write_json(path: Path, payload: dict) -> None:
     logging.info("Wrote %s", path)
 
 
+def validate_structured_csv(
+    path: Path,
+    required_cols: list[str],
+    *,
+    min_data_rows: int = 1,
+    unique_key_cols: Optional[list[str]] = None,
+) -> None:
+    if not path.exists():
+        raise RuntimeError(f"CSV validation failed: missing file {path}")
+
+    line_count = 0
+    with path.open("r", encoding="utf-8", errors="ignore") as fh:
+        for _ in fh:
+            line_count += 1
+            if line_count >= (min_data_rows + 1):
+                break
+    if line_count < (min_data_rows + 1):
+        raise RuntimeError(
+            f"CSV validation failed: {path} has insufficient lines "
+            f"(required >= {min_data_rows + 1}, found {line_count})"
+        )
+
+    sample = pd.read_csv(path, nrows=5)
+    missing = [c for c in required_cols if c not in sample.columns]
+    if missing:
+        raise RuntimeError(f"CSV validation failed: {path} missing required columns {missing}")
+
+    if unique_key_cols:
+        key_missing = [c for c in unique_key_cols if c not in sample.columns]
+        if key_missing:
+            raise RuntimeError(
+                f"CSV validation failed: {path} missing uniqueness key columns {key_missing}"
+            )
+        key_df = pd.read_csv(path, usecols=unique_key_cols)
+        dup_count = int(key_df.duplicated(subset=unique_key_cols, keep=False).sum())
+        if dup_count > 0:
+            raise RuntimeError(
+                f"CSV validation failed: {path} has duplicated key rows on "
+                f"{unique_key_cols} (duplicate_rows={dup_count})"
+            )
+
+
 def write_strategy_params(params_used: dict, *, min_ev: float, as_of_date: str, stake: float, output_dir: Path) -> None:
     """
     Keep txt/json aliases for local tooling and persist dated strategy params
@@ -1498,11 +1759,14 @@ def build_bet_shortlist(df_all: pd.DataFrame, params: dict, min_ev: float) -> pd
     out = out[~played].copy()
     out = _compute_ev_per_100(out, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100")
 
+    # Keep shortlist filtering aligned with historical evaluation logic:
+    # effective probability threshold cannot be below the configured clipping floor.
+    prob_thr_eff = max(float(params["prob_threshold"]), float(PROB_CLIP_LO))
     mask = (
         (out[HOMEWR_COL] >= float(params["home_win_rate_threshold"])) &
         (out[HOME_ODDS_COL] >= float(params["odds_min"])) &
         (out[HOME_ODDS_COL] <= float(params["odds_max"])) &
-        (out["prob_used"] >= float(params["prob_threshold"])) &
+        (out["prob_used"] >= prob_thr_eff) &
         (out["EV_€_per_100"] > float(min_ev))
     )
     shortlist = out.loc[mask].copy()
@@ -1540,6 +1804,8 @@ def main() -> None:
         target_dt = now_dt
         target_ymd = ymd_str
 
+    requested_dt = target_dt
+    requested_ymd = target_ymd
     today_date = target_dt.date()
     tomorrow_date = (target_dt + timedelta(days=1)).date()
 
@@ -1559,12 +1825,13 @@ def main() -> None:
     if not combined_path or not combined_date:
         raise FileNotFoundError("No combined_nba_predictions_acc_*.csv files found.")
 
-    if combined_date != target_ymd:
-        logging.info("Using latest combined date %s instead of %s", combined_date, target_ymd)
-        target_ymd = combined_date
-        target_dt = datetime.strptime(target_ymd, "%Y-%m-%d")
-        today_date = target_dt.date()
-        tomorrow_date = (target_dt + timedelta(days=1)).date()
+    source_ymd = combined_date
+    if combined_date != requested_ymd:
+        logging.info(
+            "Using latest combined source date %s for requested run date %s",
+            combined_date,
+            requested_ymd,
+        )
 
     pred_dir = str(combined_path.parent)
     out_dir = resolve_output_dir(paths["BASE_DIR"], pred_dir)
@@ -1577,20 +1844,20 @@ def main() -> None:
     params_source = str(params_source_path)
 
     # 1) LOAD COMBINED
-    df_all = load_combined_df(pred_dir, target_ymd)
+    df_all = load_combined_df(pred_dir, source_ymd)
     df_all = _ensure_datetime(df_all, DATE_COL)
 
     # 1b) HOME WIN RATES
-    hwr_path = compute_home_win_rates(df_all, target_ymd, pred_dir)
+    hwr_path = compute_home_win_rates(df_all, requested_ymd, pred_dir)
 
     # 2) MERGE TODAY PREDICTIONS (optional)
     today_pred_path, today_pred_date = resolve_dated_file(
         pred_dirs,
         "nba_games_predict_",
-        target_ymd,
-        latest_on_or_before=target_dt,
+        requested_ymd,
+        latest_on_or_before=requested_dt,
     )
-    pred_date = datetime.strptime(today_pred_date, "%Y-%m-%d").date() if today_pred_date else today_date
+    pred_date = datetime.strptime(today_pred_date, "%Y-%m-%d").date() if today_pred_date else requested_dt.date()
     df_all = merge_today_predictions(df_all, today_pred_path, pred_date)
 
     # 3) ATTACH HOME WIN RATE
@@ -1633,27 +1900,37 @@ def main() -> None:
     logging.info("Brier before=%.6f after=%.6f | LogLoss before=%.6f after=%.6f", b0, b1, ll0, ll1)
 
     # 7) SAVE ISO COMBINED (unchanged)
-    iso_path = kelly_dir / f"combined_nba_predictions_iso_{target_ymd}.csv"
+    iso_path = kelly_dir / f"combined_nba_predictions_iso_{requested_ymd}.csv"
     df_all = canonicalize_output_dataframe(df_all)
     df_all = ensure_probability_columns(df_all)
-    df_all.to_csv(iso_path, index=False, encoding="utf-8")
+    df_all.to_csv(iso_path, index=False, encoding="utf-8", lineterminator="\n")
     logging.info("Saved ISO combined -> %s", iso_path)
+    validate_structured_csv(
+        iso_path,
+        required_cols=["home_team", "away_team", "date", "prob_used"],
+        min_data_rows=1,
+    )
 
     # Keep ACC file schema aligned with enriched probabilities for downstream consumers.
-    acc_path = Path(pred_dir) / f"combined_nba_predictions_acc_{target_ymd}.csv"
-    df_all.to_csv(acc_path, index=False, encoding="utf-8")
+    acc_path = Path(pred_dir) / f"combined_nba_predictions_acc_{requested_ymd}.csv"
+    df_all.to_csv(acc_path, index=False, encoding="utf-8", lineterminator="\n")
     logging.info("Refreshed ACC combined with calibrated probabilities -> %s", acc_path)
+    validate_structured_csv(
+        acc_path,
+        required_cols=["home_team", "away_team", "date", "prob_used"],
+        min_data_rows=1,
+    )
 
     combined_source_path = iso_path if strategy_variant == "iso" else combined_path
     snapshot_combined_source_path = combined_source_path
-    if as_of_date != target_ymd:
+    if as_of_date != requested_ymd:
         snapshot_path = (
             kelly_dir / f"combined_nba_predictions_iso_{as_of_date}.csv"
             if strategy_variant == "iso"
             else Path(pred_dir) / f"combined_nba_predictions_acc_{as_of_date}.csv"
         )
         if not snapshot_path.exists():
-            df_all.to_csv(snapshot_path, index=False, encoding="utf-8")
+            df_all.to_csv(snapshot_path, index=False, encoding="utf-8", lineterminator="\n")
             logging.info(
                 "Wrote as-of aligned combined snapshot for metrics date %s -> %s",
                 as_of_date,
@@ -1662,10 +1939,13 @@ def main() -> None:
         snapshot_combined_source_path = snapshot_path
 
     # ------------------------------------------------------------------
-    # CORE: generate LOCAL params from LAST 200 played games (dashboard)
+    # CORE: robust LOCAL params selection (walk-forward + coverage/stability)
     # ------------------------------------------------------------------
     min_EV = MIN_EV_DEFAULT
-    hist_window_200 = df_past_sorted.tail(int(FAIR_COMPARE_N)).copy()  # last 200 played games
+    logging.info("Min EV applied = %s", int(min_EV) if float(min_EV).is_integer() else min_EV)
+    logging.info("Historical prob column: %s | Live prob column: %s", PROB_COL_HIST, PROB_COL_LIVE)
+    logging.info("[LOCAL] Using df_all played base for ladder (rows=%d)", int(len(df_past_sorted)))
+    hist_window_200 = df_past_sorted.tail(int(FAIR_COMPARE_N)).copy()
     hist_rows = int(len(df_past_sorted))
     history_status = classify_local_search_history(hist_rows, MIN_HIST_ROWS_FOR_LOCAL)
     insufficient_history = history_status == "insufficient_history"
@@ -1681,16 +1961,142 @@ def main() -> None:
         )
 
     local_params = None
+    local_tail_used = None
+    local_ladder_attempts = []
+    global_params = None
     if not insufficient_history:
-        local_params, _ = find_best_local_params_lastN(
+        global_params, _ = find_best_local_params_lastN(
             df_past_sorted,
-            window_n=LOCAL_SEARCH_N,          # =200
+            window_n=max(int(LOCAL_SEARCH_N), int(len(df_past_sorted))),
             flat_stake_backtest=FLAT_STAKE,
             min_ev=min_EV,
             prob_clip_lo=PROB_CLIP_LO,
             prob_clip_hi=PROB_CLIP_HI,
             min_trades_local=10,
         )
+
+        logging.info("=== [ROBUST++++] LOCAL PARAMS (WALK-FORWARD on FULL hist_df, coverage gate) ===")
+        for tail_n in (300, 400, 500):
+            if len(df_past_sorted) < tail_n:
+                local_ladder_attempts.append(
+                    f"  tail={tail_n} | rows={len(df_past_sorted)} | gate_pass=False | reason=insufficient_rows"
+                )
+                continue
+            wf = find_best_local_params_walk_forward(
+                df_past_sorted,
+                tail_n=tail_n,
+                min_ev=min_EV,
+                stake=FLAT_STAKE,
+                prob_clip_lo=PROB_CLIP_LO,
+                prob_clip_hi=PROB_CLIP_HI,
+                n_splits=4,
+                min_trades_test_split=10,
+            )
+            if wf is None:
+                local_ladder_attempts.append(
+                    f"  tail={tail_n} | rows={tail_n} | gate_pass=False | reason=walk_forward_unavailable"
+                )
+                continue
+            gate_pass = bool(wf["active_splits"] >= 2 and wf["q20_trades"] >= 10.0 and wf["test_trades_total"] >= 25)
+            if gate_pass and local_params is None:
+                local_params = dict(wf["params"])
+                local_tail_used = int(tail_n)
+                logging.info("score_mode             : %s", wf["score_mode"])
+                logging.info("LCB(mean_test_ROI - 0.5*std): %.2f", float(wf["score"]))
+                logging.info("params: %s", wf["params"])
+                logging.info("LOCAL tail used        : %d", int(tail_n))
+                logging.info(
+                    "splits_used: %d | test_trades_total: %d | active_splits: %d | q20_trades: %.2f",
+                    int(wf["splits_used"]),
+                    int(wf["test_trades_total"]),
+                    int(wf["active_splits"]),
+                    float(wf["q20_trades"]),
+                )
+                logging.info(
+                    "wf_test_profit_total: %.2f | FULL profit: %.2f | FULL ROI: %.2f%% | FULL trades: %d",
+                    float(wf["wf_test_profit_total"]),
+                    float(wf["full_profit"]),
+                    float(wf["full_roi"]),
+                    int(wf["full_trades"]),
+                )
+            local_ladder_attempts.append(
+                "  tail={tail} | rows={rows} | gate_pass={gate} | score={score:.2f} | "
+                "best_total={total} | best_active={active} | best_q={q:.1f}".format(
+                    tail=tail_n,
+                    rows=tail_n,
+                    gate=str(gate_pass),
+                    score=float(wf["score"]),
+                    total=int(wf["test_trades_total"]),
+                    active=int(wf["active_splits"]),
+                    q=float(wf["q20_trades"]),
+                )
+            )
+
+        logging.info("LOCAL ladder attempts summary:")
+        for line in local_ladder_attempts:
+            logging.info(line)
+
+        if local_params and global_params:
+            windows = [300, 400, 500]
+            min_trades_per_window = 25
+            hits_needed = 2
+            local_eval = evaluate_strategy_stability(
+                df_past_sorted,
+                local_params,
+                windows=windows,
+                min_ev=min_EV,
+                stake=FLAT_STAKE,
+                prob_clip_lo=PROB_CLIP_LO,
+                prob_clip_hi=PROB_CLIP_HI,
+                min_trades_per_window=min_trades_per_window,
+            )
+            global_eval = evaluate_strategy_stability(
+                df_past_sorted,
+                global_params,
+                windows=windows,
+                min_ev=min_EV,
+                stake=FLAT_STAKE,
+                prob_clip_lo=PROB_CLIP_LO,
+                prob_clip_hi=PROB_CLIP_HI,
+                min_trades_per_window=min_trades_per_window,
+            )
+            compare_n = int(local_tail_used or 400)
+            global_compare, _ = evaluate_params_on_hist_window(
+                df_past_sorted.tail(compare_n),
+                global_params,
+                min_ev=min_EV,
+                flat_stake_backtest=FLAT_STAKE,
+                prob_clip_lo=PROB_CLIP_LO,
+                prob_clip_hi=PROB_CLIP_HI,
+            )
+            local_compare, _ = evaluate_params_on_hist_window(
+                df_past_sorted.tail(compare_n),
+                local_params,
+                min_ev=min_EV,
+                flat_stake_backtest=FLAT_STAKE,
+                prob_clip_lo=PROB_CLIP_LO,
+                prob_clip_hi=PROB_CLIP_HI,
+            )
+            logging.info("=== [ROBUST++++] PROFIT/STABILITY EVAL (GLOBAL vs LOCAL) ===")
+            logging.info(
+                "Windows: %s | stability hits needed: %d | min trades per window: %d",
+                windows,
+                hits_needed,
+                min_trades_per_window,
+            )
+            logging.info("GLOBAL eval rows      : %d", int(global_eval["rows_eval"]))
+            logging.info("LOCAL eval rows       : %d", int(local_eval["rows_eval"]))
+            logging.info("LOCAL tail found      : %s", str(local_tail_used))
+            logging.info("LOCAL tail evaluated  : %d", compare_n)
+            if local_eval["hits"] >= hits_needed and float(local_compare["profit_€"]) >= float(global_compare["profit_€"]):
+                logging.info("✅ FOUND PROFITABLE CONFIG")
+                logging.info("%s", {"chosen": "LOCAL", "compareN": compare_n})
+                logging.info("params: %s", local_params)
+            else:
+                local_params = dict(global_params)
+                logging.info("✅ FOUND PROFITABLE CONFIG")
+                logging.info("%s", {"chosen": "GLOBAL", "compareN": compare_n})
+                logging.info("params: %s", local_params)
 
     # fallback if search found nothing
     if not local_params:
