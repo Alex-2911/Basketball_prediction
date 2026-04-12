@@ -65,6 +65,14 @@ CANONICAL_BASE_COLUMNS = [
 ACC_PREFIX = "combined_nba_predictions_acc_"
 
 
+def parse_mixed_datetime(values) -> pd.Series:
+    """Robust datetime parser for mixed 'YYYY-MM-DD' and timestamp strings."""
+    try:
+        return pd.to_datetime(values, errors="coerce", format="mixed")
+    except TypeError:
+        return pd.to_datetime(values, errors="coerce")
+
+
 def normalize_column_name(col: str) -> str:
     """Normalize headers to canonical snake_case names."""
     normalized = str(col).strip().lower().replace("\n", " ")
@@ -113,7 +121,7 @@ def build_game_key(df: pd.DataFrame) -> pd.Series:
     """Build stable game key from date + home_team + away_team."""
     work = df.copy()
     date_source = "date" if "date" in work.columns else "game_date"
-    work["_game_date"] = pd.to_datetime(work.get(date_source), errors="coerce").dt.strftime("%Y-%m-%d")
+    work["_game_date"] = parse_mixed_datetime(work.get(date_source)).dt.strftime("%Y-%m-%d")
     return (
         work["_game_date"].fillna("")
         + "|"
@@ -136,19 +144,26 @@ def row_completeness_score(df: pd.DataFrame) -> pd.Series:
 
 
 def upsert_by_game_key(base_df: pd.DataFrame, updates_df: pd.DataFrame) -> pd.DataFrame:
-    merged = pd.concat([base_df, updates_df], ignore_index=True)
+    base_norm = normalize_prediction_dataframe(base_df if base_df is not None else pd.DataFrame())
+    updates_norm = normalize_prediction_dataframe(updates_df if updates_df is not None else pd.DataFrame())
+    if base_norm.empty:
+        merged = updates_norm.copy()
+    elif updates_norm.empty:
+        merged = base_norm.copy()
+    else:
+        merged = pd.concat([base_norm, updates_norm], ignore_index=True)
     merged = normalize_prediction_dataframe(merged)
     merged["_game_key"] = build_game_key(merged)
     merged["_score"] = row_completeness_score(merged)
-    merged["_date_sort"] = pd.to_datetime(merged["date"], errors="coerce")
+    merged["_date_sort"] = parse_mixed_datetime(merged["date"])
     merged = merged.sort_values(by=["_score", "_date_sort"], ascending=[False, False])
     merged = merged.drop_duplicates(subset=["_game_key"], keep="first")
     merged = merged.drop(columns=["_game_key", "_score", "_date_sort"], errors="ignore")
     return normalize_prediction_dataframe(merged)
 
 
-def load_latest_previous_acc(prediction_dir: str, before_date: str) -> pd.DataFrame:
-    """Load latest previous cumulative ACC file strictly before `before_date`."""
+def load_cumulative_acc_through_date(prediction_dir: str, before_date: str) -> pd.DataFrame:
+    """Rebuild cumulative ACC by stitching all dated snapshots before `before_date`."""
     cutoff = pd.to_datetime(before_date, errors="coerce")
     candidates = []
     for p in Path(prediction_dir).glob(f"{ACC_PREFIX}*.csv"):
@@ -162,9 +177,24 @@ def load_latest_previous_acc(prediction_dir: str, before_date: str) -> pd.DataFr
         logging.info("No previous ACC file found before %s in %s", before_date, prediction_dir)
         return normalize_prediction_dataframe(pd.DataFrame())
 
-    _, latest_path = max(candidates, key=lambda x: x[0])
-    logging.info("Using previous cumulative ACC file: %s", latest_path)
-    return normalize_prediction_dataframe(pd.read_csv(latest_path))
+    candidates = sorted(candidates, key=lambda x: x[0])
+    frames = []
+    for dt, path in candidates:
+        df = normalize_prediction_dataframe(pd.read_csv(path))
+        df["_snapshot_date"] = dt
+        frames.append(df)
+    merged = pd.concat(frames, ignore_index=True)
+    merged["_game_key"] = build_game_key(merged)
+    merged["_score"] = row_completeness_score(merged)
+    merged["_date_sort"] = parse_mixed_datetime(merged["date"])
+    merged = merged.sort_values(
+        by=["_snapshot_date", "_score", "_date_sort"],
+        ascending=[False, False, False],
+    )
+    merged = merged.drop_duplicates(subset=["_game_key"], keep="first")
+    merged = merged.drop(columns=["_snapshot_date", "_game_key", "_score", "_date_sort"], errors="ignore")
+    logging.info("Rebuilt cumulative ACC from %d snapshots in %s", len(candidates), prediction_dir)
+    return normalize_prediction_dataframe(merged)
 
 # Get current date information
 today, today_str, today_str_format = get_current_date()
@@ -245,8 +275,8 @@ def process_prediction_file(predict_file, last_prediction, prediction_dir):
             predict_df[col] = predict_df[col].astype(str).str.replace(',', '.').astype(float)
     predict_df = normalize_prediction_dataframe(predict_df)
 
-    # Start from latest previous cumulative ACC file, then upsert new prediction day rows.
-    combined_df = load_latest_previous_acc(prediction_dir, today_str_format)
+    # Rebuild cumulative ACC from dated snapshots, then upsert the newest prediction-day rows.
+    combined_df = load_cumulative_acc_through_date(prediction_dir, today_str_format)
 
     # Upsert and sort
     predict_df['accuracy'] = np.nan  # add placeholder column
@@ -279,8 +309,8 @@ def update_betting_statistics(combined_df, most_recent_date, prediction_dir):
     daily_games_df = daily_games_df[daily_games_df['season'] == CURRENT_SEASON].copy()
 
     # Convert date columns to datetime
-    season_df['date'] = pd.to_datetime(season_df['date'], errors='coerce')
-    daily_games_df['date'] = pd.to_datetime(daily_games_df['date'], errors='coerce')
+    season_df['date'] = parse_mixed_datetime(season_df['date'])
+    daily_games_df['date'] = parse_mixed_datetime(daily_games_df['date'])
 
     # Normalize placeholder results to NaN
     season_df['result'] = (
@@ -331,7 +361,8 @@ def update_betting_statistics(combined_df, most_recent_date, prediction_dir):
         inplace=True,
     )
     previous_rows = int(len(combined_df))
-    updated_rows = season_df[pd.to_datetime(season_df["date"], errors="coerce") == pd.to_datetime(most_recent_date)].copy()
+    most_recent_dt = parse_mixed_datetime([most_recent_date])[0]
+    updated_rows = season_df[parse_mixed_datetime(season_df["date"]) == most_recent_dt].copy()
     updated_rows = updated_rows[
         (updated_rows["result"] == updated_rows["home_team"])
         | (updated_rows["result"] == updated_rows["away_team"])
@@ -344,7 +375,7 @@ def update_betting_statistics(combined_df, most_recent_date, prediction_dir):
         (season_df["result"] == season_df["home_team"])
         | (season_df["result"] == season_df["away_team"])
     ].copy()
-    date_series = pd.to_datetime(season_df["date"], errors="coerce").dropna()
+    date_series = parse_mixed_datetime(season_df["date"]).dropna()
     min_date = date_series.min().strftime("%Y-%m-%d") if not date_series.empty else "NA"
     max_date = date_series.max().strftime("%Y-%m-%d") if not date_series.empty else "NA"
     logging.info("Previous ACC rows: %d", previous_rows)
