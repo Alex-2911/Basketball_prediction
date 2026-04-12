@@ -88,6 +88,19 @@ def normalize_prediction_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         if col not in out.columns:
             out[col] = np.nan
 
+    if "pred_home_win_proba" in out.columns:
+        out["home_team_prob"] = out["home_team_prob"].fillna(
+            pd.to_numeric(out["pred_home_win_proba"], errors="coerce")
+        )
+    if "iso_proba_home_win" in out.columns:
+        out["home_team_prob"] = out["home_team_prob"].fillna(
+            pd.to_numeric(out["iso_proba_home_win"], errors="coerce")
+        )
+    if "closing_home_odds" in out.columns:
+        out["odds_1"] = out["odds_1"].fillna(pd.to_numeric(out["closing_home_odds"], errors="coerce"))
+    if "closing_away_odds" in out.columns:
+        out["odds_2"] = out["odds_2"].fillna(pd.to_numeric(out["closing_away_odds"], errors="coerce"))
+
     if out["prob_iso"].isna().all() and "prob_iso_insample" in out.columns:
         out["prob_iso"] = out["prob_iso_insample"]
 
