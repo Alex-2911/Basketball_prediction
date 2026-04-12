@@ -1486,6 +1486,28 @@ def write_json(path: Path, payload: dict) -> None:
     logging.info("Wrote %s", path)
 
 
+def validate_structured_csv(path: Path, required_cols: list[str], *, min_data_rows: int = 1) -> None:
+    if not path.exists():
+        raise RuntimeError(f"CSV validation failed: missing file {path}")
+
+    line_count = 0
+    with path.open("r", encoding="utf-8", errors="ignore") as fh:
+        for _ in fh:
+            line_count += 1
+            if line_count >= (min_data_rows + 1):
+                break
+    if line_count < (min_data_rows + 1):
+        raise RuntimeError(
+            f"CSV validation failed: {path} has insufficient lines "
+            f"(required >= {min_data_rows + 1}, found {line_count})"
+        )
+
+    sample = pd.read_csv(path, nrows=5)
+    missing = [c for c in required_cols if c not in sample.columns]
+    if missing:
+        raise RuntimeError(f"CSV validation failed: {path} missing required columns {missing}")
+
+
 def write_strategy_params(params_used: dict, *, min_ev: float, as_of_date: str, stake: float, output_dir: Path) -> None:
     """
     Keep txt/json aliases for local tooling and persist dated strategy params
@@ -1861,13 +1883,23 @@ def main() -> None:
     iso_path = kelly_dir / f"combined_nba_predictions_iso_{requested_ymd}.csv"
     df_all = canonicalize_output_dataframe(df_all)
     df_all = ensure_probability_columns(df_all)
-    df_all.to_csv(iso_path, index=False, encoding="utf-8")
+    df_all.to_csv(iso_path, index=False, encoding="utf-8", lineterminator="\n")
     logging.info("Saved ISO combined -> %s", iso_path)
+    validate_structured_csv(
+        iso_path,
+        required_cols=["home_team", "away_team", "date", "prob_used"],
+        min_data_rows=1,
+    )
 
     # Keep ACC file schema aligned with enriched probabilities for downstream consumers.
     acc_path = Path(pred_dir) / f"combined_nba_predictions_acc_{requested_ymd}.csv"
     df_all.to_csv(acc_path, index=False, encoding="utf-8")
     logging.info("Refreshed ACC combined with calibrated probabilities -> %s", acc_path)
+    validate_structured_csv(
+        acc_path,
+        required_cols=["home_team", "away_team", "date", "prob_used"],
+        min_data_rows=1,
+    )
 
     combined_source_path = iso_path if strategy_variant == "iso" else combined_path
     snapshot_combined_source_path = combined_source_path
@@ -1878,7 +1910,7 @@ def main() -> None:
             else Path(pred_dir) / f"combined_nba_predictions_acc_{as_of_date}.csv"
         )
         if not snapshot_path.exists():
-            df_all.to_csv(snapshot_path, index=False, encoding="utf-8")
+            df_all.to_csv(snapshot_path, index=False, encoding="utf-8", lineterminator="\n")
             logging.info(
                 "Wrote as-of aligned combined snapshot for metrics date %s -> %s",
                 as_of_date,
