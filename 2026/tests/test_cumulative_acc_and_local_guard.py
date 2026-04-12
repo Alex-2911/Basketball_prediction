@@ -8,6 +8,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 import numpy as np
 import pandas as pd
+import pytest
 
 
 def _load_module(module_name: str, rel_path: str):
@@ -62,3 +63,122 @@ def test_script4_upsert_preserves_history_and_prefers_resolved_rows():
 def test_script5_classifies_insufficient_history_for_local_search():
     assert script5.classify_local_search_history(99, 100) == "insufficient_history"
     assert script5.classify_local_search_history(100, 100) == "ok"
+
+
+def test_script5_shortlist_uses_effective_probability_threshold_floor():
+    params = {
+        "home_win_rate_threshold": 0.50,
+        "odds_min": 1.20,
+        "odds_max": 2.20,
+        # Intentionally lower than PROB_CLIP_LO to verify threshold flooring.
+        "prob_threshold": 0.10,
+    }
+    df = pd.DataFrame(
+        {
+            "result_raw": [0],
+            "home_win_rate": [0.65],
+            "closing_home_odds": [2.0],
+            # Between 0.10 and PROB_CLIP_LO(0.35) -> should be filtered out.
+            "prob_used": [0.20],
+            "home_team": ["BOS"],
+            "away_team": ["LAL"],
+            "game_date": ["2026-02-01"],
+        }
+    )
+
+    shortlist = script5.build_bet_shortlist(df, params, min_ev=-100.0)
+
+    assert shortlist.empty
+
+
+def test_script5_validate_structured_csv_rejects_duplicate_game_keys(tmp_path):
+    csv_path = tmp_path / "combined.csv"
+    pd.DataFrame(
+        {
+            "date": ["2026-02-01", "2026-02-01"],
+            "home_team": ["BOS", "BOS"],
+            "away_team": ["LAL", "LAL"],
+            "prob_used": [0.61, 0.62],
+        }
+    ).to_csv(csv_path, index=False)
+
+    with pytest.raises(RuntimeError, match="duplicated key rows"):
+        script5.validate_structured_csv(
+            csv_path,
+            required_cols=["home_team", "away_team", "date", "prob_used"],
+            min_data_rows=1,
+            unique_key_cols=["date", "home_team", "away_team"],
+        )
+
+
+def test_script4_normalize_prediction_dataframe_backfills_home_prob_from_pred_column():
+    df = pd.DataFrame(
+        {
+            "date": ["2026-04-10"],
+            "home_team": ["MIL"],
+            "away_team": ["BRK"],
+            "pred_home_win_proba": [0.481416],
+            "closing_home_odds": [1.21],
+            "closing_away_odds": [4.60],
+            "result": ["MIL"],
+        }
+    )
+    normalized = script4.normalize_prediction_dataframe(df)
+    row = normalized.iloc[0]
+    assert float(row["home_team_prob"]) == pytest.approx(0.481416)
+    assert float(row["odds_1"]) == pytest.approx(1.21)
+    assert float(row["odds_2"]) == pytest.approx(4.60)
+
+
+def test_script4_parse_mixed_datetime_parses_date_and_timestamp_strings():
+    parsed = script4.parse_mixed_datetime(pd.Series(["2026-04-10 00:00:00", "2026-04-10"]))
+    assert parsed.notna().all()
+
+
+def test_script4_upsert_by_game_key_handles_empty_base_without_dropping_updates():
+    updates = pd.DataFrame(
+        {
+            "date": ["2026-04-10 00:00:00", "2026-04-10"],
+            "home_team": ["MIL", "NYK"],
+            "away_team": ["BRK", "TOR"],
+            "pred_home_win_proba": [0.48, 0.59],
+            "closing_home_odds": [1.21, 1.37],
+            "closing_away_odds": [4.60, 3.20],
+        }
+    )
+    out = script4.upsert_by_game_key(pd.DataFrame(), updates)
+    assert len(out) == 2
+    assert out["home_team_prob"].notna().all()
+
+
+def test_script4_load_cumulative_acc_through_date_stitches_snapshots(tmp_path):
+    p1 = tmp_path / "combined_nba_predictions_acc_2026-01-01.csv"
+    p2 = tmp_path / "combined_nba_predictions_acc_2026-01-02.csv"
+    pd.DataFrame(
+        {
+            "date": ["2026-01-01"],
+            "home_team": ["BOS"],
+            "away_team": ["LAL"],
+            "home_team_prob": [0.60],
+            "odds_1": [1.8],
+            "odds_2": [2.1],
+            "result": [np.nan],
+            "accuracy": [np.nan],
+        }
+    ).to_csv(p1, index=False)
+    pd.DataFrame(
+        {
+            "date": ["2026-01-02"],
+            "home_team": ["NYK"],
+            "away_team": ["MIA"],
+            "home_team_prob": [0.55],
+            "odds_1": [1.9],
+            "odds_2": [1.95],
+            "result": [np.nan],
+            "accuracy": [np.nan],
+        }
+    ).to_csv(p2, index=False)
+
+    out = script4.load_cumulative_acc_through_date(str(tmp_path), "2026-01-03")
+    assert len(out) == 2
+    assert set(out["home_team"]) == {"BOS", "NYK"}
