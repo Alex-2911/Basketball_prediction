@@ -298,6 +298,35 @@ function resolveParamsSource(outputRoot, snapshotDate) {
   };
 }
 
+function resolveLocalMatchedSource(outputRoot, webRoot, snapshotDate) {
+  const datedCandidates = listDatedCandidates(outputRoot, 'local_matched_games_', '.csv');
+  const exact = datedCandidates.find((entry) => entry.date === snapshotDate);
+  const dated = exact || selectDatedAtOrBefore(datedCandidates, snapshotDate);
+  if (dated) {
+    return {
+      filePath: path.join(outputRoot, dated.name),
+      sourceLabel: `output/${dated.name}`,
+    };
+  }
+
+  const latest = findLatestFile(outputRoot, 'local_matched_games_');
+  if (latest) {
+    return {
+      filePath: path.join(outputRoot, latest),
+      sourceLabel: `output/${latest}`,
+    };
+  }
+
+  const deployed = path.join(webRoot, 'local_matched_games_latest.csv');
+  if (fs.existsSync(deployed)) {
+    return {
+      filePath: deployed,
+      sourceLabel: 'web/public/data/local_matched_games_latest.csv',
+    };
+  }
+  return null;
+}
+
 function readParamsPayload(source) {
   if (!source.filePath) return {};
   if (source.filePath.endsWith('.json')) {
@@ -398,25 +427,15 @@ function main() {
     new Date().toISOString().slice(0, 10);
 
   // ----------------------------
-  // local matched games: prefer latest output local_matched_games_*.csv,
-  // otherwise fall back to deployed local_matched_games_latest.csv
+  // local matched games: prefer dated output artifact aligned to snapshot date,
+  // then fallback to latest output artifact, and only then deployed file.
   // ----------------------------
-  const deployedLocalMatched = path.join(webDataDir, 'local_matched_games_latest.csv');
-
-  let localMatchedSourcePath = null;
-
-  if (fs.existsSync(deployedLocalMatched)) {
-    localMatchedSourcePath = deployedLocalMatched;
-    console.log('Using web/public/data/local_matched_games_latest.csv as source (Script 5).');
-  } else {
-    const localMatchedLatestName = findLatestFile(outputDir, 'local_matched_games_');
-    if (localMatchedLatestName) {
-      localMatchedSourcePath = path.join(outputDir, localMatchedLatestName);
-      console.log(`Using output local matched source (fallback): ${localMatchedLatestName}`);
-    } else {
-      throw new Error('No local_matched_games_*.csv found and no deployed local_matched_games_latest.csv exists.');
-    }
+  const resolvedLocalMatched = resolveLocalMatchedSource(outputDir, webDataDir, selectedSnapshotDate);
+  if (!resolvedLocalMatched) {
+    throw new Error('No local_matched_games source found (dated output, latest output, or deployed latest).');
   }
+  const localMatchedSourcePath = resolvedLocalMatched.filePath;
+  console.log(`Using local matched source: ${resolvedLocalMatched.sourceLabel}`);
 
   const localMatchedText = fs.readFileSync(localMatchedSourcePath, 'utf8');
   const localMatchedParsed = parseDelimitedWithDelimiter(localMatchedText);
@@ -617,13 +636,24 @@ function main() {
     copyFile(selectedBetLogPath, path.join(webDataDir, 'bet_log_flat_live.csv'));
   }
 
-  if (Object.keys(strategyParams).length || paramsSource.sourceType === 'default') {
-    fs.writeFileSync(
-      path.join(webDataDir, 'strategy_params.json'),
-      JSON.stringify(strategyParams, null, 2),
-      'utf8'
-    );
-  }
+  const strategyParamsForDashboard = {
+    as_of_date: asOfDate,
+    min_ev: minEV !== undefined ? minEV : (strategyParams.min_ev ?? null),
+    stake: strategyParams.stake ?? null,
+    params_used: {
+      home_win_rate_threshold: paramsUsed.home_win_rate_threshold ?? null,
+      odds_min: paramsUsed.odds_min ?? null,
+      odds_max: paramsUsed.odds_max ?? null,
+      prob_threshold: paramsUsed.prob_threshold ?? null,
+    },
+    source_type: paramsSource.sourceType,
+    source_file: paramsSource.filePath ? path.relative(repoRoot, paramsSource.filePath) : null,
+  };
+  fs.writeFileSync(
+    path.join(webDataDir, 'strategy_params.json'),
+    JSON.stringify(strategyParamsForDashboard, null, 2),
+    'utf8'
+  );
 
   fs.writeFileSync(
     path.join(webDataDir, 'dashboard_state.json'),
