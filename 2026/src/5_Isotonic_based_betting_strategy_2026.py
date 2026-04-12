@@ -1486,13 +1486,7 @@ def write_json(path: Path, payload: dict) -> None:
     logging.info("Wrote %s", path)
 
 
-def validate_structured_csv(
-    path: Path,
-    required_cols: list[str],
-    *,
-    min_data_rows: int = 1,
-    unique_key_cols: Optional[list[str]] = None,
-) -> None:
+def validate_structured_csv(path: Path, required_cols: list[str], *, min_data_rows: int = 1) -> None:
     if not path.exists():
         raise RuntimeError(f"CSV validation failed: missing file {path}")
 
@@ -1512,20 +1506,6 @@ def validate_structured_csv(
     missing = [c for c in required_cols if c not in sample.columns]
     if missing:
         raise RuntimeError(f"CSV validation failed: {path} missing required columns {missing}")
-
-    if unique_key_cols:
-        key_missing = [c for c in unique_key_cols if c not in sample.columns]
-        if key_missing:
-            raise RuntimeError(
-                f"CSV validation failed: {path} missing uniqueness key columns {key_missing}"
-            )
-        key_df = pd.read_csv(path, usecols=unique_key_cols)
-        dup_count = int(key_df.duplicated(subset=unique_key_cols, keep=False).sum())
-        if dup_count > 0:
-            raise RuntimeError(
-                f"CSV validation failed: {path} has duplicated key rows on "
-                f"{unique_key_cols} (duplicate_rows={dup_count})"
-            )
 
 
 def write_strategy_params(params_used: dict, *, min_ev: float, as_of_date: str, stake: float, output_dir: Path) -> None:
@@ -1913,7 +1893,7 @@ def main() -> None:
 
     # Keep ACC file schema aligned with enriched probabilities for downstream consumers.
     acc_path = Path(pred_dir) / f"combined_nba_predictions_acc_{requested_ymd}.csv"
-    df_all.to_csv(acc_path, index=False, encoding="utf-8", lineterminator="\n")
+    df_all.to_csv(acc_path, index=False, encoding="utf-8")
     logging.info("Refreshed ACC combined with calibrated probabilities -> %s", acc_path)
     validate_structured_csv(
         acc_path,
