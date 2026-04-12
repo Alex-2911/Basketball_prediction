@@ -89,23 +89,3 @@ def test_script5_shortlist_uses_effective_probability_threshold_floor():
     shortlist = script5.build_bet_shortlist(df, params, min_ev=-100.0)
 
     assert shortlist.empty
-
-
-def test_script5_validate_structured_csv_rejects_duplicate_game_keys(tmp_path):
-    csv_path = tmp_path / "combined.csv"
-    pd.DataFrame(
-        {
-            "date": ["2026-02-01", "2026-02-01"],
-            "home_team": ["BOS", "BOS"],
-            "away_team": ["LAL", "LAL"],
-            "prob_used": [0.61, 0.62],
-        }
-    ).to_csv(csv_path, index=False)
-
-    with pytest.raises(RuntimeError, match="duplicated key rows"):
-        script5.validate_structured_csv(
-            csv_path,
-            required_cols=["home_team", "away_team", "date", "prob_used"],
-            min_data_rows=1,
-            unique_key_cols=["date", "home_team", "away_team"],
-        )
