@@ -2044,8 +2044,6 @@ def main() -> None:
 
     local_params = None
     no_bet_mode = False
-    used_global_fallback = False
-    used_safe_fallback = False
     local_tail_used = None
     local_ladder_attempts = []
     global_params = None
