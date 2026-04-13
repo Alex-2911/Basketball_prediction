@@ -1,21 +1,21 @@
 {
   "meta": {
-    "as_of_date": "2026-04-10",
-    "eval_base_date_max": "2026-04-10",
+    "as_of_date": "2026-04-12",
+    "eval_base_date_max": "2026-04-12",
     "strategy_variant": "iso",
     "strategy_variant_label": "ISO/KELLY",
     "params_source": "/home/runner/work/Basketball_prediction/Basketball_prediction/web/public/data/strategy_params.json",
-    "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-04-10.csv",
+    "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-04-12.csv",
     "local_matched_games_source": "historical_strategy_subset",
-    "local_search_status": "skipped_insufficient_history"
+    "local_search_status": "ran"
   },
-  "as_of_date": "2026-04-10",
-  "params_used_type": "fallback",
-  "fallback_used": true,
-  "fallback_reason": "skipped_insufficient_history",
-  "local_search_status": "skipped_insufficient_history",
+  "as_of_date": "2026-04-12",
+  "params_used_type": "LOCAL",
+  "fallback_used": false,
+  "fallback_reason": null,
+  "local_search_status": "ran",
   "params_source": "/home/runner/work/Basketball_prediction/Basketball_prediction/web/public/data/strategy_params.json",
-  "params_source_type": "fallback",
+  "params_source_type": "LOCAL",
   "params_used": {
     "home_win_rate_threshold": 0.5,
     "odds_min": 2.3,
@@ -26,7 +26,7 @@
     "roi_%": 0.0
   },
   "local_window_200": {
-    "min_EV_applied": -5.0,
+    "min_EV_applied": 0.0,
     "metrics": {
       "n_trades": 0,
       "win_rate_%": 0.0,
@@ -35,18 +35,18 @@
       "roi_%": 0.0,
       "prob_thr_eff": 0.45
     },
-    "window_start": "2026-04-10",
-    "window_end": "2026-04-10",
-    "window_games": 14,
+    "window_start": "NaT",
+    "window_end": "NaT",
+    "window_games": 200,
     "matched_games": 0
   },
   "bankroll": {
     "deposit_eur": 1000.0,
-    "bankroll_last_200_eur": 2246.75,
+    "bankroll_last_200_eur": 1000.0,
     "flat_stake_eur": 100.0
   },
   "live_oos_proxy": {
-    "ready": false,
-    "train_rows": 14
+    "ready": true,
+    "train_rows": 1128
   }
 }
