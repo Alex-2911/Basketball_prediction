@@ -10,20 +10,20 @@
     "local_search_status": "ran"
   },
   "as_of_date": "2026-04-12",
-  "params_used_type": "GLOBAL",
-  "fallback_used": true,
-  "fallback_reason": "global_fallback",
+  "params_used_type": "LOCAL",
+  "fallback_used": false,
+  "fallback_reason": null,
   "local_search_status": "ran",
   "params_source": "/home/runner/work/Basketball_prediction/Basketball_prediction/web/public/data/strategy_params.json",
-  "params_source_type": "GLOBAL",
+  "params_source_type": "LOCAL",
   "params_used": {
-    "home_win_rate_threshold": 0.55,
-    "odds_min": 1.1,
-    "odds_max": 3.2,
-    "prob_threshold": 0.65,
-    "n_trades": 168,
-    "profit_\u20ac": 2782.0,
-    "roi_%": 16.56
+    "home_win_rate_threshold": 1.01,
+    "odds_min": 99.0,
+    "odds_max": 100.0,
+    "prob_threshold": 1.01,
+    "n_trades": 0,
+    "profit_\u20ac": 0.0,
+    "roi_%": 0.0
   },
   "local_window_200": {
     "min_EV_applied": 0.0,
@@ -33,7 +33,7 @@
       "avg_EV_\u20ac_per_100": 0.0,
       "profit_\u20ac": 0.0,
       "roi_%": 0.0,
-      "prob_thr_eff": 0.65
+      "prob_thr_eff": 1.01
     },
     "window_start": "NaT",
     "window_end": "NaT",
