@@ -2344,6 +2344,8 @@ def main() -> None:
         )
 
     # Minimal snapshot for trace (keep structure, but based on LOCAL params + last-200)
+    used_global_fallback = bool(locals().get("used_global_fallback", False))
+    used_safe_fallback = bool(locals().get("used_safe_fallback", False))
     fallback_used = bool(insufficient_history or used_global_fallback or used_safe_fallback)
     fallback_reason = (
         "skipped_insufficient_history"
