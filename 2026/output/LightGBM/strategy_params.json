@@ -3,13 +3,13 @@
   "min_ev": 0.0,
   "stake": 100.0,
   "params_used": {
-    "home_win_rate_threshold": 0.5,
-    "n_trades": 0,
+    "home_win_rate_threshold": 0.55,
+    "n_trades": 168,
     "odds_max": 3.2,
-    "odds_min": 2.3,
-    "prob_threshold": 0.45,
-    "profit_\u20ac": 0.0,
-    "roi_%": 0.0
+    "odds_min": 1.1,
+    "prob_threshold": 0.65,
+    "profit_\u20ac": 2782.0,
+    "roi_%": 16.56
   },
   "source": "script5_local_last200"
 }
