@@ -36,9 +36,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install jupyter nbconvert
+          python -m pip install --upgrade pip --root-user-action=ignore
+          python -m pip install --root-user-action=ignore -r requirements.txt
+          python -m pip install --root-user-action=ignore jupyter nbconvert
 
       # -----------------------
       # Script 4
@@ -231,6 +231,5 @@ jobs:
           git push origin 2026
 
           
-
 
 
