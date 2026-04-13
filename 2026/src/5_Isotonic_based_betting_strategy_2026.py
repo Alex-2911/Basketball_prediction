@@ -2102,16 +2102,22 @@ def main() -> None:
 
     # fallback if search found nothing
     if not local_params:
-        logging.warning("LOCAL param search returned None; using safe fallback.")
-        local_params = {
-            "home_win_rate_threshold": 0.50,
-            "odds_min": 2.30,
-            "odds_max": 3.20,
-            "prob_threshold": 0.45,
-            "n_trades": 0,
-            "profit_€": 0.0,
-            "roi_%": 0.0,
-        }
+        if global_params:
+            used_global_fallback = True
+            local_params = dict(global_params)
+            logging.warning("LOCAL param search returned None; using GLOBAL params fallback.")
+        else:
+            used_safe_fallback = True
+            logging.warning("LOCAL+GLOBAL param search returned None; using safe fallback.")
+            local_params = {
+                "home_win_rate_threshold": 0.50,
+                "odds_min": 2.30,
+                "odds_max": 3.20,
+                "prob_threshold": 0.45,
+                "n_trades": 0,
+                "profit_€": 0.0,
+                "roi_%": 0.0,
+            }
 
     # Build matched subset STRICTLY on the last-200 window using these LOCAL params
     metrics_local, subset_local = evaluate_params_on_hist_window(
@@ -2229,10 +2235,21 @@ def main() -> None:
         )
 
     # Minimal snapshot for trace (keep structure, but based on LOCAL params + last-200)
-    fallback_used = bool(insufficient_history)
-    fallback_reason = "skipped_insufficient_history" if fallback_used else None
-    params_used_type = "fallback" if fallback_used else "LOCAL"
-    local_search_status = "skipped_insufficient_history" if fallback_used else "ran"
+    fallback_used = bool(insufficient_history or used_global_fallback or used_safe_fallback)
+    fallback_reason = (
+        "skipped_insufficient_history"
+        if insufficient_history
+        else ("global_fallback" if used_global_fallback else ("safe_fallback" if used_safe_fallback else None))
+    )
+    if insufficient_history:
+        params_used_type = "fallback"
+    elif used_global_fallback:
+        params_used_type = "GLOBAL"
+    elif used_safe_fallback:
+        params_used_type = "safe_fallback"
+    else:
+        params_used_type = "LOCAL"
+    local_search_status = "skipped_insufficient_history" if insufficient_history else "ran"
 
     snapshot = {
         "meta": {
