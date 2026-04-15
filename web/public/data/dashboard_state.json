@@ -42,7 +42,7 @@
   "strategy_as_of_date": null,
   "bet_log_source_file": "2026/bet_log/bet_log_flat_live.csv",
   "bet_log_latest_date_in_file": "2026-03-14",
-  "last_update_utc": "2026-04-15T16:56:42.227Z",
+  "last_update_utc": "2026-04-15T19:12:07.271Z",
   "source_files": {
     "combined": "combined_latest.csv",
     "combined_source": "Kelly/combined_nba_predictions_iso_2026-04-15.csv",
