@@ -47,6 +47,6 @@
   },
   "live_oos_proxy": {
     "ready": true,
-    "train_rows": 1130
+    "train_rows": 394
   }
 }
