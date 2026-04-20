@@ -206,16 +206,9 @@ def find_games_for_next_day(target_date: datetime, file_paths: List[str]) -> Lis
 
 def _pause_and_exit_ok():
     """
-    Keep window open if running locally.
-    In GitHub Actions, GITHUB_ACTIONS="true" so we just return.
+    Script 2 must never block for input in automation or local runs.
     """
-    in_ci = os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
-    if in_ci:
-        return
-    try:
-        input("Done. Press Enter to close this window...")
-    except EOFError:
-        pass
+    return
 
 
 # ─────────────────────────────
