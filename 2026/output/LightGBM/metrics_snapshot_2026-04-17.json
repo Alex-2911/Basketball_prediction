@@ -1,0 +1,52 @@
+{
+  "meta": {
+    "as_of_date": "2026-04-17",
+    "eval_base_date_max": "2026-04-17",
+    "strategy_variant": "iso",
+    "strategy_variant_label": "ISO/KELLY",
+    "params_source": "/home/runner/work/Basketball_prediction/Basketball_prediction/web/public/data/strategy_params.json",
+    "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-04-17.csv",
+    "local_matched_games_source": "historical_strategy_subset",
+    "local_search_status": "ran"
+  },
+  "as_of_date": "2026-04-17",
+  "params_used_type": "LOCAL",
+  "fallback_used": false,
+  "fallback_reason": null,
+  "local_search_status": "ran",
+  "params_source": "/home/runner/work/Basketball_prediction/Basketball_prediction/web/public/data/strategy_params.json",
+  "params_source_type": "LOCAL",
+  "params_used": {
+    "home_win_rate_threshold": 1.01,
+    "odds_min": 99.0,
+    "odds_max": 100.0,
+    "prob_threshold": 1.01,
+    "n_trades": 0,
+    "profit_\u20ac": 0.0,
+    "roi_%": 0.0
+  },
+  "local_window_200": {
+    "min_EV_applied": 0.0,
+    "metrics": {
+      "n_trades": 0,
+      "win_rate_%": 0.0,
+      "avg_EV_\u20ac_per_100": 0.0,
+      "profit_\u20ac": 0.0,
+      "roi_%": 0.0,
+      "prob_thr_eff": 1.01
+    },
+    "window_start": "NaT",
+    "window_end": "NaT",
+    "window_games": 200,
+    "matched_games": 0
+  },
+  "bankroll": {
+    "deposit_eur": 1000.0,
+    "bankroll_last_200_eur": 1000.0,
+    "flat_stake_eur": 100.0
+  },
+  "live_oos_proxy": {
+    "ready": true,
+    "train_rows": 395
+  }
+}
