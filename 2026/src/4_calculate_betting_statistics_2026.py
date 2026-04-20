@@ -20,6 +20,7 @@ Then execute this script to compute betting statistics.
 
 import pandas as pd
 import os
+import sys
 import numpy as np
 import logging
 from datetime import timedelta
@@ -418,9 +419,11 @@ def main():
 if __name__ == "__main__":
     main()
 
-    # Don't prompt in GitHub Actions / CI
+    # Never block by default; prompt only when explicitly enabled locally.
     in_ci = os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
-    if not in_ci:
+    prompt_enabled = os.environ.get("ENABLE_EXIT_PROMPT", "").lower() == "true"
+    interactive_tty = sys.stdin.isatty()
+    if not in_ci and prompt_enabled and interactive_tty:
         try:
             input("Press Enter to close this window...")
         except EOFError:
