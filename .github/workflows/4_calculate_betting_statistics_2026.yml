@@ -37,6 +37,7 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
+        shell: bash
         run: |
           python -m pip install --upgrade pip --root-user-action=ignore
           python -m pip install --root-user-action=ignore -r requirements.txt
