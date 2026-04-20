@@ -1,9 +1,9 @@
 {
   "as_of_date": "2026-04-19",
   "window_size": 200,
-  "window_start": "2026-03-16",
+  "window_start": "2026-03-17",
   "window_end": "2026-04-19",
-  "active_filters_text": "HW ≥ 1.01 | odds 99.00–100.00 | p ≥ 1.01 | EV > — | window 200 games (2026-03-16 → 2026-04-19)",
+  "active_filters_text": "HW ≥ 1.01 | odds 99.00–100.00 | p ≥ 1.01 | EV > — | window 200 games (2026-03-17 → 2026-04-19)",
   "snapshot_date_selected": "2026-04-19",
   "params_used_label": "Historical",
   "params_source_label": "LOCAL",
@@ -42,7 +42,7 @@
   "strategy_as_of_date": null,
   "bet_log_source_file": "2026/bet_log/bet_log_flat_live.csv",
   "bet_log_latest_date_in_file": "2026-03-14",
-  "last_update_utc": "2026-04-20T16:57:58.164Z",
+  "last_update_utc": "2026-04-20T18:13:32.029Z",
   "source_files": {
     "combined": "combined_latest.csv",
     "combined_source": "Kelly/combined_nba_predictions_iso_2026-04-20.csv",
