@@ -2,6 +2,9 @@
   "as_of_date": "2026-04-19",
   "min_ev": 0.0,
   "stake": 100.0,
+  "selection_decision": null,
+  "no_bet_mode": null,
+  "fallback_reason": null,
   "params_used": {
     "avg_EV_\u20ac_per_100": 25.16,
     "home_win_rate_threshold": 0.5,
