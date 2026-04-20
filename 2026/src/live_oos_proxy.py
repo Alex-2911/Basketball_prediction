@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict, is_dataclass
 from typing import Any
 
 import numpy as np
@@ -8,6 +9,28 @@ import pandas as pd
 
 DEFAULT_PROB_SOURCE_COLS = ["prob_iso_oos_time", "home_team_prob"]
 
+
+
+
+def _proxy_get(proxy_obj: Any, key: str, default: Any = None) -> Any:
+    if isinstance(proxy_obj, dict):
+        return proxy_obj.get(key, default)
+    if is_dataclass(proxy_obj):
+        return asdict(proxy_obj).get(key, default)
+    if hasattr(proxy_obj, key):
+        return getattr(proxy_obj, key)
+    getter = getattr(proxy_obj, "get", None)
+    if callable(getter):
+        try:
+            return getter(key, default)
+        except TypeError:
+            pass
+    return default
+
+
+def _proxy_has(proxy_obj: Any, key: str) -> bool:
+    sentinel = object()
+    return _proxy_get(proxy_obj, key, sentinel) is not sentinel
 
 def _wilson_lower_bound(wins: float, n: float, z: float = 1.96) -> float:
     if n <= 0:
@@ -127,12 +150,12 @@ def build_live_oos_proxy(
 
 def apply_live_oos_proxy(
     df_upcoming: pd.DataFrame,
-    proxy_obj: dict[str, Any],
+    proxy_obj: Any,
     in_col: str = "home_team_prob",
 ) -> pd.DataFrame:
     out = df_upcoming.copy()
-    ready = bool(proxy_obj.get("ready", False))
-    train_rows = int(proxy_obj.get("train_rows", 0))
+    ready = bool(_proxy_get(proxy_obj, "ready", False))
+    train_rows = int(_proxy_get(proxy_obj, "train_rows", 0) or 0)
 
     out["prob_live_oos_proxy"] = np.nan
     out["live_oos_proxy_ready"] = ready
@@ -140,11 +163,12 @@ def apply_live_oos_proxy(
     out["live_oos_proxy_bin_n"] = 0
     out["live_oos_proxy_bin_winrate"] = np.nan
 
-    if not ready or "predict_proxy" not in proxy_obj:
+    predict_fn = _proxy_get(proxy_obj, "predict_proxy")
+    if not ready or not callable(predict_fn) or not _proxy_has(proxy_obj, "predict_proxy"):
         return out
 
     p_in = pd.to_numeric(out.get(in_col), errors="coerce")
-    preds = p_in.apply(proxy_obj["predict_proxy"])
+    preds = p_in.apply(predict_fn)
     out["prob_live_oos_proxy"] = preds.apply(lambda x: x[0] if isinstance(x, tuple) else np.nan)
     out["live_oos_proxy_bin_n"] = preds.apply(lambda x: x[1] if isinstance(x, tuple) else 0).astype(int)
     out["live_oos_proxy_bin_winrate"] = preds.apply(lambda x: x[2] if isinstance(x, tuple) else np.nan)

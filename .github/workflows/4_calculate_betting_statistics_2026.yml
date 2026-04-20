@@ -22,10 +22,12 @@ jobs:
       STRATEGY_VARIANT: iso
 
     steps:
-      - name: Checkout repository (branch 2026)
+      - name: Checkout repository (triggering ref/sha)
         uses: actions/checkout@v4
         with:
-          ref: 2026
+          # For workflow_run, pin to the upstream workflow's head SHA.
+          # For workflow_dispatch, use the manually selected ref.
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
           fetch-depth: 0
 
       - name: Set up Python 3.11 (with pip cache)
@@ -231,6 +233,5 @@ jobs:
           git push origin 2026
 
           
-
 
 
