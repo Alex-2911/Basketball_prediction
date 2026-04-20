@@ -2031,8 +2031,10 @@ def main() -> None:
     hist_rows = int(len(df_past_sorted))
     history_status = classify_local_search_history(hist_rows, MIN_HIST_ROWS_FOR_LOCAL)
     insufficient_history = history_status == "insufficient_history"
+    selection_decision = "UNSET"
 
     if insufficient_history:
+        selection_decision = "SKIPPED_INSUFFICIENT_HISTORY"
         logging.warning(
             "LOCAL search skipped_insufficient_history: hist_rows=%d min_required=%d",
             hist_rows,
