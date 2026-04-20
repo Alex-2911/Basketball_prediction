@@ -2047,6 +2047,7 @@ def main() -> None:
     local_tail_used = None
     local_ladder_attempts = []
     global_params = None
+    local_candidate_params = None
     if not insufficient_history:
         global_params, _ = find_best_local_params_lastN(
             df_past_sorted,
@@ -2214,9 +2215,11 @@ def main() -> None:
         elif global_params:
             used_global_fallback = True
             local_params = dict(global_params)
+            selection_decision = "GLOBAL_FALLBACK"
             logging.warning("LOCAL param search returned None; using GLOBAL params fallback.")
         else:
             used_safe_fallback = True
+            selection_decision = "SAFE_FALLBACK"
             logging.warning("LOCAL+GLOBAL param search returned None; using safe fallback.")
             local_params = {
                 "home_win_rate_threshold": 0.50,
@@ -2228,10 +2231,21 @@ def main() -> None:
                 "roi_%": 0.0,
             }
 
+    if selection_decision == "UNSET":
+        selection_decision = "LOCAL"
+
+    params_for_live = dict(local_params) if local_params else {}
+    params_for_eval = dict(local_params) if local_params else {}
+    if no_bet_mode:
+        if global_params:
+            params_for_eval = dict(global_params)
+        elif local_candidate_params:
+            params_for_eval = dict(local_candidate_params)
+
     # Build matched subset STRICTLY on the last-200 window using these LOCAL params
     metrics_local, subset_local = evaluate_params_on_hist_window(
         hist_window_200,
-        local_params,
+        params_for_eval,
         min_ev=min_EV,
         flat_stake_backtest=FLAT_STAKE,
         prob_clip_lo=PROB_CLIP_LO,
@@ -2242,7 +2256,7 @@ def main() -> None:
         subset_local=subset_local,
         hist_df=df_past_sorted,
         hist_window_200=hist_window_200,
-        params_used=local_params,
+        params_used=params_for_eval,
         min_ev=min_EV,
         prob_clip_lo=PROB_CLIP_LO,
         prob_clip_hi=PROB_CLIP_HI,
@@ -2258,7 +2272,7 @@ def main() -> None:
         )
         rebuilt_subset = rebuild_historical_subset_from_hist_df(
             df_past_sorted,
-            params_used=local_params,
+            params_used=params_for_eval,
             window_n=FAIR_COMPARE_N,
             min_ev=min_EV,
             prob_clip_lo=PROB_CLIP_LO,
@@ -2284,7 +2298,7 @@ def main() -> None:
             "[LOCAL MATCHED EXPORT] WARNING: historical subset empty; writing header-only file"
         )
 
-    shortlist = build_bet_shortlist(df_all, local_params, min_EV)
+    shortlist = build_bet_shortlist(df_all, params_for_live, min_EV)
     shortlist_path = kelly_dir / f"bet_shortlist_{target_ymd}.csv"
     shortlist = shortlist.reindex(columns=SHORTLIST_COLUMNS)
     shortlist.to_csv(shortlist_path, index=False, encoding="utf-8")
@@ -2315,7 +2329,7 @@ def main() -> None:
         # -------------------------
         write_latest_local_matched_csv(
           df_past_sorted,
-          params_used=local_params,
+          params_used=params_for_eval,
           target_dt=target_dt,
           window_n=FAIR_COMPARE_N,   # 200
           min_ev=min_EV,
@@ -2329,14 +2343,14 @@ def main() -> None:
             matched_export_latest,
             as_of_date=as_of_date,
             output_dir=out_dir,
-            params_used=local_params,
+            params_used=params_for_eval,
             source_name=local_matched_export_source,
             allow_header_only=bool(matched_export_latest.empty),
             intentional_empty=bool(matched_export_latest.empty),
         )
 
         # Also write strategy params TXT (generated each run)
-        write_strategy_params(local_params, min_ev=min_EV, as_of_date=as_of_date, stake=FLAT_STAKE, output_dir=out_dir)
+        write_strategy_params(params_for_eval, min_ev=min_EV, as_of_date=as_of_date, stake=FLAT_STAKE, output_dir=out_dir)
         validate_dated_dashboard_artifacts(
             output_dir=out_dir,
             as_of_date=as_of_date,
@@ -2350,17 +2364,23 @@ def main() -> None:
     fallback_reason = (
         "skipped_insufficient_history"
         if insufficient_history
-        else ("global_fallback" if used_global_fallback else ("safe_fallback" if used_safe_fallback else None))
+        else (
+            "no_bet_stability_gate"
+            if no_bet_mode
+            else ("global_fallback" if used_global_fallback else ("safe_fallback" if used_safe_fallback else None))
+        )
     )
     if insufficient_history:
         params_used_type = "fallback"
+    elif no_bet_mode:
+        params_used_type = "NO_BET"
     elif used_global_fallback:
         params_used_type = "GLOBAL"
     elif used_safe_fallback:
         params_used_type = "safe_fallback"
     else:
         params_used_type = "LOCAL"
-    local_search_status = "skipped_insufficient_history" if insufficient_history else "ran"
+    local_search_status = "skipped_insufficient_history" if insufficient_history else ("ran_no_bet" if no_bet_mode else "ran")
 
     snapshot = {
         "meta": {
@@ -2380,7 +2400,15 @@ def main() -> None:
         "local_search_status": local_search_status,
         "params_source": params_source,
         "params_source_type": params_used_type,
-        "params_used": local_params,
+        "params_used": params_for_eval,
+        "selection": {
+            "decision": selection_decision,
+            "no_bet_mode": bool(no_bet_mode),
+            "global_candidate_params": global_params,
+            "local_candidate_params": local_candidate_params,
+            "applied_params": params_for_live,
+            "local_tail_used": local_tail_used,
+        },
         "local_window_200": {
             "min_EV_applied": float(min_EV),
             "metrics": metrics_local,
