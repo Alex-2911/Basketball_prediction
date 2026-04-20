@@ -2442,7 +2442,7 @@ def main() -> None:
         "params_used_type": params_used_type,
         "fallback_used": fallback_used,
         "fallback_reason": fallback_reason,
-        "local_search_status": "skipped_insufficient_history" if insufficient_history else "ran",
+        "local_search_status": local_search_status,
         "local_window_games": int(len(hist_window_200)),
         "local_matched_games": int(len(matched_export_latest)),
         "prob_col_hist": PROB_COL_HIST,
