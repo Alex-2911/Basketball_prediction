@@ -72,6 +72,23 @@ PROB_CLIP_HI = 0.80
 LOCAL_SEARCH_N = 200
 FAIR_COMPARE_N = 200
 MIN_HIST_ROWS_FOR_LOCAL = 100
+LOCAL_TAIL_LADDER = [300, 400, 500]
+WALK_TRAIN_MIN_DAYS = 21
+WALK_TEST_DAYS = 21
+WALK_STEP_DAYS = 7
+MIN_WALK_SPLITS = 4
+MIN_TEST_TRADES_TOTAL = 50
+MIN_ACTIVE_SPLITS = 3
+MIN_TRADES_PER_ACTIVE_SPLIT = 5
+MIN_TRADES_TRAIN = 20
+MIN_TRADES_PER_WINDOW = 25
+N_WINDOWS = [300, 400, 500]
+STABILITY_HITS_NEEDED = 2
+USE_SOFT_GATE = True
+SOFT_Q = 0.20
+MIN_Q_TRADES = 4
+SCORE_MODE = "lcb_roi"
+LCB_K = 0.5
 
 START_BANKROLL = 1000.0
 
@@ -571,16 +588,18 @@ def compute_home_win_rates(df_all: pd.DataFrame, ymd: str, pred_dir: str) -> str
     df = df_all.copy()
     df = _ensure_datetime(df, DATE_COL)
     df["date"] = df[DATE_COL]
+    played_mask = df.get(RESULT_COL, pd.Series(index=df.index, dtype=float)).notna()
+    played_home = df.loc[played_mask].copy()
+    played_home = played_home[played_home["home_team"].notna()].sort_values("date")
 
     team_results = {}
     for team in df["home_team"].dropna().unique():
-        team_games = df[(df["home_team"] == team) | (df["away_team"] == team)].sort_values("date", ascending=False).head(20)
-        home_games = team_games[team_games["home_team"] == team]
-        total_home = len(home_games)
-        home_wins = len(home_games[home_games.get("result", pd.Series(index=home_games.index)).astype(str) == str(team)])
-        hwr = round(home_wins / total_home, 2) if total_home > 0 else 0.0
+        team_home_games = played_home[played_home["home_team"] == team].tail(20)
+        total_home = int(len(team_home_games))
+        home_wins = int(pd.to_numeric(team_home_games.get(RESULT_COL), errors="coerce").fillna(0).astype(int).sum()) if total_home else 0
+        hwr = round(home_wins / total_home, 4) if total_home > 0 else np.nan
         team_results[team] = {
-            "Total Last 20 Games": len(team_games),
+            "Total Last 20 Home Games": total_home,
             "Total Home Games": total_home,
             "Home Wins": home_wins,
             "Home Win Rate": hwr,
@@ -596,7 +615,7 @@ def compute_home_win_rates(df_all: pd.DataFrame, ymd: str, pred_dir: str) -> str
 def attach_home_win_rate(df: pd.DataFrame, hwr_path: str) -> pd.DataFrame:
     if not os.path.exists(hwr_path):
         logging.warning("Home win rate file missing: %s", hwr_path)
-        df[HOMEWR_COL] = 0.0
+        df[HOMEWR_COL] = np.nan
         return df
 
     base_df = df.drop(columns=[HOMEWR_COL], errors="ignore").copy()
@@ -622,7 +641,7 @@ def attach_home_win_rate(df: pd.DataFrame, hwr_path: str) -> pd.DataFrame:
     out = base_df.merge(hwr_m, left_on="_home_team_norm", right_on="_team_norm", how="left")
 
     out.rename(columns={win_col: HOMEWR_COL}, inplace=True)
-    out[HOMEWR_COL] = pd.to_numeric(out[HOMEWR_COL], errors="coerce").fillna(0.0)
+    out[HOMEWR_COL] = pd.to_numeric(out[HOMEWR_COL], errors="coerce")
 
     out.drop(columns=["_team_norm", "_home_team_norm"], inplace=True, errors="ignore")
     return out
@@ -814,7 +833,7 @@ def find_best_local_params_lastN(
     min_ev: float,
     prob_clip_lo: float,
     prob_clip_hi: float,
-    min_trades_local: int = 10,
+    min_trades_local: int = 1,
 ) -> Tuple[Optional[dict], Optional[pd.DataFrame]]:
     if hist_df is None or hist_df.empty:
         return None, None
@@ -847,7 +866,7 @@ def find_best_local_params_lastN(
                         (df["EV_€_per_100"] > float(min_ev))
                     )
                     sub = df.loc[mask].copy()
-                    if sub.empty or len(sub) < min_trades_local:
+                    if sub.empty or len(sub) < int(min_trades_local):
                         continue
 
                     sub["pnl"] = np.where(
@@ -865,6 +884,8 @@ def find_best_local_params_lastN(
                             "odds_max": round(float(o_max), 2),
                             "prob_threshold": round(float(pmin), 2),
                             "n_trades": int(len(sub)),
+                            "win_rate_%": round(float(sub[RESULT_COL].mean() * 100.0), 2),
+                            "avg_EV_€_per_100": round(float(sub["EV_€_per_100"].mean()), 2),
                             "profit_€": round(profit, 2),
                             "roi_%": round(profit / (len(sub) * flat_stake_backtest) * 100.0, 2),
                         }
@@ -930,32 +951,65 @@ def find_best_local_params_walk_forward(
     prob_clip_lo: float,
     prob_clip_hi: float,
     n_splits: int = 4,
-    min_trades_test_split: int = 10,
+    min_trades_test_split: int = MIN_TRADES_PER_ACTIVE_SPLIT,
 ):
     if hist_df is None or hist_df.empty:
         return None
 
     df = _ensure_datetime(hist_df, DATE_COL).sort_values(DATE_COL).tail(int(tail_n)).copy()
+    if {"home_team", "away_team"}.issubset(df.columns):
+        date_part = df[DATE_COL].dt.strftime("%Y-%m-%d").fillna("")
+        df["_game_key"] = (
+            date_part
+            + "_"
+            + df["home_team"].astype(str).str.strip().str.upper()
+            + "_"
+            + df["away_team"].astype(str).str.strip().str.upper()
+        )
+        df = df.drop_duplicates(subset=["_game_key"], keep="last")
+        df = df.drop(columns=["_game_key"], errors="ignore")
     df = _compute_prob_used(df, lo=prob_clip_lo, hi=prob_clip_hi, src=PROB_COL_HIST, dst="prob_used")
     df = _compute_ev_per_100(df, prob_col="prob_used", odds_col=HOME_ODDS_COL, dst="EV_€_per_100")
     df = df.dropna(subset=[HOMEWR_COL, "prob_used", HOME_ODDS_COL, RESULT_COL, "EV_€_per_100"]).copy()
-    if len(df) < max(80, n_splits * 20):
+    if len(df) < max(80, n_splits * MIN_TRADES_TRAIN):
         return None
 
-    fold_size = len(df) // n_splits
-    if fold_size <= 0:
+    min_date = df[DATE_COL].min()
+    max_date = df[DATE_COL].max()
+    if pd.isna(min_date) or pd.isna(max_date):
+        return None
+
+    split_starts = []
+    cursor = min_date + pd.Timedelta(days=WALK_TRAIN_MIN_DAYS)
+    while cursor + pd.Timedelta(days=WALK_TEST_DAYS) <= max_date + pd.Timedelta(days=1):
+        split_starts.append(cursor)
+        cursor += pd.Timedelta(days=WALK_STEP_DAYS)
+    if len(split_starts) < int(MIN_WALK_SPLITS):
         return None
 
     best = None
     for params in _iter_param_grid(prob_clip_lo):
-        test_rois = []
+        split_scores = []
         test_trades = []
         wf_test_profit_total = 0.0
+        split_count = 0
 
-        for split_idx in range(n_splits):
-            start = split_idx * fold_size
-            end = len(df) if split_idx == n_splits - 1 else (split_idx + 1) * fold_size
-            test_df = df.iloc[start:end]
+        for split_start in split_starts:
+            train_start = split_start - pd.Timedelta(days=WALK_TRAIN_MIN_DAYS)
+            train_df = df[(df[DATE_COL] >= train_start) & (df[DATE_COL] < split_start)]
+            test_df = df[(df[DATE_COL] >= split_start) & (df[DATE_COL] < split_start + pd.Timedelta(days=WALK_TEST_DAYS))]
+            split_count += 1
+            train_trades, _, _ = _evaluate_params_on_subset(
+                train_df,
+                params,
+                min_ev=min_ev,
+                stake=stake,
+                prob_clip_lo=prob_clip_lo,
+            )
+            if train_trades < int(MIN_TRADES_TRAIN):
+                test_trades.append(0)
+                split_scores.append(float("-inf"))
+                continue
             trades, profit, roi = _evaluate_params_on_subset(
                 test_df,
                 params,
@@ -963,13 +1017,16 @@ def find_best_local_params_walk_forward(
                 stake=stake,
                 prob_clip_lo=prob_clip_lo,
             )
-            test_rois.append(float(roi))
             test_trades.append(int(trades))
             wf_test_profit_total += float(profit)
+            split_scores.append(float(roi))
 
-        active_splits = int(sum(t >= min_trades_test_split for t in test_trades))
+        active_splits = int(sum(t >= int(min_trades_test_split) for t in test_trades))
         total_test_trades = int(sum(test_trades))
-        q20_trades = float(np.quantile(test_trades, 0.2)) if test_trades else 0.0
+        q20_trades = float(np.quantile(test_trades, SOFT_Q)) if test_trades else 0.0
+        finite_scores = [s for s in split_scores if np.isfinite(s)]
+        if not finite_scores:
+            continue
 
         full_trades, full_profit, full_roi = _evaluate_params_on_subset(
             df,
@@ -979,16 +1036,39 @@ def find_best_local_params_walk_forward(
             prob_clip_lo=prob_clip_lo,
         )
 
-        mean_roi = float(np.mean(test_rois)) if test_rois else 0.0
-        std_roi = float(np.std(test_rois)) if test_rois else 0.0
-        score = mean_roi - 0.5 * std_roi
+        mean_score = float(np.mean(finite_scores))
+        std_score = float(np.std(finite_scores))
+        lcb_score = mean_score - float(LCB_K) * std_score
+        mean_ev = float(df.loc[df[RESULT_COL].notna(), "EV_€_per_100"].mean()) if "EV_€_per_100" in df.columns else 0.0
+
+        if SCORE_MODE == "wf_profit":
+            score_value = float(wf_test_profit_total)
+        elif SCORE_MODE == "lcb_profit":
+            score_value = float(wf_test_profit_total) - float(LCB_K) * std_score
+        elif SCORE_MODE == "lcb_ev":
+            score_value = float(mean_ev) - float(LCB_K) * std_score
+        else:
+            score_value = float(lcb_score)
+
+        coverage_pass = (
+            split_count >= int(MIN_WALK_SPLITS)
+            and total_test_trades >= int(MIN_TEST_TRADES_TOTAL)
+            and active_splits >= int(MIN_ACTIVE_SPLITS)
+            and (
+                (not USE_SOFT_GATE)
+                or q20_trades >= float(MIN_Q_TRADES)
+            )
+        )
+        if not coverage_pass:
+            continue
 
         candidate = {
-            "score_mode": "lcb_roi",
-            "score": float(score),
+            "score_mode": SCORE_MODE,
+            "score": float(score_value),
+            "score_value": float(score_value),
             "params": params,
             "tail_n": int(tail_n),
-            "splits_used": int(n_splits),
+            "splits_used": int(split_count),
             "test_trades_total": int(total_test_trades),
             "active_splits": int(active_splits),
             "q20_trades": float(q20_trades),
@@ -1963,9 +2043,14 @@ def main() -> None:
         )
 
     local_params = None
+    no_bet_mode = False
+    used_global_fallback = False
+    used_safe_fallback = False
+    selection_decision = "UNSET"
     local_tail_used = None
     local_ladder_attempts = []
     global_params = None
+    local_candidate_params = None
     if not insufficient_history:
         global_params, _ = find_best_local_params_lastN(
             df_past_sorted,
@@ -1974,11 +2059,12 @@ def main() -> None:
             min_ev=min_EV,
             prob_clip_lo=PROB_CLIP_LO,
             prob_clip_hi=PROB_CLIP_HI,
-            min_trades_local=10,
+            min_trades_local=1,
         )
 
         logging.info("=== [ROBUST++++] LOCAL PARAMS (WALK-FORWARD on FULL hist_df, coverage gate) ===")
-        for tail_n in (300, 400, 500):
+        best_local_wf = None
+        for tail_n in LOCAL_TAIL_LADDER:
             if len(df_past_sorted) < tail_n:
                 local_ladder_attempts.append(
                     f"  tail={tail_n} | rows={len(df_past_sorted)} | gate_pass=False | reason=insufficient_rows"
@@ -1991,20 +2077,28 @@ def main() -> None:
                 stake=FLAT_STAKE,
                 prob_clip_lo=PROB_CLIP_LO,
                 prob_clip_hi=PROB_CLIP_HI,
-                n_splits=4,
-                min_trades_test_split=10,
+                n_splits=MIN_WALK_SPLITS,
+                min_trades_test_split=MIN_TRADES_PER_ACTIVE_SPLIT,
             )
             if wf is None:
                 local_ladder_attempts.append(
                     f"  tail={tail_n} | rows={tail_n} | gate_pass=False | reason=walk_forward_unavailable"
                 )
                 continue
-            gate_pass = bool(wf["active_splits"] >= 2 and wf["q20_trades"] >= 10.0 and wf["test_trades_total"] >= 25)
-            if gate_pass and local_params is None:
+            gate_pass = bool(
+                wf["splits_used"] >= MIN_WALK_SPLITS
+                and wf["test_trades_total"] >= MIN_TEST_TRADES_TOTAL
+                and wf["active_splits"] >= MIN_ACTIVE_SPLITS
+                and (not USE_SOFT_GATE or wf["q20_trades"] >= MIN_Q_TRADES)
+            )
+            if gate_pass and (best_local_wf is None or float(wf["score_value"]) > float(best_local_wf["score_value"])):
+                best_local_wf = wf
                 local_params = dict(wf["params"])
+                local_params["score_value"] = float(wf["score_value"])
+                local_candidate_params = dict(local_params)
                 local_tail_used = int(tail_n)
                 logging.info("score_mode             : %s", wf["score_mode"])
-                logging.info("LCB(mean_test_ROI - 0.5*std): %.2f", float(wf["score"]))
+                logging.info("Local score value      : %.2f", float(wf["score_value"]))
                 logging.info("params: %s", wf["params"])
                 logging.info("LOCAL tail used        : %d", int(tail_n))
                 logging.info(
@@ -2038,76 +2132,104 @@ def main() -> None:
         for line in local_ladder_attempts:
             logging.info(line)
 
-        if local_params and global_params:
-            windows = [300, 400, 500]
-            min_trades_per_window = 25
-            hits_needed = 2
+        if local_params or global_params:
             local_eval = evaluate_strategy_stability(
                 df_past_sorted,
                 local_params,
-                windows=windows,
+                windows=N_WINDOWS,
                 min_ev=min_EV,
                 stake=FLAT_STAKE,
                 prob_clip_lo=PROB_CLIP_LO,
                 prob_clip_hi=PROB_CLIP_HI,
-                min_trades_per_window=min_trades_per_window,
-            )
+                min_trades_per_window=MIN_TRADES_PER_WINDOW,
+            ) if local_params else {"hits": 0, "details": [], "rows_eval": 0}
             global_eval = evaluate_strategy_stability(
                 df_past_sorted,
                 global_params,
-                windows=windows,
+                windows=N_WINDOWS,
                 min_ev=min_EV,
                 stake=FLAT_STAKE,
                 prob_clip_lo=PROB_CLIP_LO,
                 prob_clip_hi=PROB_CLIP_HI,
-                min_trades_per_window=min_trades_per_window,
-            )
-            compare_n = int(local_tail_used or 400)
-            global_compare, _ = evaluate_params_on_hist_window(
-                df_past_sorted.tail(compare_n),
-                global_params,
-                min_ev=min_EV,
-                flat_stake_backtest=FLAT_STAKE,
-                prob_clip_lo=PROB_CLIP_LO,
-                prob_clip_hi=PROB_CLIP_HI,
-            )
-            local_compare, _ = evaluate_params_on_hist_window(
-                df_past_sorted.tail(compare_n),
-                local_params,
-                min_ev=min_EV,
-                flat_stake_backtest=FLAT_STAKE,
-                prob_clip_lo=PROB_CLIP_LO,
-                prob_clip_hi=PROB_CLIP_HI,
-            )
+                min_trades_per_window=MIN_TRADES_PER_WINDOW,
+            ) if global_params else {"hits": 0, "details": [], "rows_eval": 0}
+            compare_n = max(N_WINDOWS)
+            global_compare = {"profit_€": 0.0, "roi_%": 0.0}
+            local_compare = {"profit_€": 0.0, "roi_%": 0.0}
+            if global_params:
+                global_compare, _ = evaluate_params_on_hist_window(
+                    df_past_sorted.tail(compare_n),
+                    global_params,
+                    min_ev=min_EV,
+                    flat_stake_backtest=FLAT_STAKE,
+                    prob_clip_lo=PROB_CLIP_LO,
+                    prob_clip_hi=PROB_CLIP_HI,
+                )
+            if local_params:
+                local_compare, _ = evaluate_params_on_hist_window(
+                    df_past_sorted.tail(compare_n),
+                    local_params,
+                    min_ev=min_EV,
+                    flat_stake_backtest=FLAT_STAKE,
+                    prob_clip_lo=PROB_CLIP_LO,
+                    prob_clip_hi=PROB_CLIP_HI,
+                )
             logging.info("=== [ROBUST++++] PROFIT/STABILITY EVAL (GLOBAL vs LOCAL) ===")
-            logging.info(
-                "Windows: %s | stability hits needed: %d | min trades per window: %d",
-                windows,
-                hits_needed,
-                min_trades_per_window,
-            )
+            logging.info("Windows: %s | stability hits needed: %d | min trades per window: %d", N_WINDOWS, STABILITY_HITS_NEEDED, MIN_TRADES_PER_WINDOW)
             logging.info("GLOBAL eval rows      : %d", int(global_eval["rows_eval"]))
             logging.info("LOCAL eval rows       : %d", int(local_eval["rows_eval"]))
             logging.info("LOCAL tail found      : %s", str(local_tail_used))
             logging.info("LOCAL tail evaluated  : %d", compare_n)
-            if local_eval["hits"] >= hits_needed and float(local_compare["profit_€"]) >= float(global_compare["profit_€"]):
-                logging.info("✅ FOUND PROFITABLE CONFIG")
+            local_pass = bool(local_params and local_eval["hits"] >= STABILITY_HITS_NEEDED)
+            global_pass = bool(global_params and global_eval["hits"] >= STABILITY_HITS_NEEDED)
+            if not local_pass and not global_pass:
+                local_params = None
+                no_bet_mode = True
+                selection_decision = "NO_BET"
+                logging.info("%s", {"chosen": "NO_BET", "compareN": compare_n})
+            elif local_pass and not global_pass:
+                selection_decision = "LOCAL"
                 logging.info("%s", {"chosen": "LOCAL", "compareN": compare_n})
-                logging.info("params: %s", local_params)
-            else:
+            elif global_pass and not local_pass:
                 local_params = dict(global_params)
-                logging.info("✅ FOUND PROFITABLE CONFIG")
+                selection_decision = "GLOBAL"
                 logging.info("%s", {"chosen": "GLOBAL", "compareN": compare_n})
-                logging.info("params: %s", local_params)
+            else:
+                local_profit = float(local_compare.get("profit_€", 0.0))
+                global_profit = float(global_compare.get("profit_€", 0.0))
+                if (local_profit > global_profit) or (
+                    np.isclose(local_profit, global_profit)
+                    and float(local_compare.get("roi_%", 0.0)) >= float(global_compare.get("roi_%", 0.0))
+                ):
+                    selection_decision = "LOCAL"
+                    logging.info("%s", {"chosen": "LOCAL", "compareN": compare_n})
+                else:
+                    local_params = dict(global_params)
+                    selection_decision = "GLOBAL"
+                    logging.info("%s", {"chosen": "GLOBAL", "compareN": compare_n})
 
     # fallback if search found nothing
     if not local_params:
-        if global_params:
+        if no_bet_mode:
+            local_params = {
+                "home_win_rate_threshold": 1.01,
+                "odds_min": 99.0,
+                "odds_max": 100.0,
+                "prob_threshold": 1.01,
+                "n_trades": 0,
+                "profit_€": 0.0,
+                "roi_%": 0.0,
+            }
+            selection_decision = "NO_BET"
+            logging.warning("NO_BET arbitration triggered; using impossible filter params to produce zero live bets.")
+        elif global_params:
             used_global_fallback = True
             local_params = dict(global_params)
+            selection_decision = "GLOBAL_FALLBACK"
             logging.warning("LOCAL param search returned None; using GLOBAL params fallback.")
         else:
             used_safe_fallback = True
+            selection_decision = "SAFE_FALLBACK"
             logging.warning("LOCAL+GLOBAL param search returned None; using safe fallback.")
             local_params = {
                 "home_win_rate_threshold": 0.50,
@@ -2119,10 +2241,21 @@ def main() -> None:
                 "roi_%": 0.0,
             }
 
+    if selection_decision == "UNSET":
+        selection_decision = "LOCAL"
+
+    params_for_live = dict(local_params) if local_params else {}
+    params_for_eval = dict(local_params) if local_params else {}
+    if no_bet_mode:
+        if global_params:
+            params_for_eval = dict(global_params)
+        elif local_candidate_params:
+            params_for_eval = dict(local_candidate_params)
+
     # Build matched subset STRICTLY on the last-200 window using these LOCAL params
     metrics_local, subset_local = evaluate_params_on_hist_window(
         hist_window_200,
-        local_params,
+        params_for_eval,
         min_ev=min_EV,
         flat_stake_backtest=FLAT_STAKE,
         prob_clip_lo=PROB_CLIP_LO,
@@ -2133,7 +2266,7 @@ def main() -> None:
         subset_local=subset_local,
         hist_df=df_past_sorted,
         hist_window_200=hist_window_200,
-        params_used=local_params,
+        params_used=params_for_eval,
         min_ev=min_EV,
         prob_clip_lo=PROB_CLIP_LO,
         prob_clip_hi=PROB_CLIP_HI,
@@ -2149,7 +2282,7 @@ def main() -> None:
         )
         rebuilt_subset = rebuild_historical_subset_from_hist_df(
             df_past_sorted,
-            params_used=local_params,
+            params_used=params_for_eval,
             window_n=FAIR_COMPARE_N,
             min_ev=min_EV,
             prob_clip_lo=PROB_CLIP_LO,
@@ -2175,7 +2308,7 @@ def main() -> None:
             "[LOCAL MATCHED EXPORT] WARNING: historical subset empty; writing header-only file"
         )
 
-    shortlist = build_bet_shortlist(df_all, local_params, min_EV)
+    shortlist = build_bet_shortlist(df_all, params_for_live, min_EV)
     shortlist_path = kelly_dir / f"bet_shortlist_{target_ymd}.csv"
     shortlist = shortlist.reindex(columns=SHORTLIST_COLUMNS)
     shortlist.to_csv(shortlist_path, index=False, encoding="utf-8")
@@ -2206,7 +2339,7 @@ def main() -> None:
         # -------------------------
         write_latest_local_matched_csv(
           df_past_sorted,
-          params_used=local_params,
+          params_used=params_for_eval,
           target_dt=target_dt,
           window_n=FAIR_COMPARE_N,   # 200
           min_ev=min_EV,
@@ -2220,14 +2353,14 @@ def main() -> None:
             matched_export_latest,
             as_of_date=as_of_date,
             output_dir=out_dir,
-            params_used=local_params,
+            params_used=params_for_eval,
             source_name=local_matched_export_source,
             allow_header_only=bool(matched_export_latest.empty),
             intentional_empty=bool(matched_export_latest.empty),
         )
 
         # Also write strategy params TXT (generated each run)
-        write_strategy_params(local_params, min_ev=min_EV, as_of_date=as_of_date, stake=FLAT_STAKE, output_dir=out_dir)
+        write_strategy_params(params_for_eval, min_ev=min_EV, as_of_date=as_of_date, stake=FLAT_STAKE, output_dir=out_dir)
         validate_dated_dashboard_artifacts(
             output_dir=out_dir,
             as_of_date=as_of_date,
@@ -2235,21 +2368,29 @@ def main() -> None:
         )
 
     # Minimal snapshot for trace (keep structure, but based on LOCAL params + last-200)
-    fallback_used = bool(insufficient_history or used_global_fallback or used_safe_fallback)
+    used_global_fallback = bool(locals().get("used_global_fallback", False))
+    used_safe_fallback = bool(locals().get("used_safe_fallback", False))
+    fallback_used = bool(insufficient_history or used_global_fallback or used_safe_fallback or no_bet_mode)
     fallback_reason = (
         "skipped_insufficient_history"
         if insufficient_history
-        else ("global_fallback" if used_global_fallback else ("safe_fallback" if used_safe_fallback else None))
+        else (
+            "no_bet_stability_gate"
+            if no_bet_mode
+            else ("global_fallback" if used_global_fallback else ("safe_fallback" if used_safe_fallback else None))
+        )
     )
     if insufficient_history:
         params_used_type = "fallback"
+    elif no_bet_mode:
+        params_used_type = "NO_BET"
     elif used_global_fallback:
         params_used_type = "GLOBAL"
     elif used_safe_fallback:
         params_used_type = "safe_fallback"
     else:
         params_used_type = "LOCAL"
-    local_search_status = "skipped_insufficient_history" if insufficient_history else "ran"
+    local_search_status = "skipped_insufficient_history" if insufficient_history else ("ran_no_bet" if no_bet_mode else "ran")
 
     snapshot = {
         "meta": {
@@ -2269,7 +2410,15 @@ def main() -> None:
         "local_search_status": local_search_status,
         "params_source": params_source,
         "params_source_type": params_used_type,
-        "params_used": local_params,
+        "params_used": params_for_eval,
+        "selection": {
+            "decision": selection_decision,
+            "no_bet_mode": bool(no_bet_mode),
+            "global_candidate_params": global_params,
+            "local_candidate_params": local_candidate_params,
+            "applied_params": params_for_live,
+            "local_tail_used": local_tail_used,
+        },
         "local_window_200": {
             "min_EV_applied": float(min_EV),
             "metrics": metrics_local,
@@ -2303,7 +2452,7 @@ def main() -> None:
         "params_used_type": params_used_type,
         "fallback_used": fallback_used,
         "fallback_reason": fallback_reason,
-        "local_search_status": "skipped_insufficient_history" if insufficient_history else "ran",
+        "local_search_status": local_search_status,
         "local_window_games": int(len(hist_window_200)),
         "local_matched_games": int(len(matched_export_latest)),
         "prob_col_hist": PROB_COL_HIST,
@@ -2314,7 +2463,11 @@ def main() -> None:
     if insufficient_history:
         logging.info("DONE. LOCAL search skipped due to insufficient history; prior local artifacts preserved.")
     else:
-        logging.info("DONE. local_matched_games_latest.csv updated using LOCAL params on last-200 window ending %s.", as_of_date)
+        logging.info(
+            "DONE. local_matched_games_latest.csv updated using decision=%s on last-200 window ending %s.",
+            selection_decision,
+            as_of_date,
+        )
         p = find_repo_root() / "web" / "public" / "data" / "local_matched_games_latest.csv"
         logging.info("AFTER WRITE: latest size=%d bytes mtime=%s", p.stat().st_size, datetime.fromtimestamp(p.stat().st_mtime))
         logging.info("AFTER WRITE HEAD:\n%s", "\n".join(p.read_text(encoding="utf-8").splitlines()[:5]))
