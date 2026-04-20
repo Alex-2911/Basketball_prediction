@@ -22,6 +22,7 @@ Usage:
 """
 
 import os
+import sys
 import re
 import time
 import argparse
@@ -533,11 +534,13 @@ def process_saved_boxscores(
 
 def _pause_and_exit_ok():
     """
-    Local run: keep console window open.
-    In GitHub Actions: exit immediately (GITHUB_ACTIONS is 'true').
+    Never block by default.
+    Prompt only when explicitly requested in an interactive local terminal.
     """
     in_ci = os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
-    if in_ci:
+    prompt_enabled = os.environ.get("ENABLE_EXIT_PROMPT", "").lower() == "true"
+    interactive_tty = sys.stdin.isatty()
+    if in_ci or not prompt_enabled or not interactive_tty:
         return
     try:
         input("Done. Press Enter to close this window...")
