@@ -2453,7 +2453,11 @@ def main() -> None:
     if insufficient_history:
         logging.info("DONE. LOCAL search skipped due to insufficient history; prior local artifacts preserved.")
     else:
-        logging.info("DONE. local_matched_games_latest.csv updated using LOCAL params on last-200 window ending %s.", as_of_date)
+        logging.info(
+            "DONE. local_matched_games_latest.csv updated using decision=%s on last-200 window ending %s.",
+            selection_decision,
+            as_of_date,
+        )
         p = find_repo_root() / "web" / "public" / "data" / "local_matched_games_latest.csv"
         logging.info("AFTER WRITE: latest size=%d bytes mtime=%s", p.stat().st_size, datetime.fromtimestamp(p.stat().st_mtime))
         logging.info("AFTER WRITE HEAD:\n%s", "\n".join(p.read_text(encoding="utf-8").splitlines()[:5]))
