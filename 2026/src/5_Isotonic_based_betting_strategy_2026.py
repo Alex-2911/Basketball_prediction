@@ -1610,7 +1610,17 @@ def validate_structured_csv(path: Path, required_cols: list[str], *, min_data_ro
         raise RuntimeError(f"CSV validation failed: {path} missing required columns {missing}")
 
 
-def write_strategy_params(params_used: dict, *, min_ev: float, as_of_date: str, stake: float, output_dir: Path) -> None:
+def write_strategy_params(
+    params_used: dict,
+    *,
+    min_ev: float,
+    as_of_date: str,
+    stake: float,
+    output_dir: Path,
+    selection_decision: str | None = None,
+    no_bet_mode: bool | None = None,
+    fallback_reason: str | None = None,
+) -> None:
     """
     Keep txt/json aliases for local tooling and persist dated strategy params
     for historical snapshot resolution.
@@ -1621,6 +1631,12 @@ def write_strategy_params(params_used: dict, *, min_ev: float, as_of_date: str, 
     out_json = output_dir / "strategy_params.json"
     out_json_dated = output_dir / f"strategy_params_{as_of_date}.json"
     lines = [f"as_of_date={as_of_date}", f"min_ev={float(min_ev)}", f"stake={float(stake)}"]
+    if selection_decision is not None:
+        lines.append(f"selection_decision={selection_decision}")
+    if no_bet_mode is not None:
+        lines.append(f"no_bet_mode={str(bool(no_bet_mode)).lower()}")
+    if fallback_reason is not None:
+        lines.append(f"fallback_reason={fallback_reason}")
     for k in sorted(params_used.keys()):
         lines.append(f"{k}={params_used[k]}")
     txt_payload = "\n".join(lines) + "\n"
@@ -1631,6 +1647,9 @@ def write_strategy_params(params_used: dict, *, min_ev: float, as_of_date: str, 
         "as_of_date": as_of_date,
         "min_ev": float(min_ev),
         "stake": float(stake),
+        "selection_decision": selection_decision,
+        "no_bet_mode": bool(no_bet_mode) if no_bet_mode is not None else None,
+        "fallback_reason": fallback_reason,
         "params_used": {k: params_used[k] for k in sorted(params_used.keys())},
         "source": "script5_local_last200",
     }
