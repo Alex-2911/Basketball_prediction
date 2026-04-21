@@ -39,32 +39,9 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-
-          for i in 1 2 3; do
-            if pip install -r requirements.txt; then
-              break
-            fi
-            if [ "$i" -eq 3 ]; then
-              echo "pip install -r requirements.txt failed after ${i} attempts"
-              exit 1
-            fi
-            echo "Retrying requirements install (${i}/3) after transient failure..."
-            sleep 5
-          done
-
-          for i in 1 2 3; do
-            if pip install jupyter nbconvert; then
-              break
-            fi
-            if [ "$i" -eq 3 ]; then
-              echo "pip install jupyter nbconvert failed after ${i} attempts"
-              exit 1
-            fi
-            echo "Retrying jupyter/nbconvert install (${i}/3) after transient failure..."
-            sleep 5
-          done
+          python -m pip install --upgrade pip --root-user-action=ignore
+          python -m pip install --root-user-action=ignore -r requirements.txt
+          python -m pip install --root-user-action=ignore jupyter nbconvert
 
       # -----------------------
       # Script 4
@@ -258,3 +235,5 @@ jobs:
           git push origin HEAD:2026
 
           
+
+

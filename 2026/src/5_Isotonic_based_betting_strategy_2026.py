@@ -2065,8 +2065,6 @@ def main() -> None:
 
     local_params = None
     no_bet_mode = False
-    used_global_fallback = False
-    used_safe_fallback = False
     local_tail_used = None
     local_ladder_attempts = []
     global_params = None
@@ -2115,7 +2113,6 @@ def main() -> None:
                 best_local_wf = wf
                 local_params = dict(wf["params"])
                 local_params["score_value"] = float(wf["score_value"])
-                local_candidate_params = dict(local_params)
                 local_tail_used = int(tail_n)
                 logging.info("score_mode             : %s", wf["score_mode"])
                 logging.info("Local score value      : %.2f", float(wf["score_value"]))
@@ -2205,14 +2202,11 @@ def main() -> None:
             if not local_pass and not global_pass:
                 local_params = None
                 no_bet_mode = True
-                selection_decision = "NO_BET"
                 logging.info("%s", {"chosen": "NO_BET", "compareN": compare_n})
             elif local_pass and not global_pass:
-                selection_decision = "LOCAL"
                 logging.info("%s", {"chosen": "LOCAL", "compareN": compare_n})
             elif global_pass and not local_pass:
                 local_params = dict(global_params)
-                selection_decision = "GLOBAL"
                 logging.info("%s", {"chosen": "GLOBAL", "compareN": compare_n})
             else:
                 local_profit = float(local_compare.get("profit_€", 0.0))
@@ -2221,11 +2215,9 @@ def main() -> None:
                     np.isclose(local_profit, global_profit)
                     and float(local_compare.get("roi_%", 0.0)) >= float(global_compare.get("roi_%", 0.0))
                 ):
-                    selection_decision = "LOCAL"
                     logging.info("%s", {"chosen": "LOCAL", "compareN": compare_n})
                 else:
                     local_params = dict(global_params)
-                    selection_decision = "GLOBAL"
                     logging.info("%s", {"chosen": "GLOBAL", "compareN": compare_n})
 
     # fallback if search found nothing
@@ -2240,7 +2232,6 @@ def main() -> None:
                 "profit_€": 0.0,
                 "roi_%": 0.0,
             }
-            selection_decision = "NO_BET"
             logging.warning("NO_BET arbitration triggered; using impossible filter params to produce zero live bets.")
         elif global_params:
             used_global_fallback = True
@@ -2262,35 +2253,7 @@ def main() -> None:
             }
 
     if selection_decision == "UNSET":
-        if insufficient_history:
-            selection_decision = "SKIPPED_INSUFFICIENT_HISTORY"
-        elif used_global_fallback:
-            selection_decision = "GLOBAL_FALLBACK"
-        elif used_safe_fallback:
-            selection_decision = "SAFE_FALLBACK"
-        elif no_bet_mode:
-            selection_decision = "NO_BET"
-        elif local_params:
-            selection_decision = "LOCAL"
-        else:
-            raise RuntimeError("selection_decision remained UNSET after decision logic")
-
-    # Reconcile decision-state invariants before reporting/snapshot:
-    # when no_bet_mode is active, reported decision must be NO_BET.
-    if no_bet_mode and selection_decision != "NO_BET":
-        logging.warning(
-            "Correcting inconsistent decision-state: no_bet_mode=true but selection_decision=%s; forcing NO_BET.",
-            selection_decision,
-        )
-        selection_decision = "NO_BET"
-
-    logging.info(
-        "selection_decision=%s | no_bet_mode=%s | fallback_reason_candidates(global=%s, safe=%s)",
-        selection_decision,
-        str(bool(no_bet_mode)).lower(),
-        str(bool(used_global_fallback)).lower(),
-        str(bool(used_safe_fallback)).lower(),
-    )
+        selection_decision = "LOCAL"
 
     params_for_live = dict(local_params) if local_params else {}
     params_for_eval = dict(local_params) if local_params else {}
@@ -2407,22 +2370,8 @@ def main() -> None:
             intentional_empty=bool(matched_export_latest.empty),
         )
 
-        # Also write strategy params TXT/JSON (generated each run)
-        fallback_reason_for_params = (
-            "no_bet_stability_gate"
-            if no_bet_mode
-            else ("global_fallback" if used_global_fallback else ("safe_fallback" if used_safe_fallback else None))
-        )
-        write_strategy_params(
-            params_for_eval,
-            min_ev=min_EV,
-            as_of_date=as_of_date,
-            stake=FLAT_STAKE,
-            output_dir=out_dir,
-            selection_decision=selection_decision,
-            no_bet_mode=no_bet_mode,
-            fallback_reason=fallback_reason_for_params,
-        )
+        # Also write strategy params TXT (generated each run)
+        write_strategy_params(params_for_eval, min_ev=min_EV, as_of_date=as_of_date, stake=FLAT_STAKE, output_dir=out_dir)
         validate_dated_dashboard_artifacts(
             output_dir=out_dir,
             as_of_date=as_of_date,
@@ -2432,7 +2381,7 @@ def main() -> None:
     # Minimal snapshot for trace (keep structure, but based on LOCAL params + last-200)
     used_global_fallback = bool(locals().get("used_global_fallback", False))
     used_safe_fallback = bool(locals().get("used_safe_fallback", False))
-    fallback_used = bool(insufficient_history or used_global_fallback or used_safe_fallback or no_bet_mode)
+    fallback_used = bool(insufficient_history or used_global_fallback or used_safe_fallback)
     fallback_reason = (
         "skipped_insufficient_history"
         if insufficient_history
