@@ -231,7 +231,8 @@ jobs:
           fi
 
           git commit -m "chore: update outputs (auto)"
-          git push origin 2026
+          # Checkout may be detached (SHA-based), so push current HEAD explicitly to branch 2026.
+          git push origin HEAD:2026
 
           
 
