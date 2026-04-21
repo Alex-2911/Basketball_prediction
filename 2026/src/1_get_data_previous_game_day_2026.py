@@ -158,13 +158,11 @@ def scrape_season_for_month(
     monthly_filename = f"NBA_{season}_games-{month_name}.html"
     monthly_path = os.path.join(standings_dir, monthly_filename)
 
-    # delete stale copy so we always refetch and don't trust old HTML
+    # Keep any existing local month file as a fallback.
+    # If the network fetch fails (e.g., rate limit / temporary block),
+    # main() will reuse this cached file.
     if os.path.exists(monthly_path):
-        try:
-            os.remove(monthly_path)
-            logging.info(f"Deleted outdated monthly file: {monthly_path}")
-        except Exception as e:
-            logging.error(f"Could not delete {monthly_path}: {e}")
+        logging.info(f"Cached monthly file already present: {monthly_path}")
 
     # 1. fetch season overview page: /leagues/NBA_2026_games.html
     season_url = f"https://www.basketball-reference.com/leagues/NBA_{season}_games.html"
