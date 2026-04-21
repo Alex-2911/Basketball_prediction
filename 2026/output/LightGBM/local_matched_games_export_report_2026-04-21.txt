@@ -1,4 +1,4 @@
-timestamp_utc=2026-04-21T18:52:44.219107Z
+timestamp_utc=2026-04-21T19:12:43.730618Z
 as_of_date=2026-04-20
 params_used={"avg_EV_\u20ac_per_100": 24.76, "home_win_rate_threshold": 0.5, "n_trades": 75, "odds_max": 3.0, "odds_min": 1.4, "prob_threshold": 0.5, "profit_\u20ac": 1245.0, "roi_%": 16.6, "win_rate_%": 62.67}
 selected_source=historical_strategy_subset
