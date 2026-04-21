@@ -1,15 +1,15 @@
 {
   "meta": {
-    "as_of_date": "2026-04-19",
-    "eval_base_date_max": "2026-04-19",
+    "as_of_date": "2026-04-20",
+    "eval_base_date_max": "2026-04-20",
     "strategy_variant": "iso",
     "strategy_variant_label": "ISO/KELLY",
     "params_source": "/home/runner/work/Basketball_prediction/Basketball_prediction/web/public/data/strategy_params.json",
-    "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-04-19.csv",
+    "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-04-20.csv",
     "local_matched_games_source": "historical_strategy_subset",
     "local_search_status": "ran_no_bet"
   },
-  "as_of_date": "2026-04-19",
+  "as_of_date": "2026-04-20",
   "params_used_type": "NO_BET",
   "fallback_used": false,
   "fallback_reason": "no_bet_stability_gate",
@@ -21,11 +21,11 @@
     "odds_min": 1.4,
     "odds_max": 3.0,
     "prob_threshold": 0.5,
-    "n_trades": 74,
-    "win_rate_%": 62.16,
-    "avg_EV_\u20ac_per_100": 25.16,
-    "profit_\u20ac": 1115.0,
-    "roi_%": 15.07
+    "n_trades": 75,
+    "win_rate_%": 62.67,
+    "avg_EV_\u20ac_per_100": 24.76,
+    "profit_\u20ac": 1245.0,
+    "roi_%": 16.6
   },
   "selection": {
     "decision": "LOCAL",
@@ -35,11 +35,11 @@
       "odds_min": 1.4,
       "odds_max": 3.0,
       "prob_threshold": 0.5,
-      "n_trades": 74,
-      "win_rate_%": 62.16,
-      "avg_EV_\u20ac_per_100": 25.16,
-      "profit_\u20ac": 1115.0,
-      "roi_%": 15.07
+      "n_trades": 75,
+      "win_rate_%": 62.67,
+      "avg_EV_\u20ac_per_100": 24.76,
+      "profit_\u20ac": 1245.0,
+      "roi_%": 16.6
     },
     "local_candidate_params": null,
     "applied_params": {
@@ -75,6 +75,6 @@
   },
   "live_oos_proxy": {
     "ready": true,
-    "train_rows": 398
+    "train_rows": 401
   }
 }
