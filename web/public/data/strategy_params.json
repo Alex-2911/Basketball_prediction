@@ -1,5 +1,5 @@
 {
-  "as_of_date": "2026-04-20",
+  "as_of_date": "2026-04-21",
   "min_ev": null,
   "stake": null,
   "params_used": {
@@ -9,5 +9,5 @@
     "prob_threshold": 0.5
   },
   "source_type": "metrics_snapshot_dated",
-  "source_file": "2026/output/LightGBM/metrics_snapshot_2026-04-20.json"
+  "source_file": "2026/output/LightGBM/metrics_snapshot_2026-04-21.json"
 }
