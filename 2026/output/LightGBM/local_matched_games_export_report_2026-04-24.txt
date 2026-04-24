@@ -1,0 +1,13 @@
+timestamp_utc=2026-04-24T18:46:36.697827Z
+as_of_date=2026-04-23
+params_used={"avg_EV_\u20ac_per_100": 26.24, "home_win_rate_threshold": 0.5, "n_trades": 77, "odds_max": 3.0, "odds_min": 1.4, "prob_threshold": 0.5, "profit_\u20ac": 1513.0, "roi_%": 19.65, "win_rate_%": 63.64}
+selected_source=historical_strategy_subset
+source_rows=0
+rows_exported=0
+date_range=NA..NA
+max_date_used_for_filename=2026-04-23
+dated_output=/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/local_matched_games_2026-04-23.csv
+latest_output=/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/local_matched_games_latest.csv
+dated_status=skipped_empty_source
+latest_status=skipped_empty_source
+reason_if_nothing_written=skipped due to empty source dataframe
