@@ -231,9 +231,15 @@ jobs:
           fi
 
           git commit -m "chore: update outputs (auto)"
+
           # Checkout may be detached (SHA-based), so push current HEAD explicitly to branch 2026.
-          git push origin HEAD:2026
+          # If remote moved ahead, rebase onto latest origin/2026 and retry.
+          if ! git push origin HEAD:2026; then
+            echo "Initial push rejected (likely non-fast-forward). Rebasing onto origin/2026 and retrying..."
+            git fetch origin 2026
+            git rebase origin/2026
+            git push origin HEAD:2026
+          fi
 
           
-
 
