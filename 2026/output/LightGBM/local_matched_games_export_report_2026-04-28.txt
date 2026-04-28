@@ -1,6 +1,6 @@
-timestamp_utc=2026-04-28T17:33:30.670555Z
+timestamp_utc=2026-04-28T18:49:04.773065Z
 as_of_date=2026-04-27
-params_used={"avg_EV_\u20ac_per_100": 30.68, "home_win_rate_threshold": 0.55, "n_trades": 189, "odds_max": 3.2, "odds_min": 1.1, "prob_threshold": 0.6, "profit_\u20ac": 3060.0, "roi_%": 16.19, "win_rate_%": 64.02}
+params_used={"avg_EV_\u20ac_per_100": 30.29, "home_win_rate_threshold": 0.6, "n_trades": 66, "odds_max": 3.0, "odds_min": 1.4, "prob_threshold": 0.45, "profit_\u20ac": 2082.0, "roi_%": 31.55, "win_rate_%": 66.67}
 selected_source=historical_strategy_subset
 source_rows=0
 rows_exported=0
