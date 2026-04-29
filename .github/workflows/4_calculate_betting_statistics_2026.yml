@@ -108,6 +108,20 @@ jobs:
           python tests/test_pipeline_outputs.py
           echo "=== Pipeline regression checks finished ==="
 
+
+      - name: Run betting-agent Stage 1 snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Running betting-agent Stage 1 snapshot ==="
+
+          python 2026/scripts/betting_agent_stage1_snapshot.py \
+            --input-dir "2026/output/LightGBM" \
+            --output-dir "2026/output/LightGBM/betting_agent_stage1"
+
+          echo "=== Stage 1 snapshot outputs ==="
+          ls -la 2026/output/LightGBM/betting_agent_stage1 || true
+
       - name: Verify metrics snapshot output
         run: |
           ls -la 2026/output/LightGBM | head -n 50
@@ -136,6 +150,8 @@ jobs:
             2026/output/LightGBM/metrics_snapshot.json
             2026/output/LightGBM/strategy_params.txt
             2026/output/LightGBM/Kelly/*.csv
+            2026/output/LightGBM/betting_agent_stage1/*.csv
+            2026/output/LightGBM/betting_agent_stage1/*.json
           if-no-files-found: warn
 
       - name: Build dashboard assets (web/public/data)
@@ -217,6 +233,7 @@ jobs:
 
           # Stage outputs
           git add -A 2026/output/LightGBM || true
+          git add 2026/output/LightGBM/betting_agent_stage1 || true
 
           # Force-add dashboard assets even if ignored
           git add -f web/public/data || true
