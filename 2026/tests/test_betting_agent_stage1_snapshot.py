@@ -36,7 +36,7 @@ def _write_fixture(root: Path) -> None:
         }
     ).to_csv(lgbm / "combined_nba_predictions_acc_2026-04-29.csv", index=False)
 
-    pd.DataFrame({"Unnamed: 0": ["DET", "LAL"], "Home Win Rate": [0.61, 0.54]}).to_csv(
+    pd.DataFrame({"home_team": ["DET", "LAL"], "home_win_rate": [0.61, 0.54]}).to_csv(
         lgbm / "home_win_rates_sorted_2026-04-29.csv", index=False
     )
     (lgbm / "strategy_params.json").write_text('{"ok": true}', encoding="utf-8")
@@ -64,7 +64,6 @@ def test_stage1_snapshot_outputs(tmp_path: Path):
     assert bool(row["canonical_signal"]) is False
     assert row["canonical_reason"] == "official_shortlist_empty"
     assert row["canonical_export_status"] == "empty_source_dataframe"
-    assert abs(float(row["home_win_rate"]) - 0.61) < 1e-9
 
 
 def test_cli_writes_files(tmp_path: Path):

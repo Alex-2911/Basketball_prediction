@@ -67,16 +67,6 @@ def _load_csv_if_exists(path: Path) -> pd.DataFrame | None:
     return pd.read_csv(path)
 
 
-def _normalize_home_win_rates(df_home: pd.DataFrame) -> pd.DataFrame:
-    out = df_home.copy()
-    out = out.rename(columns={"Home Win Rate": "home_win_rate"})
-    if "home_team" not in out.columns:
-        unnamed = [c for c in out.columns if str(c).startswith("Unnamed:")]
-        if unnamed:
-            out = out.rename(columns={unnamed[0]: "home_team"})
-    return out
-
-
 def build_snapshot(input_dir: Path, output_dir: Path, target_date: str) -> tuple[pd.DataFrame, dict[str, Any]]:
     daily_path = input_dir / f"nba_games_predict_{target_date}.csv"
     combined_path = input_dir / f"combined_nba_predictions_acc_{target_date}.csv"
@@ -138,10 +128,8 @@ def build_snapshot(input_dir: Path, output_dir: Path, target_date: str) -> tuple
             c = c[available].drop_duplicates(subset=["game_date", "home_team", "away_team"], keep="last")
             base = base.merge(c, on=["game_date", "home_team", "away_team"], how="left", suffixes=("", "_c"))
 
-    if df_home is not None:
-        df_home = _normalize_home_win_rates(df_home)
-        if {"home_team", "home_win_rate"}.issubset(df_home.columns):
-            base = base.merge(df_home[["home_team", "home_win_rate"]].drop_duplicates("home_team"), on="home_team", how="left")
+    if df_home is not None and {"home_team", "home_win_rate"}.issubset(df_home.columns):
+        base = base.merge(df_home[["home_team", "home_win_rate"]].drop_duplicates("home_team"), on="home_team", how="left")
 
     base["home_prob_raw"] = pd.to_numeric(base.get("home_prob_raw"), errors="coerce")
     base["away_prob_raw"] = 1.0 - base["home_prob_raw"]
