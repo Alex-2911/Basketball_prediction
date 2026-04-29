@@ -1,0 +1,64 @@
+{
+  "target_date": "2026-04-29",
+  "summary": {
+    "games": 3,
+    "canonical_model_signals": 0,
+    "raw_underdog_temptations": 3,
+    "market_gap_reviews": 0,
+    "live_watch_only": 0,
+    "no_value_skips": 0
+  },
+  "games": [
+    {
+      "game": "DET vs ORL",
+      "home_team": "DET",
+      "away_team": "ORL",
+      "home_prob_raw": 0.6837526245953489,
+      "home_odds": 1.25,
+      "away_odds": 4.1,
+      "canonical_signal": false,
+      "stage1_bucket": "RAW_UNDERDOG_TEMPTATION",
+      "allowed_review_type": "near_miss_review"
+    },
+    {
+      "game": "CLE vs TOR",
+      "home_team": "CLE",
+      "away_team": "TOR",
+      "home_prob_raw": 0.633397711534961,
+      "home_odds": 1.25,
+      "away_odds": 4.1,
+      "canonical_signal": false,
+      "stage1_bucket": "RAW_UNDERDOG_TEMPTATION",
+      "allowed_review_type": "near_miss_review"
+    },
+    {
+      "game": "LAL vs HOU",
+      "home_team": "LAL",
+      "away_team": "HOU",
+      "home_prob_raw": 0.4935640258950717,
+      "home_odds": 1.54,
+      "away_odds": 2.54,
+      "canonical_signal": false,
+      "stage1_bucket": "RAW_UNDERDOG_TEMPTATION",
+      "allowed_review_type": "near_miss_review"
+    }
+  ],
+  "manifest": {
+    "target_date": "2026-04-29",
+    "created_utc": "2026-04-29T18:37:28.416450+00:00",
+    "input_dir": "/workspace/Basketball_prediction/2026/output/LightGBM",
+    "output_dir": "/workspace/Basketball_prediction/2026/output/LightGBM/betting_agent_stage1",
+    "files_found": {
+      "daily_predictions": true,
+      "combined_predictions": true,
+      "home_win_rates": true,
+      "strategy_params": true,
+      "local_matched_export_report": true,
+      "kelly_shortlist": true
+    },
+    "files_missing": [],
+    "canonical_rows_found": 0,
+    "daily_games_found": 3,
+    "status": "ok_no_canonical_bets"
+  }
+}
