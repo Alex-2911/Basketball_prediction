@@ -3,8 +3,8 @@
   "min_ev": null,
   "stake": null,
   "params_used": {
-    "home_win_rate_threshold": 0.55,
-    "odds_min": 1.1,
+    "home_win_rate_threshold": 0.6,
+    "odds_min": 1.4,
     "odds_max": 3,
     "prob_threshold": 0.5
   },
