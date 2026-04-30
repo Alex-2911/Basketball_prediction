@@ -1,15 +1,15 @@
 {
   "meta": {
-    "as_of_date": "2026-04-28",
-    "eval_base_date_max": "2026-04-28",
+    "as_of_date": "2026-04-29",
+    "eval_base_date_max": "2026-04-29",
     "strategy_variant": "iso",
     "strategy_variant_label": "ISO/KELLY",
     "params_source": "/home/runner/work/Basketball_prediction/Basketball_prediction/web/public/data/strategy_params.json",
-    "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-04-28.csv",
+    "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-04-29.csv",
     "local_matched_games_source": "historical_strategy_subset",
     "local_search_status": "ran_no_bet"
   },
-  "as_of_date": "2026-04-28",
+  "as_of_date": "2026-04-29",
   "params_used_type": "NO_BET",
   "fallback_used": false,
   "fallback_reason": "no_bet_stability_gate",
@@ -17,29 +17,29 @@
   "params_source": "/home/runner/work/Basketball_prediction/Basketball_prediction/web/public/data/strategy_params.json",
   "params_source_type": "NO_BET",
   "params_used": {
-    "home_win_rate_threshold": 0.6,
-    "odds_min": 1.4,
+    "home_win_rate_threshold": 0.55,
+    "odds_min": 1.1,
     "odds_max": 3.0,
-    "prob_threshold": 0.45,
-    "n_trades": 67,
-    "win_rate_%": 67.16,
-    "avg_EV_\u20ac_per_100": 29.97,
-    "profit_\u20ac": 2122.0,
-    "roi_%": 31.67
+    "prob_threshold": 0.5,
+    "n_trades": 211,
+    "win_rate_%": 62.56,
+    "avg_EV_\u20ac_per_100": 28.83,
+    "profit_\u20ac": 3075.0,
+    "roi_%": 14.57
   },
   "selection": {
     "decision": "LOCAL",
     "no_bet_mode": true,
     "global_candidate_params": {
-      "home_win_rate_threshold": 0.6,
-      "odds_min": 1.4,
+      "home_win_rate_threshold": 0.55,
+      "odds_min": 1.1,
       "odds_max": 3.0,
-      "prob_threshold": 0.45,
-      "n_trades": 67,
-      "win_rate_%": 67.16,
-      "avg_EV_\u20ac_per_100": 29.97,
-      "profit_\u20ac": 2122.0,
-      "roi_%": 31.67
+      "prob_threshold": 0.5,
+      "n_trades": 211,
+      "win_rate_%": 62.56,
+      "avg_EV_\u20ac_per_100": 28.83,
+      "profit_\u20ac": 3075.0,
+      "roi_%": 14.57
     },
     "local_candidate_params": null,
     "applied_params": {
@@ -61,7 +61,7 @@
       "avg_EV_\u20ac_per_100": 0.0,
       "profit_\u20ac": 0.0,
       "roi_%": 0.0,
-      "prob_thr_eff": 0.45
+      "prob_thr_eff": 0.5
     },
     "window_start": "NaT",
     "window_end": "NaT",
@@ -75,6 +75,6 @@
   },
   "live_oos_proxy": {
     "ready": true,
-    "train_rows": 423
+    "train_rows": 1162
   }
 }
