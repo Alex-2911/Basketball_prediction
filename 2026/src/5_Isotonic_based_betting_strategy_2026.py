@@ -260,6 +260,9 @@ def ensure_probability_columns(df: pd.DataFrame) -> pd.DataFrame:
 def _prepare_enriched_script11_frame_for_history(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
 
+    # Avoid pandas reindex failures in persistence helper when merged frames carry duplicate labels.
+    out = out.loc[:, ~pd.Index(out.columns).duplicated(keep="last")].copy()
+
     # Normalize common aliases without overwriting existing enriched columns.
     alias_pairs = {
         "game_date": ["date"],
