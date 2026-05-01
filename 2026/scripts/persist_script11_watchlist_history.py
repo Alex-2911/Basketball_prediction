@@ -22,21 +22,13 @@ def _normalize_frame(rows_df: pd.DataFrame, run_date: str, source: str | None) -
     df["blocked_by"] = df["blocked_by"].fillna("").astype(str)
     df["run_date"] = run_date
     df["created_utc"] = _utc_now_iso()
-    df["source"] = source or "unknown"
+    if source is not None:
+        df["engine_state"] = source
 
     df["game_key"] = (
         df["game_date"].astype(str) + "__" + df["home_team"].astype(str) + "__" + df["away_team"].astype(str)
     )
     return df
-
-
-
-
-def _row_ev(row: pd.Series) -> float:
-    for col in ["EV_€_per_100", "EV_live_€_per_100", "EV_base_€_per_100"]:
-        if col in row.index and pd.notna(row.get(col)):
-            return float(row.get(col))
-    return float("nan")
 
 
 def classify_script11_row(row: pd.Series) -> str:
@@ -45,9 +37,7 @@ def classify_script11_row(row: pd.Series) -> str:
     if "DATA_INCOMPLETE" in blocked:
         return "DATA_INCOMPLETE"
 
-    ev = _row_ev(row)
-
-    if row.get("rules_passed", 0) >= 4 and ev > 0:
+    if row.get("rules_passed", 0) >= 4 and row.get("EV_€_per_100", -999) > 0:
         return "CANONICAL_MODEL_SIGNAL"
 
     if (
@@ -55,7 +45,7 @@ def classify_script11_row(row: pd.Series) -> str:
         and row.get("odds_1", 0) >= 1.30
         and row.get("odds_1", 0) <= 1.70
         and row.get("prob_used", 0) >= 0.55
-        and ev <= 0
+        and row.get("EV_€_per_100", 999) <= 0
         and "MODEL_MARKET_GAP" not in blocked
     ):
         return "LOW_PRICE_NEGATIVE_EV"
@@ -73,7 +63,7 @@ def classify_script11_row(row: pd.Series) -> str:
     if "MODEL_MARKET_GAP" in blocked:
         return "LIVE_WATCH_ONLY"
 
-    if ev <= 0:
+    if row.get("EV_€_per_100", 999) <= 0:
         return "NO_VALUE_SKIP"
 
     return "LIVE_WATCH_ONLY"
@@ -138,7 +128,7 @@ def persist_script11_watchlist_history(rows_df: pd.DataFrame, output_dir: str | 
     else:
         merged = normalized.copy()
 
-    merged = merged.drop_duplicates(subset=["game_key", "run_date", "source"], keep="last")
+    merged = merged.drop_duplicates(subset=["game_key", "run_date"], keep="last")
     merged = _reconcile_outcomes(merged, combined_predictions_path)
     merged = merged.sort_values(["game_date", "home_team", "away_team", "created_utc"], kind="stable")
 
