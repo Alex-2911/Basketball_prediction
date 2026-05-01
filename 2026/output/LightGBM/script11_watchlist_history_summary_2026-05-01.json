@@ -1,13 +1,12 @@
 {
-  "created_utc": "2026-05-01T17:41:49.518270+00:00",
-  "rows": 19,
+  "created_utc": "2026-05-01T17:49:04.973937+00:00",
+  "rows": 3,
   "run_date": "2026-05-01",
   "sources": {
-    "upcoming_d": 3,
-    "watchlist": 16
+    "upcoming_d": 3
   },
   "stage2_candidate_type": {
-    "LIVE_WATCH_ONLY": 18,
+    "LIVE_WATCH_ONLY": 2,
     "LOW_PRICE_NEGATIVE_EV": 1
   }
 }
