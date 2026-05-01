@@ -134,6 +134,10 @@ def persist_script11_watchlist_history(rows_df: pd.DataFrame, output_dir: str | 
     history_path = out_dir / "script11_watchlist_history.csv"
     if history_path.exists():
         prior = pd.read_csv(history_path)
+        # Daily Script 11 output is a snapshot. Replace the current run_date slice
+        # so stale rows from earlier broken runs cannot remain under today's run_date.
+        if "run_date" in prior.columns:
+            prior = prior.loc[prior["run_date"].astype(str) != str(run_date)].copy()
         merged = pd.concat([prior, normalized], ignore_index=True, sort=False)
     else:
         merged = normalized.copy()
