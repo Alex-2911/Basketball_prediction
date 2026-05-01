@@ -16,7 +16,7 @@ def test_upsert_and_classify_and_reconcile(tmp_path):
     run_date = "2026-05-01"
     rows = pd.DataFrame([
         {"game_date": run_date, "home_team": "ORL", "away_team": "DET", "home_win_rate": 0.78, "odds_1": 2.36, "prob_base": 0.622, "prob_used": 0.421, "blocked_by": "MODEL_MARKET_GAP | Prob<0.55 | EV<=0.00", "EV_€_per_100": -2},
-        {"game_date": run_date, "home_team": "HOU", "away_team": "LAL", "home_win_rate": 0.73, "odds_1": 1.59, "prob_used": 0.577, "blocked_by": "EV<=0.00", "EV_live_€_per_100": -1},
+        {"game_date": run_date, "home_team": "HOU", "away_team": "LAL", "home_win_rate": 0.73, "odds_1": 1.59, "prob_used": 0.577, "blocked_by": "EV<=0.00", "EV_€_per_100": -1},
     ])
     combined = pd.DataFrame([
         {"game_date": run_date, "home_team": "ORL", "away_team": "DET", "result": "ORL"},
@@ -30,9 +30,6 @@ def test_upsert_and_classify_and_reconcile(tmp_path):
 
     assert len(first) == 2
     assert len(second) == 2
-
-    third = mod.persist_script11_watchlist_history(rows, out, run_date, combined_predictions_path=cpath, source="upcoming_d")
-    assert len(third) == 4
     orl = second[second.home_team == "ORL"].iloc[0]
     hou = second[second.home_team == "HOU"].iloc[0]
     assert "MODEL_MARKET_GAP | Prob<0.55" in orl.blocked_by

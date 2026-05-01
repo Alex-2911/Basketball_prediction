@@ -1,0 +1,30 @@
+---
+name: chore: persist script11 watchlist history and stage files
+body: |
+  This PR makes the minimal changes required to persist Script 11's enriched upcoming/watchlist rows into the repo history so the dashboard and queries can rely on the rich decision-state columns.
+
+  What changed:
+  - 2026/src/5_Isotonic_based_betting_strategy_2026.py
+    - Adds an import shim to allow importing persist_script11_watchlist_history from 2026/scripts
+    - Adds a guarded persistence block that will persist
+      - the fully enriched upcoming frame as source="upcoming_d" only when enrichment columns exist
+      - a dedicated watchlist (df_w/watchlist) only if it exists and contains enrichment
+      - does NOT persist shortlist as watchlist unless the shortlist contains the enrichment columns
+    - The persistence is guarded so if enrichment isn't yet available, the run will log and skip (the block can be moved later if needed)
+
+  - .github/workflows/4_calculate_betting_statistics_2026.yml
+    - Ensures generated history files are staged for commit:
+      - git add -f 2026/output/LightGBM/script11_watchlist_history*.csv || true
+      - git add -f 2026/output/LightGBM/script11_watchlist_history_summary*.json || true
+
+  Notes:
+  - The notebook is intentionally NOT patched in this PR; the workflow runs the .py file.
+
+  Acceptance criteria (what to verify after CI run):
+  - Stage 1 still reflects exactly today's daily slate (no fallback to large historical combined file).
+  - 2026/output/LightGBM/script11_watchlist_history_latest.csv is committed to the repo.
+  - The CSV contains non-empty: prob_base, prob_used, blocked_by, home_win_rate, model_market_gap/model_market_gap_flag, and EV_live_€_per_100 or EV_€_per_100.
+  - Shortlist is not persisted as watchlist unless it contains those enriched columns.
+  - Row count is not enforced; enriched decision-state columns are the acceptance metric.
+
+---
