@@ -2432,6 +2432,20 @@ def main() -> None:
 
             frames_to_persist = []
 
+            if "df_all" in locals() and isinstance(df_all, pd.DataFrame) and not df_all.empty:
+                unplayed_mask = df_all[RESULT_RAW_COL].isna() | (df_all[RESULT_RAW_COL].astype(str) == "0")
+                future_pool = df_all.loc[unplayed_mask].copy()
+                if not future_pool.empty:
+                    future_pool_for_history = _prepare_enriched_script11_frame_for_history(future_pool)
+                    ok, missing = _has_script11_enrichment(future_pool_for_history)
+                    if ok:
+                        frames_to_persist.append(("watchlist", future_pool_for_history))
+                    else:
+                        logging.info(
+                            "Skipping Script 11 history for enriched unplayed pool: enrichment missing: %s",
+                            missing,
+                        )
+
             if "df_future" in locals() and isinstance(df_future, pd.DataFrame) and not df_future.empty:
                 future_for_history = _prepare_enriched_script11_frame_for_history(df_future)
                 ok, missing = _has_script11_enrichment(future_for_history)
