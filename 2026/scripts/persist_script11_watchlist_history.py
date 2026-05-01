@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+import json
 from typing import Any
 
 import pandas as pd
@@ -144,7 +145,32 @@ def persist_script11_watchlist_history(rows_df: pd.DataFrame, output_dir: str | 
     dated_path = out_dir / f"script11_watchlist_history_{run_date}.csv"
     latest_path = out_dir / "script11_watchlist_history_latest.csv"
 
+    latest_slice = merged.loc[merged["run_date"].astype(str) == str(run_date)].copy()
+
     merged.to_csv(history_path, index=False)
-    merged.loc[merged["run_date"].astype(str) == str(run_date)].to_csv(dated_path, index=False)
-    merged.loc[merged["run_date"].astype(str) == str(run_date)].to_csv(latest_path, index=False)
+    latest_slice.to_csv(dated_path, index=False)
+    latest_slice.to_csv(latest_path, index=False)
+
+    def _counts(col: str) -> dict[str, int]:
+        if col not in latest_slice.columns:
+            return {}
+        return {
+            str(k): int(v)
+            for k, v in latest_slice[col].fillna("").astype(str).value_counts(dropna=False).items()
+        }
+
+    summary = {
+        "run_date": str(run_date),
+        "rows": int(len(latest_slice)),
+        "sources": _counts("engine_state"),
+        "stage2_candidate_type": _counts("stage2_candidate_type"),
+        "created_utc": _utc_now_iso(),
+    }
+
+    summary_dated_path = out_dir / f"script11_watchlist_history_summary_{run_date}.json"
+    summary_latest_path = out_dir / "script11_watchlist_history_summary_latest.json"
+    summary_text = json.dumps(summary, indent=2, sort_keys=True) + "\n"
+    summary_dated_path.write_text(summary_text, encoding="utf-8")
+    summary_latest_path.write_text(summary_text, encoding="utf-8")
+
     return merged

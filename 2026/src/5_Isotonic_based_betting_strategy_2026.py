@@ -2448,6 +2448,12 @@ def main() -> None:
             if "df_all" in locals() and isinstance(df_all, pd.DataFrame) and not df_all.empty:
                 unplayed_mask = df_all[RESULT_RAW_COL].isna() | (df_all[RESULT_RAW_COL].astype(str) == "0")
                 future_pool = df_all.loc[unplayed_mask].copy()
+                for _date_col in ("game_date", "date"):
+                    if _date_col in future_pool.columns:
+                        _pool_dates = pd.to_datetime(future_pool[_date_col], errors="coerce").dt.strftime("%Y-%m-%d")
+                        future_pool = future_pool.loc[_pool_dates == str(requested_ymd)].copy()
+                        break
+
                 if not future_pool.empty:
                     future_pool_for_history = _prepare_enriched_script11_frame_for_history(future_pool)
                     ok, missing = _has_script11_enrichment(future_pool_for_history)
