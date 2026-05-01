@@ -13,8 +13,17 @@ def _utc_now_iso() -> str:
 
 def _normalize_frame(rows_df: pd.DataFrame, run_date: str, source: str | None) -> pd.DataFrame:
     df = rows_df.copy()
+
+    # Avoid duplicate-label failures when frames contain both alias and canonical columns.
+    df = df.loc[:, ~pd.Index(df.columns).duplicated(keep="last")].copy()
+
     rename = {"date": "game_date", "odds 1": "odds_1", "odds 2": "odds_2"}
+    for source_col, target_col in rename.items():
+        if source_col in df.columns and target_col in df.columns:
+            df = df.drop(columns=[source_col])
+
     df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+    df = df.loc[:, ~pd.Index(df.columns).duplicated(keep="last")].copy()
 
     for col in ["game_date", "home_team", "away_team", "blocked_by"]:
         if col not in df.columns:
