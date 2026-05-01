@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import json
 from pathlib import Path
 from typing import Any
 
@@ -23,21 +22,13 @@ def _normalize_frame(rows_df: pd.DataFrame, run_date: str, source: str | None) -
     df["blocked_by"] = df["blocked_by"].fillna("").astype(str)
     df["run_date"] = run_date
     df["created_utc"] = _utc_now_iso()
-    df["source"] = source or "unknown"
+    if source is not None:
+        df["engine_state"] = source
 
     df["game_key"] = (
         df["game_date"].astype(str) + "__" + df["home_team"].astype(str) + "__" + df["away_team"].astype(str)
     )
     return df
-
-
-
-
-def _row_ev(row: pd.Series) -> float:
-    for col in ["EV_€_per_100", "EV_live_€_per_100", "EV_base_€_per_100"]:
-        if col in row.index and pd.notna(row.get(col)):
-            return float(row.get(col))
-    return float("nan")
 
 
 def classify_script11_row(row: pd.Series) -> str:
@@ -46,9 +37,7 @@ def classify_script11_row(row: pd.Series) -> str:
     if "DATA_INCOMPLETE" in blocked:
         return "DATA_INCOMPLETE"
 
-    ev = _row_ev(row)
-
-    if row.get("rules_passed", 0) >= 4 and ev > 0:
+    if row.get("rules_passed", 0) >= 4 and row.get("EV_€_per_100", -999) > 0:
         return "CANONICAL_MODEL_SIGNAL"
 
     if (
@@ -56,7 +45,7 @@ def classify_script11_row(row: pd.Series) -> str:
         and row.get("odds_1", 0) >= 1.30
         and row.get("odds_1", 0) <= 1.70
         and row.get("prob_used", 0) >= 0.55
-        and ev <= 0
+        and row.get("EV_€_per_100", 999) <= 0
         and "MODEL_MARKET_GAP" not in blocked
     ):
         return "LOW_PRICE_NEGATIVE_EV"
@@ -74,7 +63,7 @@ def classify_script11_row(row: pd.Series) -> str:
     if "MODEL_MARKET_GAP" in blocked:
         return "LIVE_WATCH_ONLY"
 
-    if ev <= 0:
+    if row.get("EV_€_per_100", 999) <= 0:
         return "NO_VALUE_SKIP"
 
     return "LIVE_WATCH_ONLY"
@@ -139,7 +128,7 @@ def persist_script11_watchlist_history(rows_df: pd.DataFrame, output_dir: str | 
     else:
         merged = normalized.copy()
 
-    merged = merged.drop_duplicates(subset=["game_key", "run_date", "source"], keep="last")
+    merged = merged.drop_duplicates(subset=["game_key", "run_date"], keep="last")
     merged = _reconcile_outcomes(merged, combined_predictions_path)
     merged = merged.sort_values(["game_date", "home_team", "away_team", "created_utc"], kind="stable")
 
@@ -147,38 +136,6 @@ def persist_script11_watchlist_history(rows_df: pd.DataFrame, output_dir: str | 
     latest_path = out_dir / "script11_watchlist_history_latest.csv"
 
     merged.to_csv(history_path, index=False)
-    current = merged.loc[merged["run_date"].astype(str) == str(run_date)].copy()
-    current.to_csv(dated_path, index=False)
-    current.to_csv(latest_path, index=False)
-
-    summary = {
-        "run_date": run_date,
-        "rows": int(len(current)),
-        "sources": current.get("source", pd.Series(dtype=str)).fillna("unknown").value_counts().to_dict(),
-        "stage2_candidate_type": current.get("stage2_candidate_type", pd.Series(dtype=str)).fillna("unknown").value_counts().to_dict(),
-        "created_utc": _utc_now_iso(),
-    }
-    (out_dir / f"script11_watchlist_history_summary_{run_date}.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    (out_dir / "script11_watchlist_history_summary_latest.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    merged.loc[merged["run_date"].astype(str) == str(run_date)].to_csv(dated_path, index=False)
+    merged.loc[merged["run_date"].astype(str) == str(run_date)].to_csv(latest_path, index=False)
     return merged
-
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--rows-csv", required=True)
-    parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--run-date", required=True)
-    parser.add_argument("--combined-predictions-path", default=None)
-    parser.add_argument("--source", default="manual")
-    args = parser.parse_args()
-
-    rows = pd.read_csv(args.rows_csv)
-    persist_script11_watchlist_history(
-        rows_df=rows,
-        output_dir=args.output_dir,
-        run_date=args.run_date,
-        combined_predictions_path=args.combined_predictions_path,
-        source=args.source,
-    )
