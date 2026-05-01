@@ -20,9 +20,12 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _infer_latest_date(input_dir: Path) -> str:
+def _infer_latest_date(input_dir: Path, allow_combined_fallback: bool = False) -> str:
     dates: list[str] = []
-    for pattern in ["nba_games_predict_*.csv", "combined_nba_predictions_acc_*.csv"]:
+    patterns = ["nba_games_predict_*.csv"]
+    if allow_combined_fallback:
+        patterns.append("combined_nba_predictions_acc_*.csv")
+    for pattern in patterns:
         for path in input_dir.glob(pattern):
             m = DATE_PATTERN.search(path.name)
             if m:
@@ -67,7 +70,7 @@ def _load_csv_if_exists(path: Path) -> pd.DataFrame | None:
     return pd.read_csv(path)
 
 
-def build_snapshot(input_dir: Path, output_dir: Path, target_date: str) -> tuple[pd.DataFrame, dict[str, Any]]:
+def build_snapshot(input_dir: Path, output_dir: Path, target_date: str, allow_combined_fallback: bool = False) -> tuple[pd.DataFrame, dict[str, Any]]:
     daily_path = input_dir / f"nba_games_predict_{target_date}.csv"
     combined_path = input_dir / f"combined_nba_predictions_acc_{target_date}.csv"
     home_rates_path = input_dir / f"home_win_rates_sorted_{target_date}.csv"
@@ -91,8 +94,8 @@ def build_snapshot(input_dir: Path, output_dir: Path, target_date: str) -> tuple
 
     canonical_export_status, _ = _parse_local_report(local_report_path if local_report_path.exists() else None)
 
-    if df_daily is None and df_combined is None:
-        raise FileNotFoundError("No daily or combined prediction input found for target date")
+    if df_daily is None and (df_combined is None or not allow_combined_fallback):
+        raise FileNotFoundError("No daily prediction input found for target date")
 
     base = df_daily.copy() if df_daily is not None else df_combined.copy()
     base = _coalesce(
@@ -171,8 +174,14 @@ def build_snapshot(input_dir: Path, output_dir: Path, target_date: str) -> tuple
 
     base["canonical_export_status"] = canonical_export_status or ""
 
-    base["model_market_gap_flag"] = base.get("model_market_gap_flag", False).fillna(False).astype(bool)
-    base["blocked_by"] = base.get("blocked_by", "").fillna("")
+    if "model_market_gap_flag" in base.columns:
+        base["model_market_gap_flag"] = base["model_market_gap_flag"].fillna(False).astype(bool)
+    else:
+        base["model_market_gap_flag"] = False
+    if "blocked_by" in base.columns:
+        base["blocked_by"] = base["blocked_by"].fillna("")
+    else:
+        base["blocked_by"] = ""
 
     def classify(row: pd.Series) -> tuple[str, str, str]:
         if pd.isna(row.get("game_date")) or pd.isna(row.get("home_odds")) or pd.isna(row.get("away_odds")):
@@ -228,20 +237,40 @@ def main() -> None:
     parser.add_argument("--input-dir", default=str(LGBM_DIR))
     parser.add_argument("--output-dir", default=str(LGBM_DIR / "betting_agent_stage1"))
     parser.add_argument("--target-date", default=None)
+    parser.add_argument("--allow-combined-fallback", action="store_true")
     args = parser.parse_args()
 
     input_dir = Path(args.input_dir).resolve()
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    target_date = args.target_date or _infer_latest_date(input_dir)
+    target_date = args.target_date or _infer_latest_date(input_dir, allow_combined_fallback=args.allow_combined_fallback)
 
-    snapshot, manifest = build_snapshot(input_dir=input_dir, output_dir=output_dir, target_date=target_date)
+    daily_required_path = input_dir / f"nba_games_predict_{target_date}.csv"
+    if not daily_required_path.exists() and (args.target_date is not None or not args.allow_combined_fallback):
+        empty = pd.DataFrame(columns=["target_date","game_date","home_team","away_team"])
+        manifest = {"target_date": target_date, "created_utc": _utc_now_iso(), "input_dir": str(input_dir.resolve()), "output_dir": str(output_dir.resolve()), "files_found": {"daily_predictions": False}, "files_missing": ["daily_predictions"], "canonical_rows_found": 0, "daily_games_found": 0, "status": "data_incomplete_daily_predictions_missing"}
+        snapshot = empty
+    else:
+        snapshot, manifest = build_snapshot(input_dir=input_dir, output_dir=output_dir, target_date=target_date, allow_combined_fallback=args.allow_combined_fallback)
 
     csv_path = output_dir / f"stage1_daily_snapshot_{target_date}.csv"
     json_path = output_dir / f"stage1_daily_snapshot_{target_date}.json"
     manifest_path = output_dir / f"stage1_manifest_{target_date}.json"
 
     snapshot.to_csv(csv_path, index=False)
+
+    if "canonical_signal" not in snapshot.columns:
+        snapshot["canonical_signal"] = False
+    if "stage1_bucket" not in snapshot.columns:
+        snapshot["stage1_bucket"] = "DATA_INCOMPLETE"
+    if "allowed_review_type" not in snapshot.columns:
+        snapshot["allowed_review_type"] = "none"
+    if "home_prob_raw" not in snapshot.columns:
+        snapshot["home_prob_raw"] = pd.NA
+    if "home_odds" not in snapshot.columns:
+        snapshot["home_odds"] = pd.NA
+    if "away_odds" not in snapshot.columns:
+        snapshot["away_odds"] = pd.NA
 
     summary = {
         "games": int(len(snapshot)),

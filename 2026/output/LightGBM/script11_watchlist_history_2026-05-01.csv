@@ -1,0 +1,4 @@
+home_team,away_team,home_team_prob,odds_1,odds_2,result,game_date,prob_live_safe,prob_used,blocked_by,run_date,created_utc,source,game_key,stage2_candidate_type,params_chosen,params_compareN,params_used,result_raw,home_team_won,settled,pnl_ml_100
+HOU,LAL,0.7174920126740585,1.59,2.42,0,2026-05-01,,,,2026-05-01,2026-05-01T13:19:29.035817+00:00,upcoming_d,2026-05-01__HOU__LAL,LIVE_WATCH_ONLY,,,,,,False,
+ORL,DET,0.6430863420456859,2.36,1.62,0,2026-05-01,,,,2026-05-01,2026-05-01T13:19:29.035817+00:00,upcoming_d,2026-05-01__ORL__DET,LIVE_WATCH_ONLY,,,,,,False,
+TOR,CLE,0.6293326601071558,2.45,1.57,0,2026-05-01,,,,2026-05-01,2026-05-01T13:19:29.035817+00:00,upcoming_d,2026-05-01__TOR__CLE,LIVE_WATCH_ONLY,,,,,,False,
