@@ -1,0 +1,69 @@
+{
+  "run_date": "2026-05-01",
+  "created_utc": "2026-05-01T19:43:36.333647+00:00",
+  "input_file": "2026/output/LightGBM/combined_nba_predictions_acc_2026-05-01.csv",
+  "thresholds": {
+    "base": {
+      "home_team_prob_min": 0.6,
+      "odds_1_min": 1.6,
+      "home_win_rate_min": 0.5
+    },
+    "windows": {
+      "home_team_prob": 0.05,
+      "odds_1": 0.35,
+      "home_win_rate": 0.1
+    }
+  },
+  "candidate_count": 2,
+  "general_setup_summary": {
+    "n": 47,
+    "wins": 28,
+    "losses": 19,
+    "win_rate_%": 59.57,
+    "avg_odds": 2.033,
+    "profit_100_flat": 866.0,
+    "roi_%": 18.43,
+    "avg_home_team_prob": 0.669,
+    "avg_home_win_rate": 0.667
+  },
+  "per_game_summaries": [
+    {
+      "run_date": "2026-05-01",
+      "setup": "per_game_similar_bucket",
+      "today_home_team": "TOR",
+      "today_away_team": "CLE",
+      "today_home_team_prob": 0.6293326601071558,
+      "today_odds_1": 2.45,
+      "today_odds_2": 1.57,
+      "today_home_win_rate": 0.6,
+      "n": 8,
+      "wins": 6,
+      "losses": 2,
+      "win_rate_%": 75.0,
+      "avg_odds": 2.285,
+      "profit_100_flat": 604.0,
+      "roi_%": 75.5,
+      "avg_home_team_prob": 0.6473,
+      "avg_home_win_rate": 0.6187
+    },
+    {
+      "run_date": "2026-05-01",
+      "setup": "per_game_similar_bucket",
+      "today_home_team": "ORL",
+      "today_away_team": "DET",
+      "today_home_team_prob": 0.6430863420456859,
+      "today_odds_1": 2.36,
+      "today_odds_2": 1.62,
+      "today_home_win_rate": 0.7,
+      "n": 8,
+      "wins": 7,
+      "losses": 1,
+      "win_rate_%": 87.5,
+      "avg_odds": 2.27,
+      "profit_100_flat": 806.0,
+      "roi_%": 100.75,
+      "avg_home_team_prob": 0.6488,
+      "avg_home_win_rate": 0.6312
+    }
+  ]
+}
