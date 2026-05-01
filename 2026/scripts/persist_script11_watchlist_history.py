@@ -30,6 +30,15 @@ def _normalize_frame(rows_df: pd.DataFrame, run_date: str, source: str | None) -
         if col not in df.columns:
             df[col] = ""
     df["blocked_by"] = df["blocked_by"].fillna("").astype(str)
+
+    # Normalize game_date to a stable string key before game_key construction and merges.
+    if "game_date" in df.columns:
+        parsed_game_date = pd.to_datetime(df["game_date"], errors="coerce")
+        df["game_date"] = parsed_game_date.dt.strftime("%Y-%m-%d").where(
+            parsed_game_date.notna(),
+            df["game_date"].fillna("").astype(str),
+        )
+
     df["run_date"] = run_date
     df["created_utc"] = _utc_now_iso()
     if source is not None:
@@ -91,6 +100,20 @@ def _reconcile_outcomes(history: pd.DataFrame, combined_predictions_path: str | 
     need = {"game_date", "home_team", "away_team"}
     if not need.issubset(combined.columns):
         return history
+
+    history = history.copy()
+    combined = combined.copy()
+
+    # Ensure merge keys have identical dtypes. GitHub runs can produce datetime64 in
+    # history and object/string in combined, which breaks pandas merge.
+    for frame in (history, combined):
+        parsed_game_date = pd.to_datetime(frame["game_date"], errors="coerce")
+        frame["game_date"] = parsed_game_date.dt.strftime("%Y-%m-%d").where(
+            parsed_game_date.notna(),
+            frame["game_date"].fillna("").astype(str),
+        )
+        frame["home_team"] = frame["home_team"].fillna("").astype(str)
+        frame["away_team"] = frame["away_team"].fillna("").astype(str)
 
     cols = [c for c in ["game_date", "home_team", "away_team", "result", "result_raw", "home_team_won"] if c in combined.columns]
     outcomes = combined[cols].drop_duplicates(subset=["game_date", "home_team", "away_team"], keep="last")
