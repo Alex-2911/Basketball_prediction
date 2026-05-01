@@ -1,0 +1,11 @@
+{
+  "run_date": "2026-05-01",
+  "rows": 3,
+  "sources": {
+    "upcoming_d": 3
+  },
+  "stage2_candidate_type": {
+    "LIVE_WATCH_ONLY": 3
+  },
+  "created_utc": "2026-05-01T13:19:29.081733+00:00"
+}
