@@ -276,6 +276,16 @@ def _prepare_enriched_script11_frame_for_history(df: pd.DataFrame) -> pd.DataFra
                     out[target] = out[candidate]
                     break
 
+    ev_candidates = ["EV_€_per_100", "EV_live_€_per_100", "EV_base_€_per_100", "home_ev_prob_used_per_100"]
+    has_ev_values = any(
+        c in out.columns and pd.to_numeric(out[c], errors="coerce").notna().any()
+        for c in ev_candidates
+    )
+    if not has_ev_values and {"prob_used", "odds_1"}.issubset(out.columns):
+        prob_for_ev = pd.to_numeric(out["prob_used"], errors="coerce")
+        odds_for_ev = pd.to_numeric(out["odds_1"], errors="coerce")
+        out["EV_€_per_100"] = (prob_for_ev * odds_for_ev - 1.0) * 100.0
+
     if "blocked_by" not in out.columns:
         out["blocked_by"] = ""
     out["blocked_by"] = out["blocked_by"].fillna("").astype(str)
