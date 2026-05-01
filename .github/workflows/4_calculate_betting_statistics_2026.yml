@@ -237,6 +237,8 @@ jobs:
 
           # Force-add dashboard assets even if ignored
           git add -f web/public/data || true
+          git add -f 2026/output/LightGBM/script11_watchlist_history*.csv || true
+          git add -f 2026/output/LightGBM/script11_watchlist_history_summary*.json || true
 
           # Optional safety: don't accidentally commit an unwanted folder
           git restore --staged 2026/LightGBM 2>/dev/null || true
