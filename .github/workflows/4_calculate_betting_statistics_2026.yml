@@ -231,6 +231,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+          ls -la 2026/output/LightGBM/script11_watchlist_history* || true
+          git status --porcelain 2026/output/LightGBM/script11_watchlist_history* || true
+
           # Stage outputs
           git add -A 2026/output/LightGBM || true
           git add 2026/output/LightGBM/betting_agent_stage1 || true
