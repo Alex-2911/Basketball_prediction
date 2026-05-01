@@ -17,6 +17,7 @@ import argparse
 import json
 import logging
 import os
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -28,6 +29,19 @@ from sklearn.isotonic import IsotonicRegression
 from sklearn.metrics import brier_score_loss, log_loss
 
 from live_probability_pipeline import build_probability_chain_config, prepare_live_probability_columns
+
+
+
+# Allow importing helper from 2026/scripts. "2026" is not a valid Python package name.
+SCRIPT_HELPER_DIR = Path(__file__).resolve().parents[1] / "scripts"
+if str(SCRIPT_HELPER_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_HELPER_DIR))
+
+try:
+    from persist_script11_watchlist_history import persist_script11_watchlist_history
+except Exception as exc:
+    persist_script11_watchlist_history = None
+    logging.warning("Could not import persist_script11_watchlist_history: %s", exc)
 
 from nba_utils_2026 import (
     get_current_date,
@@ -239,6 +253,83 @@ def ensure_probability_columns(df: pd.DataFrame) -> pd.DataFrame:
         out[col] = series
 
     return out
+
+
+
+
+def _prepare_enriched_script11_frame_for_history(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+
+    # Normalize common aliases without overwriting existing enriched columns.
+    alias_pairs = {
+        "game_date": ["date"],
+        "odds_1": ["odds 1", "home_odds", "closing_home_odds"],
+        "odds_2": ["odds 2", "away_odds", "closing_away_odds"],
+        "home_team_prob": ["pred_home_win_proba", "home_prob_raw"],
+        "EV_€_per_100": ["EV_live_€_per_100", "home_ev_prob_used_per_100", "home_ev_raw_per_100"],
+    }
+
+    for target, candidates in alias_pairs.items():
+        if target not in out.columns:
+            for candidate in candidates:
+                if candidate in out.columns:
+                    out[target] = out[candidate]
+                    break
+
+    if "blocked_by" not in out.columns:
+        out["blocked_by"] = ""
+    out["blocked_by"] = out["blocked_by"].fillna("").astype(str)
+
+    if "model_market_gap_flag" not in out.columns:
+        out["model_market_gap_flag"] = out["blocked_by"].str.contains("MODEL_MARKET_GAP", na=False)
+
+    return out
+
+
+def _has_script11_enrichment(df: pd.DataFrame) -> tuple[bool, list[str]]:
+    if df is None or df.empty:
+        return False, ["empty dataframe"]
+
+    required = [
+        "home_team",
+        "away_team",
+        "odds_1",
+        "prob_base",
+        "prob_used",
+        "blocked_by",
+        "home_win_rate",
+    ]
+
+    ev_candidates = ["EV_€_per_100", "EV_live_€_per_100", "EV_base_€_per_100", "home_ev_prob_used_per_100"]
+    market_gap_candidates = ["model_market_gap", "model_market_gap_flag"]
+
+    missing = [c for c in required if c not in df.columns]
+    if not any(c in df.columns for c in ev_candidates):
+        missing.append("one of EV_€_per_100 / EV_live_€_per_100 / EV_base_€_per_100 / home_ev_prob_used_per_100")
+
+    if not any(c in df.columns for c in market_gap_candidates) and "MODEL_MARKET_GAP" not in " ".join(df.get("blocked_by", pd.Series(dtype=str)).astype(str).tolist()):
+        missing.append("model_market_gap/model_market_gap_flag or blocked_by containing MODEL_MARKET_GAP")
+
+    if missing:
+        return False, missing
+
+    nonnull_checks = {
+        "prob_base": df["prob_base"].notna().any(),
+        "prob_used": df["prob_used"].notna().any(),
+        "home_win_rate": df["home_win_rate"].notna().any(),
+        "odds_1": df["odds_1"].notna().any(),
+    }
+
+    ev_nonnull = any(c in df.columns and df[c].notna().any() for c in ev_candidates)
+
+    missing_nonnull = [k for k, ok in nonnull_checks.items() if not ok]
+    if not ev_nonnull:
+        missing_nonnull.append("non-null EV column")
+
+    if missing_nonnull:
+        return False, missing_nonnull
+
+    return True, []
 
 
 def _extract_date_from_filename(filename: str, prefix: str) -> Optional[str]:
@@ -2330,6 +2421,78 @@ def main() -> None:
         int(len(historical_subset_for_export)),
         int(len(matched_export_latest)),
     )
+
+
+    # --- Persist enriched Script 11 watchlist history ---
+    if persist_script11_watchlist_history is None:
+        logging.info("Skipping Script 11 history persistence: helper unavailable.")
+    else:
+        try:
+            combined_path_for_history = Path(pred_dir) / f"combined_nba_predictions_acc_{requested_ymd}.csv"
+
+            frames_to_persist = []
+
+            if "df_future" in locals() and isinstance(df_future, pd.DataFrame) and not df_future.empty:
+                future_for_history = _prepare_enriched_script11_frame_for_history(df_future)
+                ok, missing = _has_script11_enrichment(future_for_history)
+                if ok:
+                    frames_to_persist.append(("upcoming_d", future_for_history))
+                else:
+                    logging.info(
+                        "Skipping Script 11 history for df_future: enrichment missing: %s",
+                        missing,
+                    )
+
+            for candidate_name in ("df_w", "watchlist", "df_watchlist", "watchlist_df"):
+                if candidate_name in locals() and isinstance(locals()[candidate_name], pd.DataFrame) and not locals()[candidate_name].empty:
+                    candidate_df = _prepare_enriched_script11_frame_for_history(locals()[candidate_name])
+                    ok, missing = _has_script11_enrichment(candidate_df)
+                    if ok:
+                        frames_to_persist.append(("watchlist", candidate_df))
+                    else:
+                        logging.info(
+                            "Skipping Script 11 history for %s: enrichment missing: %s",
+                            candidate_name,
+                            missing,
+                        )
+
+            if not any(source == "watchlist" for source, _ in frames_to_persist):
+                if "shortlist" in locals() and isinstance(shortlist, pd.DataFrame) and not shortlist.empty:
+                    shortlist_for_history = _prepare_enriched_script11_frame_for_history(shortlist)
+                    ok, missing = _has_script11_enrichment(shortlist_for_history)
+                    if ok:
+                        frames_to_persist.append(("watchlist", shortlist_for_history))
+                    else:
+                        logging.info(
+                            "Shortlist exists but is not enriched enough for Script 11 history: %s",
+                            missing,
+                        )
+
+            if not frames_to_persist:
+                logging.warning(
+                    "No enriched Script 11 frames were persisted. Move the persistence block later if this is unexpected."
+                )
+
+            for source_name, frame in frames_to_persist:
+                persisted = persist_script11_watchlist_history(
+                    rows_df=frame.copy(),
+                    output_dir=out_dir,
+                    run_date=requested_ymd,
+                    params_used=params_for_eval if "params_for_eval" in locals() else None,
+                    chosen=selection_decision if "selection_decision" in locals() else None,
+                    compareN=int(max(N_WINDOWS)) if "N_WINDOWS" in globals() and N_WINDOWS else None,
+                    combined_predictions_path=str(combined_path_for_history),
+                    source=source_name,
+                )
+                logging.info(
+                    "Persisted Script 11 history source=%s input_rows=%d total_rows=%d",
+                    source_name,
+                    len(frame),
+                    len(persisted),
+                )
+
+        except Exception as exc:
+            logging.warning("Script 11 history persistence failed: %s", exc)
 
     # Bankroll over last-200 window (model EV, same style)
     last_200_games = hist_window_200.copy()
