@@ -332,60 +332,6 @@ def _has_script11_enrichment(df: pd.DataFrame) -> tuple[bool, list[str]]:
     return True, []
 
 
-
-
-def _log_script11_history_candidate(name: str, source: str, df: pd.DataFrame, ok: bool, missing: list[str]) -> None:
-    if df is None:
-        logging.info("[Script11 history] candidate=%s source=%s is None ok=%s missing=%s", name, source, ok, missing)
-        return
-
-    key_cols = [
-        "prob_base", "prob_used", "blocked_by", "home_win_rate", "odds_1",
-        "model_market_gap", "model_market_gap_flag", "EV_€_per_100", "EV_live_€_per_100",
-        "EV_base_€_per_100", "rules_passed", "margin_hw", "margin_odds", "margin_prob", "margin_ev",
-    ]
-
-    nonnull = {}
-    for c in key_cols:
-        if c not in df.columns:
-            nonnull[c] = None
-            continue
-        if c in {"blocked_by", "rules_passed"}:
-            nonnull[c] = int(df[c].astype(str).str.len().gt(0).sum())
-        else:
-            nonnull[c] = int(pd.to_numeric(df[c], errors="coerce").notna().sum())
-
-    logging.info(
-        "[Script11 history] candidate=%s source=%s rows=%d cols=%d ok=%s missing=%s first_cols=%s",
-        name,
-        source,
-        int(len(df)),
-        int(len(df.columns)),
-        bool(ok),
-        missing,
-        list(df.columns[:5]),
-    )
-    logging.info("[Script11 history] candidate=%s source=%s key_nonnull=%s", name, source, nonnull)
-
-
-def _log_script11_history_outputs(output_dir: Path) -> None:
-    tracked = [
-        "script11_watchlist_history.csv",
-        "script11_watchlist_history_latest.csv",
-        "script11_watchlist_history_summary_latest.json",
-    ]
-    for fname in tracked:
-        fpath = Path(output_dir) / fname
-        if fpath.exists():
-            stat = fpath.stat()
-            logging.info(
-                "[Script11 history] output=%s exists=yes size=%d mtime=%s",
-                str(fpath),
-                int(stat.st_size),
-                datetime.fromtimestamp(stat.st_mtime).isoformat(),
-            )
-        else:
-            logging.info("[Script11 history] output=%s exists=no", str(fpath))
 def _extract_date_from_filename(filename: str, prefix: str) -> Optional[str]:
     if not filename.startswith(prefix) or not filename.endswith(".csv"):
         return None
@@ -2486,25 +2432,9 @@ def main() -> None:
 
             frames_to_persist = []
 
-            if "df_all" in locals() and isinstance(df_all, pd.DataFrame) and not df_all.empty:
-                unplayed_mask = df_all[RESULT_RAW_COL].isna() | (df_all[RESULT_RAW_COL].astype(str) == "0")
-                future_pool = df_all.loc[unplayed_mask].copy()
-                if not future_pool.empty:
-                    future_pool_for_history = _prepare_enriched_script11_frame_for_history(future_pool)
-                    ok, missing = _has_script11_enrichment(future_pool_for_history)
-                    _log_script11_history_candidate("future_pool_enriched", "watchlist", future_pool_for_history, ok, missing)
-                    if ok:
-                        frames_to_persist.append(("watchlist", future_pool_for_history))
-                    else:
-                        logging.info(
-                            "Skipping Script 11 history for enriched unplayed pool: enrichment missing: %s",
-                            missing,
-                        )
-
             if "df_future" in locals() and isinstance(df_future, pd.DataFrame) and not df_future.empty:
                 future_for_history = _prepare_enriched_script11_frame_for_history(df_future)
                 ok, missing = _has_script11_enrichment(future_for_history)
-                _log_script11_history_candidate("df_future", "upcoming_d", future_for_history, ok, missing)
                 if ok:
                     frames_to_persist.append(("upcoming_d", future_for_history))
                 else:
@@ -2517,7 +2447,6 @@ def main() -> None:
                 if candidate_name in locals() and isinstance(locals()[candidate_name], pd.DataFrame) and not locals()[candidate_name].empty:
                     candidate_df = _prepare_enriched_script11_frame_for_history(locals()[candidate_name])
                     ok, missing = _has_script11_enrichment(candidate_df)
-                    _log_script11_history_candidate(candidate_name, "watchlist", candidate_df, ok, missing)
                     if ok:
                         frames_to_persist.append(("watchlist", candidate_df))
                     else:
@@ -2531,7 +2460,6 @@ def main() -> None:
                 if "shortlist" in locals() and isinstance(shortlist, pd.DataFrame) and not shortlist.empty:
                     shortlist_for_history = _prepare_enriched_script11_frame_for_history(shortlist)
                     ok, missing = _has_script11_enrichment(shortlist_for_history)
-                    _log_script11_history_candidate("shortlist", "watchlist", shortlist_for_history, ok, missing)
                     if ok:
                         frames_to_persist.append(("watchlist", shortlist_for_history))
                     else:
@@ -2544,28 +2472,8 @@ def main() -> None:
                 logging.warning(
                     "No enriched Script 11 frames were persisted. Move the persistence block later if this is unexpected."
                 )
-                logging.info("Script 11 history persistence candidates checked: df_all_unplayed, df_future, df_w/watchlist aliases, shortlist")
 
             for source_name, frame in frames_to_persist:
-                key_cols = ["prob_base", "prob_used", "blocked_by", "home_win_rate", "odds_1", "model_market_gap", "model_market_gap_flag", "EV_€_per_100", "EV_live_€_per_100", "EV_base_€_per_100", "rules_passed", "margin_hw", "margin_odds", "margin_prob", "margin_ev"]
-                key_nonnull = {}
-                for c in key_cols:
-                    if c not in frame.columns:
-                        key_nonnull[c] = None
-                    elif c in {"blocked_by", "rules_passed"}:
-                        key_nonnull[c] = int(frame[c].astype(str).str.len().gt(0).sum())
-                    else:
-                        key_nonnull[c] = int(pd.to_numeric(frame[c], errors="coerce").notna().sum())
-                logging.info(
-                    "[Script11 history] persisting source=%s shape=%s output_dir=%s combined_path=%s first_cols=%s key_nonnull=%s",
-                    source_name,
-                    frame.shape,
-                    str(out_dir),
-                    str(combined_path_for_history),
-                    list(frame.columns[:5]),
-                    key_nonnull,
-                )
-                _log_script11_history_outputs(out_dir)
                 persisted = persist_script11_watchlist_history(
                     rows_df=frame.copy(),
                     output_dir=out_dir,
@@ -2582,7 +2490,6 @@ def main() -> None:
                     len(frame),
                     len(persisted),
                 )
-                _log_script11_history_outputs(out_dir)
 
         except Exception as exc:
             logging.warning("Script 11 history persistence failed: %s", exc)
