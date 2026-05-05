@@ -1,1 +1,11 @@
 run_date,setup,today_home_team,today_away_team,game_date,home_team,away_team,home_team_prob,home_win_rate,odds_1,odds_2,home_win,home_ml_pnl_100
+2026-05-05,per_game_similar_bucket,DET,CLE,2025-11-23,PHO,SAS,0.6367809127968677,0.75,1.68,2.24,1.0,68.0
+2026-05-05,per_game_similar_bucket,DET,CLE,2026-01-03,NYK,PHI,0.6327208062713386,0.75,1.65,2.3,0.0,-100.0
+2026-05-05,per_game_similar_bucket,DET,CLE,2026-01-19,DET,BOS,0.657419548123684,0.8,1.65,2.3,1.0,64.99999999999999
+2026-05-05,per_game_similar_bucket,DET,CLE,2026-01-28,HOU,SAS,0.6734494701041026,0.75,1.68,2.24,0.0,-100.0
+2026-05-05,per_game_similar_bucket,DET,CLE,2026-02-06,DET,NYK,0.6510377900292282,0.8,2.0,1.83,1.0,100.0
+2026-05-05,per_game_similar_bucket,DET,CLE,2026-02-07,OKC,HOU,0.711430153009834,0.8,1.65,2.3,0.0,-100.0
+2026-05-05,per_game_similar_bucket,DET,CLE,2026-03-25,DET,ATL,0.650585195601794,0.8,1.62,2.36,0.0,-100.0
+2026-05-05,per_game_similar_bucket,DET,CLE,2026-03-31,HOU,NYK,0.6554620368879736,0.75,1.93,1.89,1.0,93.0
+2026-05-05,per_game_similar_bucket,DET,CLE,2026-04-12,SAS,DEN,0.6628969408557315,0.8,1.77,2.1,0.0,-100.0
+2026-05-05,per_game_similar_bucket,DET,CLE,2026-04-26,HOU,LAL,0.6527261431997923,0.75,1.62,2.36,1.0,62.000000000000014
