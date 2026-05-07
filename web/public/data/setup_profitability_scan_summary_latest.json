@@ -1,6 +1,6 @@
 {
   "run_date": "2026-05-07",
-  "created_utc": "2026-05-07T18:42:08.543796+00:00",
+  "created_utc": "2026-05-07T19:15:49.650019+00:00",
   "input_file": "2026/output/LightGBM/combined_nba_predictions_acc_2026-05-07.csv",
   "thresholds": {
     "base": {
@@ -16,15 +16,15 @@
   },
   "candidate_count": 1,
   "general_setup_summary": {
-    "n": 118,
-    "wins": 71,
-    "losses": 47,
-    "win_rate_%": 60.17,
-    "avg_odds": 2.0999,
-    "profit_100_flat": 2751.0,
-    "roi_%": 23.31,
-    "avg_home_team_prob": 0.6665,
-    "avg_home_win_rate": 0.6712
+    "n": 50,
+    "wins": 30,
+    "losses": 20,
+    "win_rate_%": 60.0,
+    "avg_odds": 2.0408,
+    "profit_100_flat": 979.0,
+    "roi_%": 19.58,
+    "avg_home_team_prob": 0.6677,
+    "avg_home_win_rate": 0.669
   },
   "per_game_summaries": [
     {
@@ -36,15 +36,15 @@
       "today_odds_1": 1.62,
       "today_odds_2": 2.36,
       "today_home_win_rate": 0.8,
-      "n": 20,
-      "wins": 12,
-      "losses": 8,
-      "win_rate_%": 60.0,
-      "avg_odds": 1.7045,
-      "profit_100_flat": 42.0,
-      "roi_%": 2.1,
-      "avg_home_team_prob": 0.6858,
-      "avg_home_win_rate": 0.78
+      "n": 8,
+      "wins": 4,
+      "losses": 4,
+      "win_rate_%": 50.0,
+      "avg_odds": 1.7,
+      "profit_100_flat": -112.0,
+      "roi_%": -14.0,
+      "avg_home_team_prob": 0.6672,
+      "avg_home_win_rate": 0.7812
     }
   ]
 }
