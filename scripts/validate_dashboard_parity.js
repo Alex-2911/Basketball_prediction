@@ -45,17 +45,34 @@ function parseCsv(csvText) {
   });
 }
 
-function formatDateUTC(date) {
-  return date.toISOString().slice(0, 10);
+function coerceDateISO(value) {
+  if (!value) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10);
 }
 
-function computeWindowDates(windowSize) {
-  const windowEndDate = new Date();
-  const windowStartDate = new Date(windowEndDate);
-  windowStartDate.setUTCDate(windowEndDate.getUTCDate() - (windowSize - 1));
+function isPlayedRow(row) {
+  const result = row.result ?? row.result_raw ?? '';
+  const trimmed = String(result).trim();
+  return trimmed !== '' && trimmed !== '0';
+}
+
+function computeWindowFromPlayedGames(rows, windowSize) {
+  const playedDates = rows
+    .filter(isPlayedRow)
+    .map((row) => coerceDateISO(row.game_date ?? row.date))
+    .filter(Boolean)
+    .sort();
+  ensure(playedDates.length > 0, 'No played games found in combined_latest.csv for window validation.');
+  const slice = playedDates.slice(-windowSize);
+  ensure(slice.length > 0, 'Window selection produced zero rows.');
   return {
-    windowStart: formatDateUTC(windowStartDate),
-    windowEnd: formatDateUTC(windowEndDate),
+    windowStart: slice[0],
+    windowEnd: slice[slice.length - 1],
   };
 }
 
@@ -68,8 +85,10 @@ function ensure(condition, message) {
 function main() {
   const dashboardState = JSON.parse(fs.readFileSync(path.join(dataDir, 'dashboard_state.json'), 'utf8'));
   const localMatchedRows = parseCsv(fs.readFileSync(path.join(dataDir, 'local_matched_games_latest.csv'), 'utf8'));
+  const combinedRows = parseCsv(fs.readFileSync(path.join(dataDir, 'combined_latest.csv'), 'utf8'));
 
-  const { windowStart: computedWindowStart, windowEnd: computedWindowEnd } = computeWindowDates(
+  const { windowStart: computedWindowStart, windowEnd: computedWindowEnd } = computeWindowFromPlayedGames(
+    combinedRows,
     dashboardState.window_size
   );
 

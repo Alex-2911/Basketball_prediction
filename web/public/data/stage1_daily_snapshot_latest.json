@@ -1,0 +1,53 @@
+{
+  "target_date": "2026-05-07",
+  "summary": {
+    "games": 2,
+    "canonical_model_signals": 0,
+    "raw_underdog_temptations": 1,
+    "market_gap_reviews": 0,
+    "live_watch_only": 1,
+    "no_value_skips": 0
+  },
+  "games": [
+    {
+      "game": "DET vs CLE",
+      "home_team": "DET",
+      "away_team": "CLE",
+      "home_prob_raw": 0.6994904871583444,
+      "home_odds": 1.62,
+      "away_odds": 2.36,
+      "canonical_signal": false,
+      "stage1_bucket": "LIVE_WATCH_ONLY",
+      "allowed_review_type": "live_watch_review"
+    },
+    {
+      "game": "OKC vs LAL",
+      "home_team": "OKC",
+      "away_team": "LAL",
+      "home_prob_raw": 0.7269045161237182,
+      "home_odds": 1.11,
+      "away_odds": 7.0,
+      "canonical_signal": false,
+      "stage1_bucket": "RAW_UNDERDOG_TEMPTATION",
+      "allowed_review_type": "near_miss_review"
+    }
+  ],
+  "manifest": {
+    "target_date": "2026-05-07",
+    "created_utc": "2026-05-07T18:42:08.543796+00:00",
+    "input_dir": "/workspace/Basketball_prediction/2026/output/LightGBM",
+    "output_dir": "/workspace/Basketball_prediction/2026/output/LightGBM/betting_agent_stage1",
+    "files_found": {
+      "daily_predictions": true,
+      "combined_predictions": true,
+      "home_win_rates": true,
+      "strategy_params": true,
+      "local_matched_export_report": true,
+      "kelly_shortlist": true
+    },
+    "files_missing": [],
+    "canonical_rows_found": 0,
+    "daily_games_found": 2,
+    "status": "ok_no_canonical_bets"
+  }
+}
