@@ -1,6 +1,6 @@
 {
   "run_date": "2026-05-07",
-  "created_utc": "2026-05-07T18:42:08.543796+00:00",
+  "created_utc": "2026-05-07T17:36:43.110260+00:00",
   "input_file": "2026/output/LightGBM/combined_nba_predictions_acc_2026-05-07.csv",
   "thresholds": {
     "base": {
@@ -14,7 +14,7 @@
       "home_win_rate": 0.1
     }
   },
-  "candidate_count": 1,
+  "candidate_count": 0,
   "general_setup_summary": {
     "n": 118,
     "wins": 71,
@@ -26,25 +26,5 @@
     "avg_home_team_prob": 0.6665,
     "avg_home_win_rate": 0.6712
   },
-  "per_game_summaries": [
-    {
-      "run_date": "2026-05-07",
-      "setup": "per_game_similar_bucket",
-      "today_home_team": "DET",
-      "today_away_team": "CLE",
-      "today_home_team_prob": 0.6994904871583444,
-      "today_odds_1": 1.62,
-      "today_odds_2": 2.36,
-      "today_home_win_rate": 0.8,
-      "n": 20,
-      "wins": 12,
-      "losses": 8,
-      "win_rate_%": 60.0,
-      "avg_odds": 1.7045,
-      "profit_100_flat": 42.0,
-      "roi_%": 2.1,
-      "avg_home_team_prob": 0.6858,
-      "avg_home_win_rate": 0.78
-    }
-  ]
+  "per_game_summaries": []
 }

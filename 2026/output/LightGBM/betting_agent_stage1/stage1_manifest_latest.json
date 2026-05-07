@@ -1,8 +1,8 @@
 {
-  "target_date": "2026-05-07",
-  "created_utc": "2026-05-07T18:42:08.543796+00:00",
-  "input_dir": "/workspace/Basketball_prediction/2026/output/LightGBM",
-  "output_dir": "/workspace/Basketball_prediction/2026/output/LightGBM/betting_agent_stage1",
+  "target_date": "2026-05-06",
+  "created_utc": "2026-05-07T17:36:39.162620+00:00",
+  "input_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM",
+  "output_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/betting_agent_stage1",
   "files_found": {
     "daily_predictions": true,
     "combined_predictions": true,
