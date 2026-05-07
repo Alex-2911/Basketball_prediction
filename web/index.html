@@ -261,6 +261,7 @@
     <script>
       const DATA_ROOT = 'public/data';
       const AGENT_API_URL = window.HOOPS_AGENT_API_URL || document.querySelector('meta[name="hoops-agent-api"]')?.content || '';
+      const buildDataUrl = (path) => new URL(path, window.location.href).href;
 
 
       const splitCsvLine = (line) => {
@@ -482,9 +483,9 @@
                 question,
                 capability: 'read_only',
                 context: {
-                  dashboard_state_url: `${DATA_ROOT}/dashboard_state.json`,
-                  metrics_url: `${DATA_ROOT}/metrics_snapshot.json`,
-                  agent_manifest_url: `${DATA_ROOT}/agent_manifest.json`,
+                  dashboard_state_url: buildDataUrl(`${DATA_ROOT}/dashboard_state.json`),
+                  metrics_url: buildDataUrl(`${DATA_ROOT}/metrics_snapshot.json`),
+                  agent_manifest_url: buildDataUrl(`${DATA_ROOT}/agent_manifest.json`),
                 },
               }),
             });
