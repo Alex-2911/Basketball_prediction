@@ -224,6 +224,61 @@ function copyFile(source, target) {
   fs.copyFileSync(source, target);
 }
 
+
+function copyOptionalAgentArtifact(sourcePath, targetName, label, sources) {
+  if (!fs.existsSync(sourcePath)) return null;
+  const targetPath = path.join(webDataDir, targetName);
+  copyFile(sourcePath, targetPath);
+  const stat = fs.statSync(sourcePath);
+  const entry = {
+    label,
+    path: targetName,
+    source_path: path.relative(repoRoot, sourcePath),
+    bytes: stat.size,
+  };
+  sources.push(entry);
+  return entry;
+}
+
+function writeAgentManifest(sources) {
+  const manifest = {
+    version: 1,
+    mode: 'read_only_mvp',
+    generated_at_utc: new Date().toISOString(),
+    read_only_sources: sources,
+    frontend_contract: {
+      endpoint_config: 'window.HOOPS_AGENT_API_URL or <meta name="hoops-agent-api" content="...">',
+      request_shape: {
+        question: 'string',
+        capability: 'read_only',
+        context: {
+          dashboard_state_url: 'public/data/dashboard_state.json',
+          metrics_url: 'public/data/metrics_snapshot.json',
+          agent_manifest_url: 'public/data/agent_manifest.json',
+        },
+      },
+    },
+    guardrails: {
+      browser_secrets_allowed: false,
+      allowed: [
+        'read latest CSV and JSON outputs',
+        'summarize today board and no-bet reasons',
+        'compare canonical, setup-profitability, near-miss, and vibe candidates',
+        'summarize settled manual bet rows',
+        'prepare draft Steadivus log entries',
+      ],
+      disallowed: [
+        'place bets',
+        'access betting accounts',
+        'run arbitrary shell commands',
+        'push code or mutate history without explicit confirmation',
+        'store OpenAI or GitHub secrets in browser code',
+      ],
+    },
+  };
+  fs.writeFileSync(path.join(webDataDir, 'agent_manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
+}
+
 function coerceDateISO(value) {
   if (!value) return null;
   const raw = String(value).trim();
@@ -632,9 +687,76 @@ function main() {
   // Always ensure deployed local_matched_games_latest.csv matches our chosen source
   copyFile(localMatchedSourcePath, path.join(webDataDir, 'local_matched_games_latest.csv'));
 
+  const agentSources = [
+    {
+      label: 'Combined predictions latest',
+      path: 'combined_latest.csv',
+      source_path: combinedIsoName ? `2026/output/LightGBM/Kelly/${combinedIsoName}` : `2026/output/LightGBM/${combinedAccName}`,
+    },
+    {
+      label: 'Local matched games latest',
+      path: 'local_matched_games_latest.csv',
+      source_path: path.relative(repoRoot, localMatchedSourcePath),
+    },
+    {
+      label: 'Metrics snapshot',
+      path: 'metrics_snapshot.json',
+      source_path: dashboardState.params_source_file || 'web/public/data/metrics_snapshot.json',
+    },
+  ];
+
   if (selectedBetLogPath) {
     copyFile(selectedBetLogPath, path.join(webDataDir, 'bet_log_flat_live.csv'));
+    agentSources.push({
+      label: 'Real placed bets ledger',
+      path: 'bet_log_flat_live.csv',
+      source_path: path.relative(repoRoot, selectedBetLogPath),
+    });
   }
+
+  copyOptionalAgentArtifact(
+    path.join(outputDir, 'betting_agent_stage1', 'stage1_daily_snapshot_latest.csv'),
+    'stage1_daily_snapshot_latest.csv',
+    'Stage 1 daily snapshot',
+    agentSources
+  );
+  copyOptionalAgentArtifact(
+    path.join(outputDir, 'betting_agent_stage1', 'stage1_daily_snapshot_latest.json'),
+    'stage1_daily_snapshot_latest.json',
+    'Stage 1 daily summary',
+    agentSources
+  );
+  copyOptionalAgentArtifact(
+    path.join(outputDir, 'setup_profitability_scan_latest.csv'),
+    'setup_profitability_scan_latest.csv',
+    'Setup profitability scan',
+    agentSources
+  );
+  copyOptionalAgentArtifact(
+    path.join(outputDir, 'setup_profitability_scan_summary_latest.json'),
+    'setup_profitability_scan_summary_latest.json',
+    'Setup profitability scan summary',
+    agentSources
+  );
+  copyOptionalAgentArtifact(
+    path.join(outputDir, 'script11_watchlist_history_latest.csv'),
+    'script11_watchlist_history_latest.csv',
+    'Script 11 watchlist history',
+    agentSources
+  );
+  copyOptionalAgentArtifact(
+    path.join(outputDir, 'script11_watchlist_history_summary_latest.json'),
+    'script11_watchlist_history_summary_latest.json',
+    'Script 11 watchlist history summary',
+    agentSources
+  );
+  copyOptionalAgentArtifact(
+    path.join(outputDir, 'actual_bets_manual.csv'),
+    'actual_bets_manual.csv',
+    'Manual actual bets log',
+    agentSources
+  );
+  writeAgentManifest(agentSources);
 
   const strategyParamsForDashboard = {
     as_of_date: asOfDate,

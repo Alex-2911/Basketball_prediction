@@ -99,6 +99,74 @@
         font-size: 0.75rem;
         font-weight: 600;
       }
+
+      .agent-shell {
+        margin-top: 1rem;
+        background: rgba(15, 23, 42, 0.82);
+        border: 1px solid rgba(148, 163, 184, 0.24);
+        border-radius: 1rem;
+        padding: 1rem;
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.28);
+      }
+      .agent-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin: 1rem 0;
+      }
+      .agent-chip,
+      .agent-submit {
+        border: 0;
+        border-radius: 999px;
+        cursor: pointer;
+        font-weight: 700;
+      }
+      .agent-chip {
+        background: rgba(56, 189, 248, 0.12);
+        color: #7dd3fc;
+        padding: 0.45rem 0.75rem;
+      }
+      .agent-chip:hover,
+      .agent-submit:hover {
+        filter: brightness(1.12);
+      }
+      .agent-form {
+        display: grid;
+        gap: 0.75rem;
+      }
+      .agent-form textarea {
+        min-height: 6rem;
+        resize: vertical;
+        border-radius: 0.75rem;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        background: rgba(15, 23, 42, 0.92);
+        color: #f8fafc;
+        padding: 0.85rem 1rem;
+        font: inherit;
+      }
+      .agent-submit {
+        justify-self: start;
+        background: linear-gradient(135deg, #38bdf8, #22c55e);
+        color: #082f49;
+        padding: 0.6rem 1rem;
+      }
+      .agent-status {
+        margin-top: 0.75rem;
+        color: #cbd5f5;
+      }
+      .agent-response {
+        margin-top: 1rem;
+        white-space: pre-wrap;
+        background: rgba(2, 6, 23, 0.55);
+        border-radius: 0.75rem;
+        padding: 1rem;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+      }
+      .agent-guardrails {
+        display: grid;
+        gap: 0.75rem;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      }
       .error {
         background: rgba(248, 113, 113, 0.15);
         border: 1px solid rgba(248, 113, 113, 0.4);
@@ -147,6 +215,41 @@
         </table>
       </section>
 
+
+      <section id="agent-chat">
+        <h2>Agent Chat <span class="pill">backend required</span></h2>
+        <p>
+          Ask the read-only Hoops Insight betting agent about today&apos;s board, canonical vs. near-miss
+          candidates, no-bet discipline, and settled manual bets. The browser sends only your question;
+          secrets and repo access must live behind the backend endpoint.
+        </p>
+        <div class="agent-shell">
+          <div class="agent-guardrails">
+            <div class="meta">
+              <strong>Read-only MVP</strong>
+              <p>Uses latest dashboard outputs, Stage 1 snapshots, setup scans, watchlist history, bet logs, and metrics.</p>
+            </div>
+            <div class="meta">
+              <strong>Secret-safe boundary</strong>
+              <p>No GitHub token or OpenAI API key is stored in this static dashboard.</p>
+            </div>
+            <div class="meta">
+              <strong>Hard limits</strong>
+              <p>Never places bets, never runs arbitrary shell commands, and never writes without explicit confirmation.</p>
+            </div>
+          </div>
+
+          <div class="agent-toolbar" id="agent-prompts"></div>
+
+          <form class="agent-form" id="agent-form">
+            <label for="agent-question" class="muted">Question for the betting agent</label>
+            <textarea id="agent-question" placeholder="Example: Explain today&apos;s canonical bets, near misses, and no-bet discipline cases."></textarea>
+            <button class="agent-submit" type="submit">Ask Agent</button>
+          </form>
+          <div class="agent-status" id="agent-status"></div>
+          <div class="agent-response" id="agent-response" hidden></div>
+        </div>
+      </section>
       <section>
         <h2>Data Sources</h2>
         <div class="meta-grid" id="sources"></div>
@@ -157,6 +260,8 @@
 
     <script>
       const DATA_ROOT = 'public/data';
+      const AGENT_API_URL = window.HOOPS_AGENT_API_URL || document.querySelector('meta[name="hoops-agent-api"]')?.content || '';
+
 
       const splitCsvLine = (line) => {
         const cells = [];
@@ -294,6 +399,112 @@
         const num = Number(value);
         return Number.isNaN(num) ? 0 : num;
       };
+
+      const escapeHtml = (value) => String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+
+      const renderAgentPrompts = (prompts) => {
+        const container = document.getElementById('agent-prompts');
+        container.innerHTML = '';
+        prompts.forEach((prompt) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'agent-chip';
+          button.textContent = prompt;
+          button.addEventListener('click', () => {
+            document.getElementById('agent-question').value = prompt;
+          });
+          container.appendChild(button);
+        });
+      };
+
+      const renderAgentManifest = async () => {
+        const defaultPrompts = [
+          'What games are on today and which are canonical model bets?',
+          'Separate canonical, setup-profitability, near-miss, and no-bet cases.',
+          'Summarize yesterday\'s real settled bets and Steadivus lessons.',
+          'Why are there no bets today?'
+        ];
+        renderAgentPrompts(defaultPrompts);
+        const status = document.getElementById('agent-status');
+        status.textContent = AGENT_API_URL
+          ? `Agent backend configured: ${AGENT_API_URL}`
+          : 'Agent backend not configured. Set window.HOOPS_AGENT_API_URL or a hoops-agent-api meta tag when deploying the serverless endpoint.';
+
+        try {
+          const res = await fetch(`${DATA_ROOT}/agent_manifest.json`);
+          if (!res.ok) return;
+          const manifest = await res.json();
+          const sources = (manifest.read_only_sources || []).map((source) => source.label).filter(Boolean);
+          if (sources.length) {
+            status.textContent += ` Read-only sources: ${sources.join(', ')}.`;
+          }
+        } catch (error) {
+          // Optional manifest; dashboard remains usable without it.
+        }
+      };
+
+      const wireAgentForm = () => {
+        const form = document.getElementById('agent-form');
+        const questionBox = document.getElementById('agent-question');
+        const status = document.getElementById('agent-status');
+        const responseBox = document.getElementById('agent-response');
+
+        form.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const question = questionBox.value.trim();
+          responseBox.hidden = true;
+          responseBox.textContent = '';
+
+          if (!question) {
+            status.textContent = 'Enter a question first.';
+            return;
+          }
+          if (!AGENT_API_URL) {
+            status.textContent = 'No backend endpoint is configured, so the static dashboard will not send the question.';
+            responseBox.hidden = false;
+            responseBox.innerHTML = escapeHtml(
+              'Backend contract: POST { question, capability: "read_only", context: { dashboard_state_url, metrics_url } } to a serverless API that owns OPENAI_API_KEY and GITHUB_TOKEN.'
+            );
+            return;
+          }
+
+          status.textContent = 'Asking betting agent...';
+          try {
+            const res = await fetch(AGENT_API_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                question,
+                capability: 'read_only',
+                context: {
+                  dashboard_state_url: `${DATA_ROOT}/dashboard_state.json`,
+                  metrics_url: `${DATA_ROOT}/metrics_snapshot.json`,
+                  agent_manifest_url: `${DATA_ROOT}/agent_manifest.json`,
+                },
+              }),
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              throw new Error(payload.error || `Agent backend returned ${res.status}`);
+            }
+            responseBox.hidden = false;
+            responseBox.innerHTML = escapeHtml(payload.answer || payload.message || JSON.stringify(payload, null, 2));
+            status.textContent = 'Agent response received.';
+          } catch (error) {
+            responseBox.hidden = false;
+            responseBox.innerHTML = escapeHtml(error.message);
+            status.textContent = 'Agent request failed.';
+          }
+        });
+      };
+
+      renderAgentManifest();
+      wireAgentForm();
 
       const renderDashboard = async () => {
         try {

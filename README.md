@@ -199,3 +199,74 @@ The verifier checks:
 2. ACC/ISO headers are single-line and match the expected schema.
 3. Latest shortlist exists and matches expected schema.
 4. Ledger exists and is not older than latest shortlist date when shortlist rows are present.
+
+---
+
+## Hoops Insight Agent Chat MVP
+
+The dashboard includes an **Agent Chat** panel, but it is intentionally not a pure frontend chatbot. The static page never stores or sends OpenAI/GitHub secrets from browser code. Instead, it only sends the user's question to a backend/serverless endpoint that owns secrets and enforces tool permissions.
+
+```text
+Hoops Insight dashboard
+  -> Agent Chat panel
+  -> backend/serverless API
+  -> LLM + allowlisted tools
+  -> GitHub repo outputs / workflow artifacts
+  -> answer returned to dashboard
+```
+
+### Frontend contract
+
+Configure the deployed dashboard with either:
+
+```html
+<meta name="hoops-agent-api" content="https://your-agent.example.com/api/agent">
+```
+
+or set `window.HOOPS_AGENT_API_URL` before the dashboard script runs.
+
+When configured, the dashboard sends a read-only request shaped like:
+
+```json
+{
+  "question": "Explain today's canonical bets and near misses.",
+  "capability": "read_only",
+  "context": {
+    "dashboard_state_url": "public/data/dashboard_state.json",
+    "metrics_url": "public/data/metrics_snapshot.json",
+    "agent_manifest_url": "public/data/agent_manifest.json"
+  }
+}
+```
+
+If no endpoint is configured, the Agent Chat panel remains visible as a safe planning/stub UI and will not send the question anywhere.
+
+### Read-only v1 sources
+
+`node scripts/build_dashboard_assets.js` now publishes `web/public/data/agent_manifest.json` plus optional latest agent-readable outputs when they exist:
+
+- `combined_latest.csv`
+- `local_matched_games_latest.csv`
+- `metrics_snapshot.json`
+- `bet_log_flat_live.csv`
+- `stage1_daily_snapshot_latest.csv` / `.json`
+- `setup_profitability_scan_latest.csv` / summary JSON
+- `script11_watchlist_history_latest.csv` / summary JSON
+- `actual_bets_manual.csv` if present
+
+### Backend guardrails
+
+The backend should hold `OPENAI_API_KEY`, `GITHUB_TOKEN`, repo allowlists, and workflow allowlists. The recommended first version is read-only and may answer questions about today's board, canonical vs. near-miss candidates, setup-profitability candidates, no-bet discipline, manual bet logs, and Steadivus lessons.
+
+Allowed for v1:
+
+- Read latest CSV/JSON outputs and dashboard assets.
+- Fetch GitHub workflow artifacts/logs for known workflows.
+- Return structured analysis fields such as `canonical_signal`, `near_miss`, `vibe_candidate`, `skip_reason`, `suggested_stake_class`, and `steadivus_lesson`.
+
+Not allowed:
+
+- Place bets or access betting accounts.
+- Run arbitrary shell commands.
+- Store API keys or GitHub tokens in React/Vite/browser code.
+- Push code, mutate historical outputs, or trigger write actions without explicit confirmation.

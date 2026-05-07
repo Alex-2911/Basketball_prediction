@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "mode": "read_only_mvp",
+  "generated_at_utc": "2026-05-07T18:42:08.802Z",
+  "read_only_sources": [
+    {
+      "label": "Combined predictions latest",
+      "path": "combined_latest.csv",
+      "source_path": "2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-05-07.csv"
+    },
+    {
+      "label": "Local matched games latest",
+      "path": "local_matched_games_latest.csv",
+      "source_path": "2026/output/LightGBM/local_matched_games_2026-05-06.csv"
+    },
+    {
+      "label": "Metrics snapshot",
+      "path": "metrics_snapshot.json",
+      "source_path": "2026/output/LightGBM/metrics_snapshot_2026-05-06.json"
+    },
+    {
+      "label": "Real placed bets ledger",
+      "path": "bet_log_flat_live.csv",
+      "source_path": "2026/bet_log/bet_log_flat_live.csv"
+    },
+    {
+      "label": "Stage 1 daily snapshot",
+      "path": "stage1_daily_snapshot_latest.csv",
+      "source_path": "2026/output/LightGBM/betting_agent_stage1/stage1_daily_snapshot_latest.csv",
+      "bytes": 1359
+    },
+    {
+      "label": "Stage 1 daily summary",
+      "path": "stage1_daily_snapshot_latest.json",
+      "source_path": "2026/output/LightGBM/betting_agent_stage1/stage1_daily_snapshot_latest.json",
+      "bytes": 1491
+    },
+    {
+      "label": "Setup profitability scan",
+      "path": "setup_profitability_scan_latest.csv",
+      "source_path": "2026/output/LightGBM/setup_profitability_scan_latest.csv",
+      "bytes": 413
+    },
+    {
+      "label": "Setup profitability scan summary",
+      "path": "setup_profitability_scan_summary_latest.json",
+      "source_path": "2026/output/LightGBM/setup_profitability_scan_summary_latest.json",
+      "bytes": 1218
+    },
+    {
+      "label": "Script 11 watchlist history",
+      "path": "script11_watchlist_history_latest.csv",
+      "source_path": "2026/output/LightGBM/script11_watchlist_history_latest.csv",
+      "bytes": 1208
+    },
+    {
+      "label": "Script 11 watchlist history summary",
+      "path": "script11_watchlist_history_summary_latest.json",
+      "source_path": "2026/output/LightGBM/script11_watchlist_history_summary_latest.json",
+      "bytes": 219
+    }
+  ],
+  "frontend_contract": {
+    "endpoint_config": "window.HOOPS_AGENT_API_URL or <meta name=\"hoops-agent-api\" content=\"...\">",
+    "request_shape": {
+      "question": "string",
+      "capability": "read_only",
+      "context": {
+        "dashboard_state_url": "public/data/dashboard_state.json",
+        "metrics_url": "public/data/metrics_snapshot.json",
+        "agent_manifest_url": "public/data/agent_manifest.json"
+      }
+    }
+  },
+  "guardrails": {
+    "browser_secrets_allowed": false,
+    "allowed": [
+      "read latest CSV and JSON outputs",
+      "summarize today board and no-bet reasons",
+      "compare canonical, setup-profitability, near-miss, and vibe candidates",
+      "summarize settled manual bet rows",
+      "prepare draft Steadivus log entries"
+    ],
+    "disallowed": [
+      "place bets",
+      "access betting accounts",
+      "run arbitrary shell commands",
+      "push code or mutate history without explicit confirmation",
+      "store OpenAI or GitHub secrets in browser code"
+    ]
+  }
+}
