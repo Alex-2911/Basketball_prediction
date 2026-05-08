@@ -256,12 +256,12 @@ If no endpoint is configured, the Agent Chat panel remains visible as a safe pla
 
 ### Backend guardrails
 
-The backend should hold `OPENAI_API_KEY`, `GITHUB_TOKEN`, repo allowlists, and workflow allowlists. The recommended first version is read-only and may answer questions about today's board, canonical vs. near-miss candidates, setup-profitability candidates, no-bet discipline, manual bet logs, and Steadivus lessons.
+The backend should hold `OPENAI_API_KEY` for v1. Add `GITHUB_TOKEN`, repo allowlists, and workflow allowlists only in a later version if the agent needs private repo files, workflow artifacts/logs, or explicitly approved workflow actions. The first version is read-only and may answer questions about today's board, canonical vs. near-miss candidates, setup-profitability candidates, no-bet discipline, manual bet logs, and Steadivus lessons.
 
 Allowed for v1:
 
 - Read latest CSV/JSON outputs and dashboard assets.
-- Fetch GitHub workflow artifacts/logs for known workflows.
+- Fetch only allowlisted public dashboard CSV/JSON outputs from `agent_manifest.json`.
 - Return structured analysis fields such as `canonical_signal`, `near_miss`, `vibe_candidate`, `skip_reason`, `suggested_stake_class`, and `steadivus_lesson`.
 
 Not allowed:
@@ -270,3 +270,81 @@ Not allowed:
 - Run arbitrary shell commands.
 - Store API keys or GitHub tokens in React/Vite/browser code.
 - Push code, mutate historical outputs, or trigger write actions without explicit confirmation.
+
+
+### Backend Agent API v1
+
+This repo includes a lightweight read-only serverless endpoint at `api/agent.js` for deployments that support Node/Vercel-style functions. It implements `POST /api/agent` for the dashboard Agent Chat panel.
+
+Request shape:
+
+```json
+{
+  "question": "Explain today's board. Separate canonical bets from live-watch and near-miss candidates.",
+  "capability": "read_only",
+  "context": {
+    "dashboard_state_url": "https://YOUR-DASHBOARD-DOMAIN/public/data/dashboard_state.json",
+    "metrics_url": "https://YOUR-DASHBOARD-DOMAIN/public/data/metrics_snapshot.json",
+    "agent_manifest_url": "https://YOUR-DASHBOARD-DOMAIN/public/data/agent_manifest.json"
+  }
+}
+```
+
+Required backend environment variables:
+
+- `OPENAI_API_KEY` — stored only on the backend; never expose it in browser code.
+- `HOOPS_AGENT_DATA_ORIGINS` — comma-separated dashboard data origins the API may fetch, for example `https://YOUR-DASHBOARD-DOMAIN`.
+- `HOOPS_AGENT_ALLOWED_ORIGINS` — comma-separated browser origins allowed by CORS, usually the same dashboard origin.
+
+Optional backend environment variables:
+
+- `OPENAI_MODEL` — defaults to `gpt-4o-mini`.
+- `HOOPS_AGENT_MAX_SOURCE_BYTES` — per-file fetch cap; defaults to 200 KB.
+- `HOOPS_AGENT_FETCH_TIMEOUT_MS` — public data fetch timeout; defaults to 8000 ms.
+- `HOOPS_AGENT_MAX_PROMPT_CHARS_PER_SOURCE` — prompt compaction cap per source; defaults to 12000 characters.
+
+Deploy flow:
+
+1. Deploy the repo, or just the `api/agent.js` function, to a Node serverless host that exposes it as `/api/agent`.
+2. Set `OPENAI_API_KEY`, `HOOPS_AGENT_DATA_ORIGINS`, and `HOOPS_AGENT_ALLOWED_ORIGINS` in the backend environment.
+3. Configure the dashboard with either:
+
+   ```html
+   <meta name="hoops-agent-api" content="https://YOUR-BACKEND-DOMAIN/api/agent">
+   ```
+
+   or:
+
+   ```js
+   window.HOOPS_AGENT_API_URL = "https://YOUR-BACKEND-DOMAIN/api/agent";
+   ```
+
+4. Rebuild/deploy the dashboard assets when data changes. Running the Basketball Prediction pipeline is only required when you want fresh prediction files, not when you only need the Agent Chat UI to appear.
+
+Local validation and smoke test:
+
+```bash
+node scripts/test_agent_api_validation.js
+```
+
+Example deployed curl request:
+
+```bash
+curl -X POST "https://YOUR-BACKEND-DOMAIN/api/agent" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "Explain today’s board. Separate canonical bets from live-watch and near-miss candidates.",
+    "capability": "read_only",
+    "context": {
+      "dashboard_state_url": "https://YOUR-DASHBOARD-DOMAIN/public/data/dashboard_state.json",
+      "metrics_url": "https://YOUR-DASHBOARD-DOMAIN/public/data/metrics_snapshot.json",
+      "agent_manifest_url": "https://YOUR-DASHBOARD-DOMAIN/public/data/agent_manifest.json"
+    }
+  }'
+```
+
+Security limits for v1:
+
+- Reads only the three explicit context URLs and relative files listed in `agent_manifest.json` `read_only_sources`.
+- Rejects non-HTTP(S), non-absolute context URLs, cross-origin context URLs, unallowlisted origins, absolute manifest source URLs, parent-directory paths, and oversized files.
+- Does not access betting accounts, run shell commands, trigger GitHub workflows, mutate repo history, or use a GitHub token.
