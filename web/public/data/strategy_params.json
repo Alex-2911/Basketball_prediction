@@ -4,9 +4,9 @@
   "stake": null,
   "params_used": {
     "home_win_rate_threshold": 0.55,
-    "odds_min": 1.1,
+    "odds_min": 1.4,
     "odds_max": 3.2,
-    "prob_threshold": 0.55
+    "prob_threshold": 0.45
   },
   "source_type": "metrics_snapshot_dated",
   "source_file": "2026/output/LightGBM/metrics_snapshot_2026-05-07.json"

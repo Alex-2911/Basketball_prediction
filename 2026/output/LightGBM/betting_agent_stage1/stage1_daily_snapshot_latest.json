@@ -1,40 +1,40 @@
 {
-  "target_date": "2026-05-07",
+  "target_date": "2026-05-08",
   "summary": {
     "games": 2,
     "canonical_model_signals": 0,
     "raw_underdog_temptations": 1,
-    "market_gap_reviews": 0,
-    "live_watch_only": 1,
+    "market_gap_reviews": 1,
+    "live_watch_only": 0,
     "no_value_skips": 0
   },
   "games": [
     {
-      "game": "DET vs CLE",
-      "home_team": "DET",
-      "away_team": "CLE",
-      "home_prob_raw": 0.6994904871583444,
-      "home_odds": 1.62,
-      "away_odds": 2.36,
-      "canonical_signal": false,
-      "stage1_bucket": "LIVE_WATCH_ONLY",
-      "allowed_review_type": "live_watch_review"
-    },
-    {
-      "game": "OKC vs LAL",
-      "home_team": "OKC",
-      "away_team": "LAL",
-      "home_prob_raw": 0.7269045161237182,
-      "home_odds": 1.11,
-      "away_odds": 7.0,
+      "game": "PHI vs NYK",
+      "home_team": "PHI",
+      "away_team": "NYK",
+      "home_prob_raw": 0.4822008581460796,
+      "home_odds": 1.82,
+      "away_odds": 2.02,
       "canonical_signal": false,
       "stage1_bucket": "RAW_UNDERDOG_TEMPTATION",
       "allowed_review_type": "near_miss_review"
+    },
+    {
+      "game": "MIN vs SAS",
+      "home_team": "MIN",
+      "away_team": "SAS",
+      "home_prob_raw": 0.4318640639020063,
+      "home_odds": 2.7,
+      "away_odds": 1.49,
+      "canonical_signal": false,
+      "stage1_bucket": "MODEL_MARKET_GAP_REVIEW",
+      "allowed_review_type": "market_gap_review"
     }
   ],
   "manifest": {
-    "target_date": "2026-05-07",
-    "created_utc": "2026-05-08T17:06:59.077659+00:00",
+    "target_date": "2026-05-08",
+    "created_utc": "2026-05-08T19:13:58.822396+00:00",
     "input_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM",
     "output_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/betting_agent_stage1",
     "files_found": {
