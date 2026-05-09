@@ -1,9 +1,9 @@
 {
-  "as_of_date": "2026-05-07",
+  "as_of_date": "2026-05-08",
   "strategy_variant": "iso",
   "strategy_variant_label": "ISO/KELLY",
   "params_source": "/home/runner/work/Basketball_prediction/Basketball_prediction/web/public/data/strategy_params.json",
-  "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-05-07.csv",
+  "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-05-08.csv",
   "local_matched_games_latest_written": true,
   "params_used_type": "NO_BET",
   "fallback_used": false,

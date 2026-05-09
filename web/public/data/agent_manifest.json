@@ -1,7 +1,7 @@
 {
   "version": 1,
   "mode": "read_only_mvp",
-  "generated_at_utc": "2026-05-09T00:59:52.852Z",
+  "generated_at_utc": "2026-05-09T16:45:02.262Z",
   "read_only_sources": [
     {
       "label": "Combined predictions latest",
@@ -11,12 +11,12 @@
     {
       "label": "Local matched games latest",
       "path": "local_matched_games_latest.csv",
-      "source_path": "2026/output/LightGBM/local_matched_games_2026-05-07.csv"
+      "source_path": "2026/output/LightGBM/local_matched_games_2026-05-08.csv"
     },
     {
       "label": "Metrics snapshot",
       "path": "metrics_snapshot.json",
-      "source_path": "2026/output/LightGBM/metrics_snapshot_2026-05-07.json"
+      "source_path": "2026/output/LightGBM/metrics_snapshot_2026-05-08.json"
     },
     {
       "label": "Real placed bets ledger",
@@ -51,7 +51,7 @@
       "label": "Script 11 watchlist history",
       "path": "script11_watchlist_history_latest.csv",
       "source_path": "2026/output/LightGBM/script11_watchlist_history_latest.csv",
-      "bytes": 2264
+      "bytes": 2268
     },
     {
       "label": "Script 11 watchlist history summary",

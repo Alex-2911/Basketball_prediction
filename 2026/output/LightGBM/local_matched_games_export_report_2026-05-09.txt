@@ -1,12 +1,12 @@
-timestamp_utc=2026-05-09T00:59:44.563524Z
-as_of_date=2026-05-07
-params_used={"avg_EV_\u20ac_per_100": 31.73, "home_win_rate_threshold": 0.55, "n_trades": 82, "odds_max": 3.2, "odds_min": 1.4, "prob_threshold": 0.45, "profit_\u20ac": 2360.0, "roi_%": 28.78, "win_rate_%": 64.63}
+timestamp_utc=2026-05-09T16:44:56.199543Z
+as_of_date=2026-05-08
+params_used={"avg_EV_\u20ac_per_100": 32.04, "home_win_rate_threshold": 0.55, "n_trades": 77, "odds_max": 3.2, "odds_min": 1.4, "prob_threshold": 0.5, "profit_\u20ac": 2330.0, "roi_%": 30.26, "win_rate_%": 66.23}
 selected_source=historical_strategy_subset
 source_rows=0
 rows_exported=0
 date_range=NA..NA
-max_date_used_for_filename=2026-05-07
-dated_output=/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/local_matched_games_2026-05-07.csv
+max_date_used_for_filename=2026-05-08
+dated_output=/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/local_matched_games_2026-05-08.csv
 latest_output=/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/local_matched_games_latest.csv
 dated_status=skipped_empty_source
 latest_status=skipped_empty_source
