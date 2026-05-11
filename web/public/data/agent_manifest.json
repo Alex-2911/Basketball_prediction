@@ -1,7 +1,7 @@
 {
   "version": 1,
   "mode": "read_only_mvp",
-  "generated_at_utc": "2026-05-11T17:55:05.432Z",
+  "generated_at_utc": "2026-05-11T19:36:16.207Z",
   "read_only_sources": [
     {
       "label": "Combined predictions latest",
@@ -27,13 +27,13 @@
       "label": "Stage 1 daily snapshot",
       "path": "stage1_daily_snapshot_latest.csv",
       "source_path": "2026/output/LightGBM/betting_agent_stage1/stage1_daily_snapshot_latest.csv",
-      "bytes": 1431
+      "bytes": 1371
     },
     {
       "label": "Stage 1 daily summary",
       "path": "stage1_daily_snapshot_latest.json",
       "source_path": "2026/output/LightGBM/betting_agent_stage1/stage1_daily_snapshot_latest.json",
-      "bytes": 1555
+      "bytes": 1534
     },
     {
       "label": "Setup profitability scan",
@@ -51,13 +51,13 @@
       "label": "Script 11 watchlist history",
       "path": "script11_watchlist_history_latest.csv",
       "source_path": "2026/output/LightGBM/script11_watchlist_history_latest.csv",
-      "bytes": 2238
+      "bytes": 2168
     },
     {
       "label": "Script 11 watchlist history summary",
       "path": "script11_watchlist_history_summary_latest.json",
       "source_path": "2026/output/LightGBM/script11_watchlist_history_summary_latest.json",
-      "bytes": 196
+      "bytes": 228
     }
   ],
   "frontend_contract": {
