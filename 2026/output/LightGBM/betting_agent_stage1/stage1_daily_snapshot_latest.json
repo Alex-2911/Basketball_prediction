@@ -1,5 +1,5 @@
 {
-  "target_date": "2026-05-12",
+  "target_date": "2026-05-13",
   "summary": {
     "games": 1,
     "canonical_model_signals": 0,
@@ -10,20 +10,20 @@
   },
   "games": [
     {
-      "game": "SAS vs MIN",
-      "home_team": "SAS",
-      "away_team": "MIN",
-      "home_prob_raw": 0.7140227195875563,
-      "home_odds": 1.26,
-      "away_odds": 4.0,
+      "game": "DET vs CLE",
+      "home_team": "DET",
+      "away_team": "CLE",
+      "home_prob_raw": 0.5975148567099581,
+      "home_odds": 1.56,
+      "away_odds": 2.5,
       "canonical_signal": false,
       "stage1_bucket": "RAW_UNDERDOG_TEMPTATION",
       "allowed_review_type": "near_miss_review"
     }
   ],
   "manifest": {
-    "target_date": "2026-05-12",
-    "created_utc": "2026-05-13T17:25:23.477039+00:00",
+    "target_date": "2026-05-13",
+    "created_utc": "2026-05-13T17:59:54.187491+00:00",
     "input_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM",
     "output_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/betting_agent_stage1",
     "files_found": {
