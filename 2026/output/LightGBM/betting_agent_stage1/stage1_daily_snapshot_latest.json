@@ -1,42 +1,58 @@
 {
-  "target_date": "2026-05-13",
+  "target_date": "2026-05-15",
   "summary": {
-    "games": 1,
+    "games": 2,
     "canonical_model_signals": 0,
     "raw_underdog_temptations": 1,
     "market_gap_reviews": 0,
-    "live_watch_only": 0,
+    "live_watch_only": 1,
     "no_value_skips": 0
   },
   "games": [
     {
-      "game": "DET vs CLE",
-      "home_team": "DET",
-      "away_team": "CLE",
-      "home_prob_raw": 0.5975148567099581,
+      "game": "CLE vs DET",
+      "home_team": "CLE",
+      "away_team": "DET",
+      "home_prob_raw": 0.587796851001231,
       "home_odds": 1.56,
       "away_odds": 2.5,
       "canonical_signal": false,
       "stage1_bucket": "RAW_UNDERDOG_TEMPTATION",
       "allowed_review_type": "near_miss_review"
+    },
+    {
+      "game": "MIN vs SAS",
+      "home_team": "MIN",
+      "away_team": "SAS",
+      "home_prob_raw": 0.472769605367679,
+      "home_odds": 2.6,
+      "away_odds": 1.52,
+      "canonical_signal": false,
+      "stage1_bucket": "LIVE_WATCH_ONLY",
+      "allowed_review_type": "live_watch_review"
     }
   ],
   "manifest": {
-    "target_date": "2026-05-13",
-    "created_utc": "2026-05-14T14:51:06.562434+00:00",
+    "target_date": "2026-05-15",
+    "created_utc": "2026-05-14T15:19:33.646058+00:00",
     "input_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM",
     "output_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/betting_agent_stage1",
     "files_found": {
       "daily_predictions": true,
-      "combined_predictions": true,
-      "home_win_rates": true,
+      "combined_predictions": false,
+      "home_win_rates": false,
       "strategy_params": true,
-      "local_matched_export_report": true,
-      "kelly_shortlist": true
+      "local_matched_export_report": false,
+      "kelly_shortlist": false
     },
-    "files_missing": [],
+    "files_missing": [
+      "combined_predictions",
+      "home_win_rates",
+      "local_matched_export_report",
+      "kelly_shortlist"
+    ],
     "canonical_rows_found": 0,
-    "daily_games_found": 1,
+    "daily_games_found": 2,
     "status": "ok_no_canonical_bets"
   }
 }
