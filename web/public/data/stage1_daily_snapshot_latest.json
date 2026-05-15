@@ -4,8 +4,8 @@
     "games": 2,
     "canonical_model_signals": 0,
     "raw_underdog_temptations": 1,
-    "market_gap_reviews": 0,
-    "live_watch_only": 1,
+    "market_gap_reviews": 1,
+    "live_watch_only": 0,
     "no_value_skips": 0
   },
   "games": [
@@ -28,29 +28,24 @@
       "home_odds": 2.6,
       "away_odds": 1.52,
       "canonical_signal": false,
-      "stage1_bucket": "LIVE_WATCH_ONLY",
-      "allowed_review_type": "live_watch_review"
+      "stage1_bucket": "MODEL_MARKET_GAP_REVIEW",
+      "allowed_review_type": "market_gap_review"
     }
   ],
   "manifest": {
     "target_date": "2026-05-15",
-    "created_utc": "2026-05-14T19:37:26.974316+00:00",
+    "created_utc": "2026-05-15T17:09:23.759788+00:00",
     "input_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM",
     "output_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/betting_agent_stage1",
     "files_found": {
       "daily_predictions": true,
-      "combined_predictions": false,
-      "home_win_rates": false,
+      "combined_predictions": true,
+      "home_win_rates": true,
       "strategy_params": true,
-      "local_matched_export_report": false,
-      "kelly_shortlist": false
+      "local_matched_export_report": true,
+      "kelly_shortlist": true
     },
-    "files_missing": [
-      "combined_predictions",
-      "home_win_rates",
-      "local_matched_export_report",
-      "kelly_shortlist"
-    ],
+    "files_missing": [],
     "canonical_rows_found": 0,
     "daily_games_found": 2,
     "status": "ok_no_canonical_bets"

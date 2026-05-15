@@ -6,15 +6,15 @@
   "no_bet_mode": null,
   "fallback_reason": null,
   "params_used": {
-    "avg_EV_\u20ac_per_100": 30.18,
+    "avg_EV_\u20ac_per_100": 31.48,
     "home_win_rate_threshold": 0.55,
-    "n_trades": 225,
+    "n_trades": 81,
     "odds_max": 3.2,
-    "odds_min": 1.1,
+    "odds_min": 1.4,
     "prob_threshold": 0.5,
-    "profit_\u20ac": 3604.0,
-    "roi_%": 16.02,
-    "win_rate_%": 62.22
+    "profit_\u20ac": 2580.0,
+    "roi_%": 31.85,
+    "win_rate_%": 66.67
   },
   "source": "script5_local_last200"
 }
