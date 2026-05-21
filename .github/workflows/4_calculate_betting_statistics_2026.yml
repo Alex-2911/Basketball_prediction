@@ -272,5 +272,32 @@ jobs:
             git push origin HEAD:2026
           fi
 
-          
+      - name: Trigger Hoops Insight dashboard deploy
+        shell: bash
+        env:
+          HOOPS_TOKEN: ${{ secrets.HOOPS_TOKEN }}
+        run: |
+          set -euo pipefail
 
+          if [[ -z "${HOOPS_TOKEN:-}" ]]; then
+            echo "ERROR: secrets.HOOPS_TOKEN is required to trigger hoops-insight deploy."
+            exit 1
+          fi
+
+          curl -fLsS -X POST \
+            -H "Authorization: Bearer $HOOPS_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/Alex-2911/hoops-insight/dispatches \
+            -d "{
+              \"event_type\": \"basketball-prediction-finished\",
+              \"client_payload\": {
+                \"source_repo\": \"Alex-2911/Basketball_prediction\",
+                \"source_branch\": \"2026\",
+                \"source_run_id\": \"${GITHUB_RUN_ID}\",
+                \"source_sha\": \"${GITHUB_SHA}\"
+              }
+            }"
+
+          echo "✔ Triggered Hoops Insight dashboard deploy."
+
+          
