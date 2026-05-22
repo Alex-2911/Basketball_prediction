@@ -1,15 +1,15 @@
 {
   "meta": {
-    "as_of_date": "2026-05-20",
-    "eval_base_date_max": "2026-05-20",
+    "as_of_date": "2026-05-21",
+    "eval_base_date_max": "2026-05-21",
     "strategy_variant": "iso",
     "strategy_variant_label": "ISO/KELLY",
     "params_source": "/home/runner/work/Basketball_prediction/Basketball_prediction/web/public/data/strategy_params.json",
-    "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-05-20.csv",
+    "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-05-21.csv",
     "local_matched_games_source": "historical_strategy_subset",
     "local_search_status": "ran_no_bet"
   },
-  "as_of_date": "2026-05-20",
+  "as_of_date": "2026-05-21",
   "params_used_type": "NO_BET",
   "fallback_used": false,
   "fallback_reason": "no_bet_stability_gate",
@@ -18,28 +18,28 @@
   "params_source_type": "NO_BET",
   "params_used": {
     "home_win_rate_threshold": 0.55,
-    "odds_min": 1.4,
+    "odds_min": 1.6,
     "odds_max": 3.2,
     "prob_threshold": 0.5,
-    "n_trades": 81,
-    "win_rate_%": 66.67,
-    "avg_EV_\u20ac_per_100": 31.49,
-    "profit_\u20ac": 2580.0,
-    "roi_%": 31.85
+    "n_trades": 168,
+    "win_rate_%": 58.93,
+    "avg_EV_\u20ac_per_100": 37.82,
+    "profit_\u20ac": 3491.0,
+    "roi_%": 20.78
   },
   "selection": {
     "decision": "LOCAL",
     "no_bet_mode": true,
     "global_candidate_params": {
       "home_win_rate_threshold": 0.55,
-      "odds_min": 1.4,
+      "odds_min": 1.6,
       "odds_max": 3.2,
       "prob_threshold": 0.5,
-      "n_trades": 81,
-      "win_rate_%": 66.67,
-      "avg_EV_\u20ac_per_100": 31.49,
-      "profit_\u20ac": 2580.0,
-      "roi_%": 31.85
+      "n_trades": 168,
+      "win_rate_%": 58.93,
+      "avg_EV_\u20ac_per_100": 37.82,
+      "profit_\u20ac": 3491.0,
+      "roi_%": 20.78
     },
     "local_candidate_params": null,
     "applied_params": {
@@ -75,6 +75,6 @@
   },
   "live_oos_proxy": {
     "ready": true,
-    "train_rows": 459
+    "train_rows": 1196
   }
 }
