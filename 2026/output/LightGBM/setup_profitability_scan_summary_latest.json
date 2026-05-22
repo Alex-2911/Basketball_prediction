@@ -1,7 +1,7 @@
 {
   "run_date": "2026-05-22",
-  "created_utc": "2026-05-22T18:13:13.035578+00:00",
-  "input_file": "2026/output/LightGBM/combined_nba_predictions_acc_2026-05-22.csv",
+  "created_utc": "2026-05-22T16:38:16Z",
+  "input_file": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2026/LightGBM/combined_nba_predictions_acc_2026-05-22.csv",
   "thresholds": {
     "base": {
       "home_team_prob_min": 0.6,
@@ -14,17 +14,92 @@
       "home_win_rate": 0.1
     }
   },
-  "candidate_count": 0,
+  "candidate_count": 3,
+  "historical_rows_total": 1306,
+  "historical_rows_settled": 1306,
   "general_setup_summary": {
-    "n": 119,
-    "wins": 72,
-    "losses": 47,
-    "win_rate_%": 60.5,
-    "avg_odds": 2.0959,
-    "profit_100_flat": 2813.0,
-    "roi_%": 23.64,
-    "avg_home_team_prob": 0.6668,
-    "avg_home_win_rate": 0.6723
+    "setup": "general_setup",
+    "n": 123,
+    "wins": 71,
+    "losses": 52,
+    "win_rate_%": 57.72357723577236,
+    "avg_odds": 2.203089430894309,
+    "profit_100_flat": 2437.0,
+    "roi_%": 19.8130081300813,
+    "avg_home_team_prob": 0.662115199676501,
+    "avg_home_win_rate": 0.7032520325203252
   },
-  "per_game_summaries": []
+  "per_game_summaries": [
+    {
+      "candidate_rank": 1,
+      "setup": "per_game_similar_bucket",
+      "bucket_key": "2026-04-04__DEN__SAS",
+      "today_home_team": "DEN",
+      "today_away_team": "SAS",
+      "today_game_date": "2026-04-04",
+      "today_home_team_prob": 0.7090014962733135,
+      "today_odds_1": 2.1,
+      "today_odds_2": 1.77,
+      "today_home_win_rate": 0.65,
+      "historical_sample_count": 22,
+      "wins": 15,
+      "losses": 7,
+      "win_rate_%": 68.18181818181817,
+      "avg_odds": 2.085,
+      "profit_100_flat": 934.0,
+      "roi_%": 42.45454545454545,
+      "avg_home_team_prob": 0.6870774590655174,
+      "avg_home_win_rate": 0.6518181818181819
+    },
+    {
+      "candidate_rank": 2,
+      "setup": "per_game_similar_bucket",
+      "bucket_key": "2026-04-14__PHI__ORL",
+      "today_home_team": "PHI",
+      "today_away_team": "ORL",
+      "today_game_date": "2026-04-14",
+      "today_home_team_prob": 0.6307808691553561,
+      "today_odds_1": 1.85,
+      "today_odds_2": 1.98,
+      "today_home_win_rate": 0.65,
+      "historical_sample_count": 33,
+      "wins": 20,
+      "losses": 13,
+      "win_rate_%": 60.60606060606061,
+      "avg_odds": 1.8203030303030303,
+      "profit_100_flat": 287.0,
+      "roi_%": 8.696969696969697,
+      "avg_home_team_prob": 0.63886015176469,
+      "avg_home_win_rate": 0.6612121212121213
+    },
+    {
+      "candidate_rank": 3,
+      "setup": "per_game_similar_bucket",
+      "bucket_key": "2026-05-22__SAS__OKC",
+      "today_home_team": "SAS",
+      "today_away_team": "OKC",
+      "today_game_date": "2026-05-22",
+      "today_home_team_prob": 0.7121002721478685,
+      "today_odds_1": 1.8,
+      "today_odds_2": 2.05,
+      "today_home_win_rate": 0.8,
+      "historical_sample_count": 14,
+      "wins": 6,
+      "losses": 8,
+      "win_rate_%": 42.857142857142854,
+      "avg_odds": 1.820714285714286,
+      "profit_100_flat": -370.0,
+      "roi_%": -26.428571428571427,
+      "avg_home_team_prob": 0.6974088791858947,
+      "avg_home_win_rate": 0.7800000000000001
+    }
+  ],
+  "output_files": {
+    "main_latest": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2026/LightGBM/setup_profitability_scan_latest.csv",
+    "main_dated": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2026/LightGBM/setup_profitability_scan_2026-05-22.csv",
+    "matches_latest": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2026/LightGBM/setup_profitability_scan_matches_latest.csv",
+    "matches_dated": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2026/LightGBM/setup_profitability_scan_matches_2026-05-22.csv",
+    "summary_latest": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2026/LightGBM/setup_profitability_scan_summary_latest.json",
+    "summary_dated": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2026/LightGBM/setup_profitability_scan_summary_2026-05-22.json"
+  }
 }

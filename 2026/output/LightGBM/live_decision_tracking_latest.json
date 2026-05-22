@@ -1,0 +1,126 @@
+{
+  "as_of_date": "2026-05-20",
+  "cases": [
+    {
+      "date": "2026-05-19",
+      "game": "NYK vs CLE",
+      "home_team": "NYK",
+      "away_team": "CLE",
+      "check_time": "halftime",
+      "check_status": "halftime_checked",
+      "halftime_score": "CLE 48 - NYK 46",
+      "live_odds_home_nyk": null,
+      "live_odds_away_cle": null,
+      "live_spread": null,
+      "pregame_model_state": "NO_BET",
+      "pregame_reason": "NYK price too short; EV failed; CLE away-underdog filter not met",
+      "live_decision": "LIVE_WATCH_ONLY_NO_ACTION",
+      "stake_class": "none",
+      "reason": "Close halftime against a strong home side is not an away ML trigger. For future games, track both the away protected spread, especially +10.5/+11.5, and the home favorite comeback ML if price reaches model-positive value. NYK halftime ML remains estimated, not verified, so this is a learning case and not a confirmed bet.",
+      "classification": "HOME_FAVORITE_COMEBACK_LIVE_WATCH",
+      "script11": {
+        "stage2_candidate_type": "LOW_PRICE_NEGATIVE_EV",
+        "blocked_by": "EV<=0.00",
+        "rules_passed": 3,
+        "ev_live_eur_per_100": -4.696388294266651,
+        "prob_used": 0.690605881925604,
+        "odds_1": 1.38,
+        "odds_2": 3.15,
+        "home_win_rate": 0.7
+      },
+      "live_watch_plan": {
+        "default": "Pregame SKIP. Q1 observe only. Halftime reassess. Most likely outcome remains no bet.",
+        "discipline_rule": "Do not bet NYK just because they are likely to win; do not bet CLE just because the odds look attractive. Only act if live odds and live structure both improve.",
+        "nyk_live_interest": {
+          "minimum_odds": "1.50+",
+          "preferred_odds_range": "1.55-1.60",
+          "required_structure": [
+            "NYK still close or leading",
+            "Brunson and NYK offense look controlled",
+            "turnovers are not a problem",
+            "Cleveland is not dominating the glass",
+            "any NYK dip looks normal, not structural"
+          ],
+          "possible_action": "small live ML or protected spread only if price improves because of a normal in-game dip",
+          "auto_skip": "skip if NYK trails because Cleveland is clearly better structurally"
+        },
+        "cle_live_interest": {
+          "pregame_profile": "CLE away-underdog value profile not strong enough at 3.15 with about 31% away probability",
+          "required_structure": [
+            "game is close or CLE leads at halftime",
+            "Mitchell is efficient and not forcing",
+            "Mobley or Allen control rebounds/paint",
+            "NYK role players are cold",
+            "NYK offense is Brunson-only",
+            "CLE still offers decent odds or protected spread"
+          ],
+          "possible_action": "small protected-spread consideration only if live structure proves the case"
+        }
+      },
+      "action_candidate_if_confirmed": null,
+      "halftime_context": {
+        "score_home_nyk": 46,
+        "score_away_cle": 48,
+        "status": "Halftime",
+        "nyk_halftime_stats": {
+          "fg_pct": 46.5,
+          "three_point_pct": 10.5,
+          "rebounds": 18,
+          "assists": 11,
+          "points_leader": "Jalen Brunson 14"
+        },
+        "cle_halftime_stats": {
+          "fg_pct": 42.1,
+          "three_point_pct": 38.1,
+          "rebounds": 17,
+          "assists": 10,
+          "points_leader": "Donovan Mitchell 16",
+          "rebounds_leader": "Evan Mobley 5"
+        },
+        "structure_read": "Close score, CLE efficient from three, NYK very cold from three; no live price confirmation available."
+      },
+      "sources": [
+        "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=20260519",
+        "https://www.espn.com/nba/game?gameId=401873341",
+        "https://www.nba.com/game/cle-vs-nyk-0042500301",
+        "https://www.reuters.com/sports/basketball/knicks-rally-22-point-fourth-quarter-deficit-stun-cavs-ot--flm-2026-05-20/"
+      ],
+      "matchup": "CLE @ NYK",
+      "final_score": "NYK 115 - CLE 104 OT",
+      "home_halftime_margin": -2,
+      "home_final_margin": 11,
+      "home_ml_halftime": null,
+      "home_ml_halftime_verified": false,
+      "home_ml_halftime_source": "not publicly archived; Reuters confirms score/final context only",
+      "home_ml_halftime_estimated_range": "1.65-1.80",
+      "working_estimate": "1.70-1.75",
+      "away_ml_halftime": null,
+      "away_spread_halftime": null,
+      "away_plus_8_5": null,
+      "away_plus_10_5": null,
+      "away_plus_11_5": null,
+      "home_comeback_angle_flag": true,
+      "protected_spread_angle_flag": true,
+      "final_classification": "HOME_FAVORITE_COMEBACK_LIVE_WATCH",
+      "lesson_id": "strong_home_side_close_halftime",
+      "home_favorite_comeback_tracking": {
+        "home_ml_halftime_verified": false,
+        "estimated_range": "1.65-1.80",
+        "working_estimate": "1.70-1.75",
+        "candidate_threshold": "home favorite ML >= 1.65, preferably >= 1.70, only if structure is normal",
+        "interpretation": "Pregame NYK was too short at 1.38, but a normal halftime dip may have created the missing price."
+      },
+      "protected_spread_tracking": {
+        "away_plus_3_5": "not enough protection",
+        "away_plus_5_5": "not enough protection",
+        "away_plus_8_5": "watch-only / borderline",
+        "away_plus_10_5": "meaningful protection zone if odds acceptable",
+        "away_plus_11_5": "meaningful protection zone if odds acceptable"
+      },
+      "lesson": "Close halftime against a strong home side is not an away ML trigger. For future games, track both the away protected spread, especially +10.5/+11.5, and the home favorite comeback ML if price reaches model-positive value.",
+      "not_a_confirmed_bet": true,
+      "not_a_canonical_model_bet": true,
+      "score_context_source": "https://www.reuters.com/sports/basketball/knicks-rally-22-point-fourth-quarter-deficit-stun-cavs-ot--flm-2026-05-20/"
+    }
+  ]
+}
