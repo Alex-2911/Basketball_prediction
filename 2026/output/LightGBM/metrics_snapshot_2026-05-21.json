@@ -1,80 +1,357 @@
-{
-  "meta": {
-    "as_of_date": "2026-05-21",
-    "eval_base_date_max": "2026-05-21",
-    "strategy_variant": "iso",
-    "strategy_variant_label": "ISO/KELLY",
-    "params_source": "/home/runner/work/Basketball_prediction/Basketball_prediction/web/public/data/strategy_params.json",
-    "combined_file_path": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-05-21.csv",
-    "local_matched_games_source": "historical_strategy_subset",
-    "local_search_status": "ran_no_bet"
+[
+  {
+    "section":"meta",
+    "metric":"eval_base",
+    "value":"ROLLING_TRADES"
   },
-  "as_of_date": "2026-05-21",
-  "params_used_type": "NO_BET",
-  "fallback_used": false,
-  "fallback_reason": "no_bet_stability_gate",
-  "local_search_status": "ran_no_bet",
-  "params_source": "/home/runner/work/Basketball_prediction/Basketball_prediction/web/public/data/strategy_params.json",
-  "params_source_type": "NO_BET",
-  "params_used": {
-    "home_win_rate_threshold": 0.55,
-    "odds_min": 1.6,
-    "odds_max": 3.2,
-    "prob_threshold": 0.5,
-    "n_trades": 168,
-    "win_rate_%": 58.93,
-    "avg_EV_\u20ac_per_100": 37.82,
-    "profit_\u20ac": 3491.0,
-    "roi_%": 20.78
+  {
+    "section":"meta",
+    "metric":"eval_base_n",
+    "value":206
   },
-  "selection": {
-    "decision": "LOCAL",
-    "no_bet_mode": true,
-    "global_candidate_params": {
-      "home_win_rate_threshold": 0.55,
-      "odds_min": 1.6,
-      "odds_max": 3.2,
-      "prob_threshold": 0.5,
-      "n_trades": 168,
-      "win_rate_%": 58.93,
-      "avg_EV_\u20ac_per_100": 37.82,
-      "profit_\u20ac": 3491.0,
-      "roi_%": 20.78
-    },
-    "local_candidate_params": null,
-    "applied_params": {
-      "home_win_rate_threshold": 1.01,
-      "odds_min": 99.0,
-      "odds_max": 100.0,
-      "prob_threshold": 1.01,
-      "n_trades": 0,
-      "profit_\u20ac": 0.0,
-      "roi_%": 0.0
-    },
-    "local_tail_used": null
+  {
+    "section":"meta",
+    "metric":"eval_base_date_min",
+    "value":"2025-10-27 00:00:00"
   },
-  "local_window_200": {
-    "min_EV_applied": 0.0,
-    "metrics": {
-      "n_trades": 0,
-      "win_rate_%": 0.0,
-      "avg_EV_\u20ac_per_100": 0.0,
-      "profit_\u20ac": 0.0,
-      "roi_%": 0.0,
-      "prob_thr_eff": 0.5
-    },
-    "window_start": "NaT",
-    "window_end": "NaT",
-    "window_games": 200,
-    "matched_games": 0
+  {
+    "section":"meta",
+    "metric":"eval_base_date_max",
+    "value":"2026-05-21 00:00:00"
   },
-  "bankroll": {
-    "deposit_eur": 1000.0,
-    "bankroll_last_200_eur": 1000.0,
-    "flat_stake_eur": 100.0
+  {
+    "section":"meta",
+    "metric":"prob_col_used",
+    "value":"prob_used"
   },
-  "live_oos_proxy": {
-    "ready": true,
-    "train_rows": 1196
+  {
+    "section":"meta",
+    "metric":"params_source",
+    "value":"best_params"
+  },
+  {
+    "section":"filter_params",
+    "metric":"LOCAL_WINDOW_N",
+    "value":200
+  },
+  {
+    "section":"filter_params",
+    "metric":"min_EV",
+    "value":0.0
+  },
+  {
+    "section":"filter_params",
+    "metric":"prob_clip_lo",
+    "value":0.35
+  },
+  {
+    "section":"filter_params",
+    "metric":"prob_clip_hi",
+    "value":0.8
+  },
+  {
+    "section":"filter_params",
+    "metric":"odds_min",
+    "value":1.3
+  },
+  {
+    "section":"filter_params",
+    "metric":"odds_max",
+    "value":3.4
+  },
+  {
+    "section":"filter_params",
+    "metric":"prob_threshold",
+    "value":0.55
+  },
+  {
+    "section":"filter_params",
+    "metric":"home_win_rate_threshold",
+    "value":0.5
+  },
+  {
+    "section":"filter_params",
+    "metric":"edge_min",
+    "value":null
+  },
+  {
+    "section":"filter_params",
+    "metric":"ev_min",
+    "value":0.0
+  },
+  {
+    "section":"filter_params",
+    "metric":"prob_thr_eff",
+    "value":0.55
+  },
+  {
+    "section":"meta",
+    "metric":"subset_n",
+    "value":206
+  },
+  {
+    "section":"meta",
+    "metric":"subset_power_flag",
+    "value":false
+  },
+  {
+    "section":"meta",
+    "metric":"coverage_%",
+    "value":100.0
+  },
+  {
+    "section":"meta",
+    "metric":"subset_date_min",
+    "value":"2025-10-27 00:00:00"
+  },
+  {
+    "section":"meta",
+    "metric":"subset_date_max",
+    "value":"2026-05-21 00:00:00"
+  },
+  {
+    "section":"ev_stats",
+    "metric":"count",
+    "value":206
+  },
+  {
+    "section":"ev_stats",
+    "metric":"median",
+    "value":21.913277512
+  },
+  {
+    "section":"ev_stats",
+    "metric":"std",
+    "value":29.99346573
+  },
+  {
+    "section":"ev_stats",
+    "metric":"min",
+    "value":0.064516129
+  },
+  {
+    "section":"ev_stats",
+    "metric":"max",
+    "value":148.0
+  },
+  {
+    "section":"ev_stats",
+    "metric":"decile_10",
+    "value":3.8571428571
+  },
+  {
+    "section":"ev_stats",
+    "metric":"decile_25",
+    "value":9.0718181818
+  },
+  {
+    "section":"ev_stats",
+    "metric":"decile_50",
+    "value":21.913277512
+  },
+  {
+    "section":"ev_stats",
+    "metric":"decile_75",
+    "value":45.3742897727
+  },
+  {
+    "section":"ev_stats",
+    "metric":"decile_90",
+    "value":77.865497076
+  },
+  {
+    "section":"edge_stats",
+    "metric":"mean",
+    "value":0.147508941
+  },
+  {
+    "section":"edge_stats",
+    "metric":"std",
+    "value":0.1059706592
+  },
+  {
+    "section":"realized",
+    "metric":"count",
+    "value":206
+  },
+  {
+    "section":"realized",
+    "metric":"win_rate",
+    "value":0.6553398058
+  },
+  {
+    "section":"realized",
+    "metric":"profit_sum",
+    "value":4302.0
+  },
+  {
+    "section":"realized",
+    "metric":"roi",
+    "value":0.2088349515
+  },
+  {
+    "section":"realized",
+    "metric":"sharpe_style",
+    "value":3.1353383896
+  },
+  {
+    "section":"realized",
+    "metric":"max_win_streak",
+    "value":14
+  },
+  {
+    "section":"realized",
+    "metric":"max_loss_streak",
+    "value":6
+  },
+  {
+    "section":"team_edge_top10",
+    "metric":"POR_avg_edge",
+    "value":0.2418302789
+  },
+  {
+    "section":"team_edge_top10",
+    "metric":"POR_n_games",
+    "value":10
+  },
+  {
+    "section":"team_edge_top10",
+    "metric":"SAC_avg_edge",
+    "value":0.2191558442
+  },
+  {
+    "section":"team_edge_top10",
+    "metric":"SAC_n_games",
+    "value":2
+  },
+  {
+    "section":"team_edge_top10",
+    "metric":"ORL_avg_edge",
+    "value":0.2100598399
+  },
+  {
+    "section":"team_edge_top10",
+    "metric":"ORL_n_games",
+    "value":10
+  },
+  {
+    "section":"team_edge_top10",
+    "metric":"LAL_avg_edge",
+    "value":0.1823244072
+  },
+  {
+    "section":"team_edge_top10",
+    "metric":"LAL_n_games",
+    "value":19
+  },
+  {
+    "section":"team_edge_top10",
+    "metric":"CHO_avg_edge",
+    "value":0.1697746768
+  },
+  {
+    "section":"team_edge_top10",
+    "metric":"CHO_n_games",
+    "value":12
+  },
+  {
+    "section":"team_edge_top10",
+    "metric":"BOS_avg_edge",
+    "value":0.1697397897
+  },
+  {
+    "section":"team_edge_top10",
+    "metric":"BOS_n_games",
+    "value":14
+  },
+  {
+    "section":"team_edge_top10",
+    "metric":"ATL_avg_edge",
+    "value":0.1691248875
+  },
+  {
+    "section":"team_edge_top10",
+    "metric":"ATL_n_games",
+    "value":11
+  },
+  {
+    "section":"team_edge_top10",
+    "metric":"TOR_avg_edge",
+    "value":0.1646823683
+  },
+  {
+    "section":"team_edge_top10",
+    "metric":"TOR_n_games",
+    "value":15
+  },
+  {
+    "section":"team_edge_top10",
+    "metric":"NOP_avg_edge",
+    "value":0.1522069023
+  },
+  {
+    "section":"team_edge_top10",
+    "metric":"NOP_n_games",
+    "value":7
+  },
+  {
+    "section":"team_edge_top10",
+    "metric":"MIA_avg_edge",
+    "value":0.1514317505
+  },
+  {
+    "section":"team_edge_top10",
+    "metric":"MIA_n_games",
+    "value":8
+  },
+  {
+    "section":"today_funnel",
+    "metric":"source",
+    "value":"derived_from_game_day_max"
+  },
+  {
+    "section":"today_funnel",
+    "metric":"n_all",
+    "value":1
+  },
+  {
+    "section":"today_funnel",
+    "metric":"n_after_home_win_rate",
+    "value":1
+  },
+  {
+    "section":"today_funnel",
+    "metric":"n_after_odds_min",
+    "value":1
+  },
+  {
+    "section":"today_funnel",
+    "metric":"n_after_odds_max",
+    "value":1
+  },
+  {
+    "section":"today_funnel",
+    "metric":"n_after_prob_used",
+    "value":1
+  },
+  {
+    "section":"today_funnel",
+    "metric":"n_after_ev",
+    "value":1
+  },
+  {
+    "section":"today_funnel",
+    "metric":"today_funnel_max_prob_used_after_odds",
+    "value":0.7744360902
+  },
+  {
+    "section":"today_funnel",
+    "metric":"today_funnel_max_ev_after_odds",
+    "value":13.0676691729
+  },
+  {
+    "section":"today_funnel",
+    "metric":"prob_thr_eff",
+    "value":0.55
   }
-}
+]
