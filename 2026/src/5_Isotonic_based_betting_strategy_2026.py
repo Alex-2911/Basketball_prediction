@@ -203,8 +203,6 @@ def to_float_series(s: pd.Series) -> pd.Series:
     )
 
 
-
-
 def _normalize_output_column_name(col: str) -> str:
     normalized = str(col).strip().lower().replace("\n", " ")
     normalized = "_".join(normalized.split())
