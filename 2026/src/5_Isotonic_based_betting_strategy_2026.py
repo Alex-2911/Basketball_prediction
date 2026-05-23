@@ -507,6 +507,23 @@ def resolve_output_dir(base_dir: str, prediction_dir: str) -> Path:
 # IO / LOADING
 # -----------------------------
 
+def _coalesce_duplicate_columns(df: pd.DataFrame, context: str) -> pd.DataFrame:
+    """Collapse normalized duplicate columns, keeping the first non-null value per row."""
+    if not df.columns.duplicated().any():
+        return df
+
+    dupes = sorted(set(df.columns[df.columns.duplicated()].astype(str)))
+    logging.warning("Coalescing duplicate columns in %s: %s", context, dupes)
+    out = pd.DataFrame(index=df.index)
+    for col in pd.unique(df.columns):
+        subset = df.loc[:, df.columns == col]
+        if subset.shape[1] == 1:
+            out[col] = subset.iloc[:, 0]
+        else:
+            out[col] = subset.bfill(axis=1).iloc[:, 0]
+    return out
+
+
 def _read_combined_snapshot(path: Path) -> pd.DataFrame:
     logging.info("Loading combined predictions snapshot: %s", path)
 
@@ -521,6 +538,7 @@ def _read_combined_snapshot(path: Path) -> pd.DataFrame:
         .str.lower()
         .str.replace(r"\s+", "_", regex=True)
     )
+    df = _coalesce_duplicate_columns(df, path.name)
 
     snap_date = _extract_date_from_filename(path.name, "combined_nba_predictions_acc_")
     df["source_snapshot_date"] = snap_date
@@ -628,6 +646,7 @@ def merge_today_predictions(df_all: pd.DataFrame, today_pred_path: Optional[Path
         .str.lower()
         .str.replace(r"\s+", "_", regex=True)
     )
+    tmp = _coalesce_duplicate_columns(tmp, today_pred_path.name)
 
     if "home_team_prob" in tmp.columns:
         tmp["home_team_prob"] = to_float_series(tmp["home_team_prob"])
