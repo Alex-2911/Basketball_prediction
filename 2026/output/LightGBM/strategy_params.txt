@@ -1,6 +1,12 @@
-Min EV applied = 0.0
-=== STRATEGY PARAMS (LOCAL (GRID SEARCH)) ===
-home_win_rate_threshold : 0.5
-odds_min                : 1.4
-odds_max                : 2.6
-prob_threshold (USED)   : 0.5
+as_of_date=2026-05-20
+min_ev=0.0
+stake=100.0
+avg_EV_€_per_100=53.27
+home_win_rate_threshold=0.6
+n_trades=25
+odds_max=3.2
+odds_min=2.0
+prob_threshold=0.5
+profit_€=2003.0
+roi_%=80.12
+win_rate_%=76.0

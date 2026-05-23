@@ -1,22 +1,22 @@
 {
   "version": 1,
   "mode": "read_only_mvp",
-  "generated_at_utc": "2026-05-22T18:13:13.447Z",
+  "generated_at_utc": "2026-05-23T20:31:39.782Z",
   "read_only_sources": [
     {
       "label": "Combined predictions latest",
       "path": "combined_latest.csv",
-      "source_path": "2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-05-22.csv"
+      "source_path": "2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-05-23.csv"
     },
     {
       "label": "Local matched games latest",
       "path": "local_matched_games_latest.csv",
-      "source_path": "2026/output/LightGBM/local_matched_games_2026-05-21.csv"
+      "source_path": "2026/output/LightGBM/local_matched_games_2026-05-20.csv"
     },
     {
       "label": "Metrics snapshot",
       "path": "metrics_snapshot.json",
-      "source_path": "2026/output/LightGBM/metrics_snapshot_2026-05-21.json"
+      "source_path": "2026/output/LightGBM/metrics_snapshot_2026-05-20.json"
     },
     {
       "label": "Real placed bets ledger",
@@ -27,37 +27,37 @@
       "label": "Stage 1 daily snapshot",
       "path": "stage1_daily_snapshot_latest.csv",
       "source_path": "2026/output/LightGBM/betting_agent_stage1/stage1_daily_snapshot_latest.csv",
-      "bytes": 969
+      "bytes": 985
     },
     {
       "label": "Stage 1 daily summary",
       "path": "stage1_daily_snapshot_latest.json",
       "source_path": "2026/output/LightGBM/betting_agent_stage1/stage1_daily_snapshot_latest.json",
-      "bytes": 1233
+      "bytes": 1240
     },
     {
       "label": "Setup profitability scan",
       "path": "setup_profitability_scan_latest.csv",
       "source_path": "2026/output/LightGBM/setup_profitability_scan_latest.csv",
-      "bytes": 292
+      "bytes": 291
     },
     {
       "label": "Setup profitability scan summary",
       "path": "setup_profitability_scan_summary_latest.json",
       "source_path": "2026/output/LightGBM/setup_profitability_scan_summary_latest.json",
-      "bytes": 701
+      "bytes": 700
     },
     {
       "label": "Script 11 watchlist history",
       "path": "script11_watchlist_history_latest.csv",
       "source_path": "2026/output/LightGBM/script11_watchlist_history_latest.csv",
-      "bytes": 1467
+      "bytes": 1518
     },
     {
       "label": "Script 11 watchlist history summary",
       "path": "script11_watchlist_history_summary_latest.json",
       "source_path": "2026/output/LightGBM/script11_watchlist_history_summary_latest.json",
-      "bytes": 202
+      "bytes": 194
     }
   ],
   "frontend_contract": {
