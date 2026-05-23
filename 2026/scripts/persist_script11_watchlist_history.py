@@ -52,6 +52,7 @@ def _normalize_frame(rows_df: pd.DataFrame, run_date: str, source: str | None) -
 
 def classify_script11_row(row: pd.Series) -> str:
     blocked = str(row.get("blocked_by", ""))
+    live_odds_fetched = bool(row.get("live_odds_fetched", False))
 
     if "DATA_INCOMPLETE" in blocked:
         return "DATA_INCOMPLETE"
@@ -77,9 +78,13 @@ def classify_script11_row(row: pd.Series) -> str:
         and "MODEL_MARKET_GAP" in blocked
         and row.get("prob_used", 1) < 0.55
     ):
+        if not live_odds_fetched:
+            return "DATA_INCOMPLETE"
         return "RAW_MODEL_MARKET_GAP_HOME_DOG"
 
     if "MODEL_MARKET_GAP" in blocked:
+        if not live_odds_fetched:
+            return "DATA_INCOMPLETE"
         return "LIVE_WATCH_ONLY"
 
     if row.get("EV_€_per_100", 999) <= 0:
