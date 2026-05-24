@@ -23,7 +23,7 @@
   ],
   "manifest": {
     "target_date": "2026-05-23",
-    "created_utc": "2026-05-23T20:31:36.745065+00:00",
+    "created_utc": "2026-05-24T17:23:27.292035+00:00",
     "input_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM",
     "output_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/betting_agent_stage1",
     "files_found": {
