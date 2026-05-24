@@ -1,0 +1,79 @@
+name: "🏀 Halftime Live Odds Capture"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nba-halftime-live-odds
+  cancel-in-progress: false
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Backup poller for NBA evening windows. Local launchd remains the primary live mechanism.
+    - cron: "*/5 0-5 * * *"
+    - cron: "*/5 22-23 * * *"
+
+jobs:
+  halftime_live_odds_capture:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository (branch 2026)
+        uses: actions/checkout@v4
+        with:
+          ref: 2026
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run halftime scheduler and capture due games
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          ODDS_BOOKMAKER_KEY: ${{ vars.ODDS_BOOKMAKER_KEY }}
+        run: |
+          set -euo pipefail
+          RUN_DATE="$(date -u +%F)"
+          python 2026/scripts/schedule_halftime_live_odds_jobs.py \
+            --run-date "$RUN_DATE" \
+            --capture-due \
+            --markets h2h,spreads,totals
+
+      - name: Upload halftime live odds artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: halftime-live-odds
+          path: |
+            2026/output/LightGBM/halftime_capture_schedule*.json
+            2026/output/LightGBM/live_odds_snapshots*.csv
+            2026/output/LightGBM/live_decision_tracking*.json
+            2026/output/LightGBM/live_decision_tracking*.csv
+          if-no-files-found: warn
+
+      - name: Commit halftime live odds artifacts
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add 2026/output/LightGBM/halftime_capture_schedule*.json || true
+          git add 2026/output/LightGBM/live_odds_snapshots*.csv || true
+          git add 2026/output/LightGBM/live_decision_tracking*.json || true
+          git add 2026/output/LightGBM/live_decision_tracking*.csv || true
+
+          if git diff --cached --quiet; then
+            echo "No halftime live odds artifacts changed."
+            exit 0
+          fi
+
+          git commit -m "chore: update halftime live odds artifacts"
+          if ! git push origin HEAD:2026; then
+            echo "Push rejected; rebasing onto origin/2026 and retrying..."
+            git fetch origin 2026
+            git rebase origin/2026
+            git push origin HEAD:2026
+          fi
