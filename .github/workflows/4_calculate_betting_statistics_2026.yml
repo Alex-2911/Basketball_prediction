@@ -90,6 +90,22 @@ jobs:
             echo "MISSING web/public/data/local_matched_games_latest.csv"
           fi
 
+      - name: Schedule halftime live odds capture
+        shell: bash
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          ODDS_BOOKMAKER_KEY: ${{ vars.ODDS_BOOKMAKER_KEY }}
+        run: |
+          set -euo pipefail
+          echo "=== Scheduling halftime live odds capture jobs/artifacts ==="
+          RUN_DATE="$(date -u +%F)"
+          if python 2026/scripts/schedule_halftime_live_odds_jobs.py \
+              --run-date "$RUN_DATE"; then
+            echo "=== Halftime live odds schedule finished ==="
+          else
+            echo "::warning::Halftime live odds scheduler failed; continuing main pipeline."
+          fi
+
       - name: Maintain persistent bet log ledger
         run: |
           echo "=== Maintaining persistent bet log ledger ==="
@@ -149,6 +165,7 @@ jobs:
             2026/output/LightGBM/local_matched_games_*.csv
             2026/output/LightGBM/metrics_snapshot.json
             2026/output/LightGBM/strategy_params.txt
+            2026/output/LightGBM/halftime_capture_schedule*.json
             2026/output/LightGBM/Kelly/*.csv
             2026/output/LightGBM/betting_agent_stage1/*.csv
             2026/output/LightGBM/betting_agent_stage1/*.json
