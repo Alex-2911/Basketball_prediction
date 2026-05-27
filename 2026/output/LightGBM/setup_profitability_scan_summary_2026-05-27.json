@@ -1,7 +1,7 @@
 {
   "run_date": "2026-05-27",
-  "created_utc": "2026-05-27T18:42:20.194806+00:00",
-  "input_file": "2026/output/LightGBM/combined_nba_predictions_acc_2026-05-27.csv",
+  "created_utc": "2026-05-27T16:32:10Z",
+  "input_file": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2026/LightGBM/combined_nba_predictions_acc_2026-05-27.csv",
   "thresholds": {
     "base": {
       "home_team_prob_min": 0.6,
@@ -14,17 +14,92 @@
       "home_win_rate": 0.1
     }
   },
-  "candidate_count": 0,
+  "candidate_count": 3,
+  "historical_rows_total": 1311,
+  "historical_rows_settled": 1311,
   "general_setup_summary": {
-    "n": 43,
-    "wins": 27,
-    "losses": 16,
-    "win_rate_%": 62.79,
-    "avg_odds": 1.9747,
-    "profit_100_flat": 984.0,
-    "roi_%": 22.88,
-    "avg_home_team_prob": 0.6763,
-    "avg_home_win_rate": 0.693
+    "setup": "general_setup",
+    "n": 125,
+    "wins": 72,
+    "losses": 53,
+    "win_rate_%": 57.599999999999994,
+    "avg_odds": 2.19584,
+    "profit_100_flat": 2407.0,
+    "roi_%": 19.256,
+    "avg_home_team_prob": 0.663060576649664,
+    "avg_home_win_rate": 0.7044
   },
-  "per_game_summaries": []
+  "per_game_summaries": [
+    {
+      "candidate_rank": 1,
+      "setup": "per_game_similar_bucket",
+      "bucket_key": "2026-04-04__DEN__SAS",
+      "today_home_team": "DEN",
+      "today_away_team": "SAS",
+      "today_game_date": "2026-04-04",
+      "today_home_team_prob": 0.7090014962733135,
+      "today_odds_1": 2.1,
+      "today_odds_2": 1.77,
+      "today_home_win_rate": 0.65,
+      "historical_sample_count": 22,
+      "wins": 15,
+      "losses": 7,
+      "win_rate_%": 68.18181818181817,
+      "avg_odds": 2.085,
+      "profit_100_flat": 934.0,
+      "roi_%": 42.45454545454545,
+      "avg_home_team_prob": 0.6870774590655174,
+      "avg_home_win_rate": 0.6518181818181819
+    },
+    {
+      "candidate_rank": 2,
+      "setup": "per_game_similar_bucket",
+      "bucket_key": "2026-04-14__PHI__ORL",
+      "today_home_team": "PHI",
+      "today_away_team": "ORL",
+      "today_game_date": "2026-04-14",
+      "today_home_team_prob": 0.6307808691553561,
+      "today_odds_1": 1.85,
+      "today_odds_2": 1.98,
+      "today_home_win_rate": 0.65,
+      "historical_sample_count": 33,
+      "wins": 20,
+      "losses": 13,
+      "win_rate_%": 60.60606060606061,
+      "avg_odds": 1.8203030303030303,
+      "profit_100_flat": 287.0,
+      "roi_%": 8.696969696969697,
+      "avg_home_team_prob": 0.63886015176469,
+      "avg_home_win_rate": 0.6612121212121213
+    },
+    {
+      "candidate_rank": 3,
+      "setup": "per_game_similar_bucket",
+      "bucket_key": "2026-05-28__SAS__OKC",
+      "today_home_team": "SAS",
+      "today_away_team": "OKC",
+      "today_game_date": "2026-05-28",
+      "today_home_team_prob": 0.6964650151190225,
+      "today_odds_1": 1.62,
+      "today_odds_2": 2.36,
+      "today_home_win_rate": 0.75,
+      "historical_sample_count": 23,
+      "wins": 14,
+      "losses": 9,
+      "win_rate_%": 60.86956521739131,
+      "avg_odds": 1.7347826086956522,
+      "profit_100_flat": 131.0,
+      "roi_%": 5.695652173913044,
+      "avg_home_team_prob": 0.6860545224059484,
+      "avg_home_win_rate": 0.7408695652173912
+    }
+  ],
+  "output_files": {
+    "main_latest": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2026/LightGBM/setup_profitability_scan_latest.csv",
+    "main_dated": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2026/LightGBM/setup_profitability_scan_2026-05-27.csv",
+    "matches_latest": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2026/LightGBM/setup_profitability_scan_matches_latest.csv",
+    "matches_dated": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2026/LightGBM/setup_profitability_scan_matches_2026-05-27.csv",
+    "summary_latest": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2026/LightGBM/setup_profitability_scan_summary_latest.json",
+    "summary_dated": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2026/LightGBM/setup_profitability_scan_summary_2026-05-27.json"
+  }
 }
