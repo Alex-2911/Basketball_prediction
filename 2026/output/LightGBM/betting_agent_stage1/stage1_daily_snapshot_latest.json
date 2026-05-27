@@ -1,5 +1,5 @@
 {
-  "target_date": "2026-05-25",
+  "target_date": "2026-05-26",
   "summary": {
     "games": 1,
     "canonical_model_signals": 0,
@@ -10,20 +10,20 @@
   },
   "games": [
     {
-      "game": "CLE vs NYK",
-      "home_team": "CLE",
-      "away_team": "NYK",
-      "home_prob_raw": 0.5609821017561264,
-      "home_odds": 2.14,
-      "away_odds": 1.74,
+      "game": "OKC vs SAS",
+      "home_team": "OKC",
+      "away_team": "SAS",
+      "home_prob_raw": 0.7396232434073645,
+      "home_odds": 1.59,
+      "away_odds": 2.42,
       "canonical_signal": false,
       "stage1_bucket": "LIVE_WATCH_ONLY",
       "allowed_review_type": "live_watch_review"
     }
   ],
   "manifest": {
-    "target_date": "2026-05-25",
-    "created_utc": "2026-05-26T18:44:54.755819+00:00",
+    "target_date": "2026-05-26",
+    "created_utc": "2026-05-27T18:42:16.514612+00:00",
     "input_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM",
     "output_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/betting_agent_stage1",
     "files_found": {

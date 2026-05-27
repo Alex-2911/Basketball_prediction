@@ -17,29 +17,29 @@
   "params_source": "/home/runner/work/Basketball_prediction/Basketball_prediction/web/public/data/strategy_params.json",
   "params_source_type": "NO_BET",
   "params_used": {
-    "home_win_rate_threshold": 0.65,
-    "odds_min": 2.0,
+    "home_win_rate_threshold": 0.55,
+    "odds_min": 1.6,
     "odds_max": 3.2,
     "prob_threshold": 0.45,
-    "n_trades": 20,
-    "win_rate_%": 90.0,
-    "avg_EV_\u20ac_per_100": 47.28,
-    "profit_\u20ac": 2300.0,
-    "roi_%": 115.0
+    "n_trades": 59,
+    "win_rate_%": 67.8,
+    "avg_EV_\u20ac_per_100": 31.78,
+    "profit_\u20ac": 2569.0,
+    "roi_%": 43.54
   },
   "selection": {
     "decision": "LOCAL",
     "no_bet_mode": true,
     "global_candidate_params": {
-      "home_win_rate_threshold": 0.65,
-      "odds_min": 2.0,
+      "home_win_rate_threshold": 0.55,
+      "odds_min": 1.6,
       "odds_max": 3.2,
       "prob_threshold": 0.45,
-      "n_trades": 20,
-      "win_rate_%": 90.0,
-      "avg_EV_\u20ac_per_100": 47.28,
-      "profit_\u20ac": 2300.0,
-      "roi_%": 115.0
+      "n_trades": 59,
+      "win_rate_%": 67.8,
+      "avg_EV_\u20ac_per_100": 31.78,
+      "profit_\u20ac": 2569.0,
+      "roi_%": 43.54
     },
     "local_candidate_params": null,
     "applied_params": {
@@ -75,6 +75,6 @@
   },
   "live_oos_proxy": {
     "ready": true,
-    "train_rows": 392
+    "train_rows": 393
   }
 }

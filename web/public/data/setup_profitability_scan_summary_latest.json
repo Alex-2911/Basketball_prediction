@@ -1,7 +1,7 @@
 {
-  "run_date": "2026-05-26",
-  "created_utc": "2026-05-26T18:44:58.316754+00:00",
-  "input_file": "2026/output/LightGBM/combined_nba_predictions_acc_2026-05-26.csv",
+  "run_date": "2026-05-27",
+  "created_utc": "2026-05-27T18:42:20.194806+00:00",
+  "input_file": "2026/output/LightGBM/combined_nba_predictions_acc_2026-05-27.csv",
   "thresholds": {
     "base": {
       "home_team_prob_min": 0.6,
@@ -24,7 +24,7 @@
     "profit_100_flat": 984.0,
     "roi_%": 22.88,
     "avg_home_team_prob": 0.6763,
-    "avg_home_win_rate": 0.6919
+    "avg_home_win_rate": 0.693
   },
   "per_game_summaries": []
 }
