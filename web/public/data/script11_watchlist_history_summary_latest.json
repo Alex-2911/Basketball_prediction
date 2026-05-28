@@ -1,11 +1,11 @@
 {
-  "created_utc": "2026-05-23T20:31:34.144455+00:00",
+  "created_utc": "2026-05-28T18:51:11.779290+00:00",
   "rows": 1,
-  "run_date": "2026-05-23",
+  "run_date": "2026-05-28",
   "sources": {
     "upcoming_d": 1
   },
   "stage2_candidate_type": {
-    "NO_VALUE_SKIP": 1
+    "LOW_PRICE_NEGATIVE_EV": 1
   }
 }

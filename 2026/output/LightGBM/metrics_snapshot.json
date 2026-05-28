@@ -18,28 +18,28 @@
   "params_source_type": "NO_BET",
   "params_used": {
     "home_win_rate_threshold": 0.55,
-    "odds_min": 1.6,
+    "odds_min": 1.1,
     "odds_max": 3.2,
-    "prob_threshold": 0.45,
-    "n_trades": 59,
-    "win_rate_%": 67.8,
-    "avg_EV_\u20ac_per_100": 31.78,
-    "profit_\u20ac": 2569.0,
-    "roi_%": 43.54
+    "prob_threshold": 0.5,
+    "n_trades": 64,
+    "win_rate_%": 68.75,
+    "avg_EV_\u20ac_per_100": 29.46,
+    "profit_\u20ac": 2103.0,
+    "roi_%": 32.86
   },
   "selection": {
     "decision": "LOCAL",
     "no_bet_mode": true,
     "global_candidate_params": {
       "home_win_rate_threshold": 0.55,
-      "odds_min": 1.6,
+      "odds_min": 1.1,
       "odds_max": 3.2,
-      "prob_threshold": 0.45,
-      "n_trades": 59,
-      "win_rate_%": 67.8,
-      "avg_EV_\u20ac_per_100": 31.78,
-      "profit_\u20ac": 2569.0,
-      "roi_%": 43.54
+      "prob_threshold": 0.5,
+      "n_trades": 64,
+      "win_rate_%": 68.75,
+      "avg_EV_\u20ac_per_100": 29.46,
+      "profit_\u20ac": 2103.0,
+      "roi_%": 32.86
     },
     "local_candidate_params": null,
     "applied_params": {
@@ -61,7 +61,7 @@
       "avg_EV_\u20ac_per_100": 0.0,
       "profit_\u20ac": 0.0,
       "roi_%": 0.0,
-      "prob_thr_eff": 0.45
+      "prob_thr_eff": 0.5
     },
     "window_start": "NaT",
     "window_end": "NaT",
@@ -75,6 +75,6 @@
   },
   "live_oos_proxy": {
     "ready": true,
-    "train_rows": 393
+    "train_rows": 362
   }
 }

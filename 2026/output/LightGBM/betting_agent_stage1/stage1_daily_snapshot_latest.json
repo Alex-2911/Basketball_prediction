@@ -1,5 +1,5 @@
 {
-  "target_date": "2026-05-27",
+  "target_date": "2026-05-28",
   "summary": {
     "games": 1,
     "canonical_model_signals": 0,
@@ -13,7 +13,7 @@
       "game": "SAS vs OKC",
       "home_team": "SAS",
       "away_team": "OKC",
-      "home_prob_raw": 0.6964650151190225,
+      "home_prob_raw": 0.6323283863527234,
       "home_odds": 1.62,
       "away_odds": 2.36,
       "canonical_signal": false,
@@ -22,10 +22,10 @@
     }
   ],
   "manifest": {
-    "target_date": "2026-05-27",
-    "created_utc": "2026-05-27T18:57:16.024214+00:00",
-    "input_dir": "/private/tmp/bp-2026-align/2026/output/LightGBM",
-    "output_dir": "/private/tmp/bp-2026-align/2026/output/LightGBM/betting_agent_stage1",
+    "target_date": "2026-05-28",
+    "created_utc": "2026-05-28T18:51:14.630968+00:00",
+    "input_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM",
+    "output_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/betting_agent_stage1",
     "files_found": {
       "daily_predictions": true,
       "combined_predictions": true,

@@ -1,7 +1,7 @@
 {
-  "run_date": "2026-05-27",
-  "created_utc": "2026-05-27T18:42:20.194806+00:00",
-  "input_file": "2026/output/LightGBM/combined_nba_predictions_acc_2026-05-27.csv",
+  "run_date": "2026-05-28",
+  "created_utc": "2026-05-28T18:51:17.679230+00:00",
+  "input_file": "2026/output/LightGBM/combined_nba_predictions_acc_2026-05-28.csv",
   "thresholds": {
     "base": {
       "home_team_prob_min": 0.6,
@@ -14,17 +14,37 @@
       "home_win_rate": 0.1
     }
   },
-  "candidate_count": 0,
+  "candidate_count": 1,
   "general_setup_summary": {
-    "n": 43,
-    "wins": 27,
-    "losses": 16,
-    "win_rate_%": 62.79,
-    "avg_odds": 1.9747,
-    "profit_100_flat": 984.0,
-    "roi_%": 22.88,
-    "avg_home_team_prob": 0.6763,
-    "avg_home_win_rate": 0.693
+    "n": 39,
+    "wins": 25,
+    "losses": 14,
+    "win_rate_%": 64.1,
+    "avg_odds": 1.9515,
+    "profit_100_flat": 1030.0,
+    "roi_%": 26.41,
+    "avg_home_team_prob": 0.6732,
+    "avg_home_win_rate": 0.6808
   },
-  "per_game_summaries": []
+  "per_game_summaries": [
+    {
+      "run_date": "2026-05-28",
+      "setup": "per_game_similar_bucket",
+      "today_home_team": "SAS",
+      "today_away_team": "OKC",
+      "today_home_team_prob": 0.6323283863527234,
+      "today_odds_1": 1.62,
+      "today_odds_2": 2.36,
+      "today_home_win_rate": 0.8,
+      "n": 7,
+      "wins": 3,
+      "losses": 4,
+      "win_rate_%": 42.86,
+      "avg_odds": 1.6671,
+      "profit_100_flat": -205.0,
+      "roi_%": -29.29,
+      "avg_home_team_prob": 0.6576,
+      "avg_home_win_rate": 0.7786
+    }
+  ]
 }

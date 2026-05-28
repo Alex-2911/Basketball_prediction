@@ -1,12 +1,12 @@
 {
   "run_date": "2026-05-28",
-  "created_utc": "2026-05-28T05:56:36Z",
+  "created_utc": "2026-05-28T18:51:12Z",
   "count": 1,
   "games": [
     {
       "run_date": "2026-05-28",
       "game_date": "2026-05-28",
-      "game_key": "2026-05-28_SAS_OKC",
+      "game_key": "2026-05-28__SAS__OKC",
       "home_team": "SAS",
       "away_team": "OKC",
       "commence_time_utc": "2026-05-29T00:40:00Z",
@@ -14,8 +14,8 @@
       "early_capture_utc": "2026-05-29T01:50:00Z",
       "late_capture_utc": "2026-05-29T02:00:00Z",
       "source": "the_odds_api_events",
-      "stage2_candidate_type": "NO_VALUE_SKIP",
-      "blocked_by": "HWR<0.50 | EV<=0.00",
+      "stage2_candidate_type": "LOW_PRICE_NEGATIVE_EV",
+      "blocked_by": "PASS",
       "live_watch_capture_candidate": true,
       "scheduled_status": "scheduled"
     }

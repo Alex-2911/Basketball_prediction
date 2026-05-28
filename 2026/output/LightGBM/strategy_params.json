@@ -1,16 +1,20 @@
 {
-  "as_of_date": null,
-  "params_used_type": "CHOSEN (ROBUST)",
+  "as_of_date": "2026-05-23",
+  "min_ev": 0.0,
+  "stake": 100.0,
+  "selection_decision": null,
+  "no_bet_mode": null,
+  "fallback_reason": null,
   "params_used": {
-    "home_win_rate_threshold": 0.65,
-    "odds_min": 1.3,
-    "odds_max": 2.5,
-    "prob_threshold": 0.4,
-    "min_ev": 0.0
+    "avg_EV_\u20ac_per_100": 29.46,
+    "home_win_rate_threshold": 0.55,
+    "n_trades": 64,
+    "odds_max": 3.2,
+    "odds_min": 1.1,
+    "prob_threshold": 0.5,
+    "profit_\u20ac": 2103.0,
+    "roi_%": 32.86,
+    "win_rate_%": 68.75
   },
-  "valid_window_size": 400,
-  "valid_window_source": "local_tail_used",
-  "valid_window_start": "2026-02-21",
-  "valid_window_end": "2026-04-19",
-  "local_tail_used": 400
+  "source": "script5_local_last200"
 }
