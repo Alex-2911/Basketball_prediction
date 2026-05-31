@@ -1,22 +1,22 @@
 {
   "version": 1,
   "mode": "read_only_mvp",
-  "generated_at_utc": "2026-05-30T17:37:48.922Z",
+  "generated_at_utc": "2026-05-31T17:38:05.736Z",
   "read_only_sources": [
     {
       "label": "Combined predictions latest",
       "path": "combined_latest.csv",
-      "source_path": "2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-05-30.csv"
+      "source_path": "2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-05-31.csv"
     },
     {
       "label": "Local matched games latest",
       "path": "local_matched_games_latest.csv",
-      "source_path": "2026/output/LightGBM/local_matched_games_2026-05-28.csv"
+      "source_path": "2026/output/LightGBM/local_matched_games_2026-05-30.csv"
     },
     {
       "label": "Metrics snapshot",
       "path": "metrics_snapshot.json",
-      "source_path": "2026/output/LightGBM/metrics_snapshot_2026-05-28.json"
+      "source_path": "2026/output/LightGBM/metrics_snapshot_2026-05-30.json"
     },
     {
       "label": "Real placed bets ledger",
@@ -39,13 +39,13 @@
       "label": "Setup profitability scan",
       "path": "setup_profitability_scan_latest.csv",
       "source_path": "2026/output/LightGBM/setup_profitability_scan_latest.csv",
-      "bytes": 292
+      "bytes": 293
     },
     {
       "label": "Setup profitability scan summary",
       "path": "setup_profitability_scan_summary_latest.json",
       "source_path": "2026/output/LightGBM/setup_profitability_scan_summary_latest.json",
-      "bytes": 701
+      "bytes": 702
     },
     {
       "label": "Script 11 watchlist history",
