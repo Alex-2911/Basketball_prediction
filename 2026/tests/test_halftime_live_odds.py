@@ -203,6 +203,44 @@ class HalftimeLiveOddsTests(unittest.TestCase):
                 markets = {row["market_type"] for row in csv.DictReader(f)}
             self.assertEqual(markets, {"h2h", "spreads", "totals"})
 
+    def test_small_away_halftime_lead_candidate_threshold_is_240(self):
+        decision = capture_mod.classify_live_decision(
+            home_team="OKC",
+            away_team="SAS",
+            score={
+                "score_status": "fetched",
+                "halftime_margin_home": -3,
+            },
+            odds_rows=[
+                {
+                    "market_type": "h2h",
+                    "away_ml": 2.45,
+                }
+            ],
+        )
+
+        self.assertEqual(decision["live_classification"], "AWAY_LIVE_ML_CANDIDATE")
+        self.assertEqual(decision["candidate_market"], "away_ml")
+
+    def test_small_away_halftime_lead_below_240_stays_watch_only(self):
+        decision = capture_mod.classify_live_decision(
+            home_team="OKC",
+            away_team="SAS",
+            score={
+                "score_status": "fetched",
+                "halftime_margin_home": -3,
+            },
+            odds_rows=[
+                {
+                    "market_type": "h2h",
+                    "away_ml": 2.35,
+                }
+            ],
+        )
+
+        self.assertEqual(decision["live_classification"], "WATCH_ONLY_SMALL_AWAY_LEAD")
+        self.assertEqual(decision["final_decision"], "NO_ACTION")
+
 
 if __name__ == "__main__":
     unittest.main()

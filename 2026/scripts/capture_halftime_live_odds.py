@@ -473,7 +473,7 @@ def classify_live_decision(
     threshold = None
     watch_label = "LIVE_WATCH_ONLY_NO_ACTION"
     if 1 <= away_margin <= 3:
-        threshold = 2.60
+        threshold = 2.40
         watch_label = "WATCH_ONLY_SMALL_AWAY_LEAD"
     elif 4 <= away_margin <= 7:
         threshold = 1.95
