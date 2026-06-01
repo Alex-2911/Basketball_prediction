@@ -1,6 +1,21 @@
 home_team,away_team,home_team_prob,odds_1,odds_2,result,date,accuracy,prob_iso,prob_iso_insample,prob_iso_oos_time,prob_live_oos_proxy,prob_live_safe_pre_clip,prob_base,prob_live_safe,prob_used,source_snapshot_date,result_raw,game_date,pred_home_win_proba,closing_home_odds,closing_away_odds,home_team_won,iso_proba_home_win,live_oos_proxy_ready,live_oos_proxy_train_rows,live_oos_proxy_bin_n,live_oos_proxy_bin_winrate,market_implied_p_raw,market_implied_p_devig,model_market_gap,model_market_gap_flag,live_underdog_upscale_guard_triggered,prob_blended,live_shrink_triggered,blocked_by,implied_prob_1,home_win_rate
 LAL,TOR,0.3338547849968696,,,LAL,2026-01-18,0.0,0.30263157894736836,0.2828282828282828,0.3181818181818182,0.3181818181818182,0.35,0.3181818181818182,0.3181818181818182,0.3181818181818182,2026-05-31,LAL,2026-01-18,0.3338547849968696,,,1.0,0.30263157894736836,True,1199,0,,,,,False,False,,False,PASS,,0.7
+MIN,PHX,,,,0,2026-03-17 00:00:00,,,,,,,,,,2026-05-31,0,2026-03-17,,,,,,True,1199,0,,,,,False,False,,False,PASS,,0.7
+SAS,PHX,,,,0,2026-03-19 00:00:00,,,,,,,,,,2026-05-31,0,2026-03-19,,,,,,True,1199,0,,,,,False,False,,False,PASS,,0.85
+PHX,MIL,,,,0,2026-03-21 00:00:00,,,,,,,,,,2026-05-31,0,2026-03-21,,,,,,True,1199,0,,,,,False,False,,False,PASS,,0.6
+PHX,UTA,,,,0,2026-03-28 00:00:00,,,,,,,,,,2026-05-31,0,2026-03-28,,,,,,True,1199,0,,,,,False,False,,False,PASS,,0.6
+MEM,PHX,,,,0,2026-03-30 00:00:00,,,,,,,,,,2026-05-31,0,2026-03-30,,,,,,True,1199,0,,,,,False,False,,False,PASS,,0.5
+CHI,PHX,,,,0,2026-04-05 00:00:00,,,,,,,,,,2026-05-31,0,2026-04-05,,,,,,True,1199,0,,,,,False,False,,False,PASS,,0.6
+PHX,HOU,,,,0,2026-04-07 00:00:00,,,,,,,,,,2026-05-31,0,2026-04-07,,,,,,True,1199,0,,,,,False,False,,False,PASS,,0.6
+PHX,DAL,,,,0,2026-04-08 00:00:00,,,,,,,,,,2026-05-31,0,2026-04-08,,,,,,True,1199,0,,,,,False,False,,False,PASS,,0.6
+LAL,PHX,,,,0,2026-04-10 00:00:00,,,,,,,,,,2026-05-31,0,2026-04-10,,,,,,True,1199,0,,,,,False,False,,False,PASS,,0.7
 DAL,CHI,0.4192912348713802,,,DAL,2026-04-12,0.0,0.45416666666666666,0.4683544303797468,0.46120689655172414,0.582010582010582,0.582010582010582,0.582010582010582,0.582010582010582,0.582010582010582,2026-05-31,DAL,2026-04-12,0.4192912348713802,,,1.0,0.45416666666666666,True,1199,0,,,,,False,False,,False,PASS,,0.5
+OKC,PHX,,,,0,2026-04-12 00:00:00,,,,,,,,,,2026-05-31,0,2026-04-12,,,,,,True,1199,0,,,,,False,False,,False,PASS,,0.85
+PHX,GSW,,,,0,2026-04-17 00:00:00,,,,,,,,,,2026-05-31,0,2026-04-17,,,,,,True,1199,0,,,,,False,False,,False,PASS,,0.6
+OKC,PHX,,,,0,2026-04-19 00:00:00,,,,,,,,,,2026-05-31,0,2026-04-19,,,,,,True,1199,0,,,,,False,False,,False,PASS,,0.85
+OKC,PHX,,,,0,2026-04-22 00:00:00,,,,,,,,,,2026-05-31,0,2026-04-22,,,,,,True,1199,0,,,,,False,False,,False,PASS,,0.85
+PHX,OKC,,,,0,2026-04-25 00:00:00,,,,,,,,,,2026-05-31,0,2026-04-25,,,,,,True,1199,0,,,,,False,False,,False,PASS,,0.6
+PHX,OKC,,,,0,2026-04-27 00:00:00,,,,,,,,,,2026-05-31,0,2026-04-27,,,,,,True,1199,0,,,,,False,False,,False,PASS,,0.6
 DAL,CHI,,1.39,3.1,DAL,2026-04-12,1.0,,,,,,,,,2026-05-31,DAL,,,,,1.0,,True,1199,0,,0.7194244604316548,0.6904231625835189,,False,False,,False,PASS,0.7194244604316548,0.5
 BOS,NOP,,1.06,10.5,BOS,2026-04-10,1.0,,,,,,,,,2026-05-31,BOS,,,,,1.0,,True,1199,0,,0.9433962264150942,0.9083044982698962,,False,False,,False,PASS,0.9433962264150942,0.7
 HOU,PHI,,1.57,2.45,HOU,2026-04-09,1.0,,,,,,,,,2026-05-31,HOU,,,,,1.0,,True,1199,0,,0.6369426751592356,0.609452736318408,,False,False,,False,PASS,0.6369426751592356,0.75

@@ -1,12 +1,12 @@
 as_of_date=2026-05-30
 min_ev=0.0
 stake=100.0
-avg_EV_€_per_100=29.66
+avg_EV_€_per_100=28.87
 home_win_rate_threshold=0.55
-n_trades=214
+n_trades=216
 odds_max=3.2
 odds_min=1.1
 prob_threshold=0.5
-profit_€=3448.0
-roi_%=16.11
-win_rate_%=63.08
+profit_€=3582.0
+roi_%=16.58
+win_rate_%=63.43
