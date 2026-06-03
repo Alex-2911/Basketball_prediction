@@ -1,6 +1,23 @@
 {
   "run_date": "2026-06-03",
-  "created_utc": "2026-06-03T07:25:27Z",
-  "count": 0,
-  "games": []
+  "created_utc": "2026-06-03T20:05:26Z",
+  "count": 1,
+  "games": [
+    {
+      "run_date": "2026-06-03",
+      "game_date": "2026-06-03",
+      "game_key": "2026-06-03__SAS__NYK",
+      "home_team": "SAS",
+      "away_team": "NYK",
+      "commence_time_utc": "2026-06-04T00:30:00Z",
+      "primary_capture_utc": "2026-06-04T01:45:00Z",
+      "early_capture_utc": "2026-06-04T01:40:00Z",
+      "late_capture_utc": "2026-06-04T01:50:00Z",
+      "source": "the_odds_api_events",
+      "stage2_candidate_type": "LOW_PRICE_NEGATIVE_EV",
+      "blocked_by": "PASS",
+      "live_watch_capture_candidate": true,
+      "scheduled_status": "scheduled"
+    }
+  ]
 }
