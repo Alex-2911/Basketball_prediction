@@ -20,7 +20,11 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _infer_latest_date(input_dir: Path, allow_combined_fallback: bool = False) -> str:
+def _infer_latest_date(
+    input_dir: Path,
+    allow_combined_fallback: bool = False,
+    run_date: str | None = None,
+) -> str:
     dates: list[str] = []
     patterns = ["nba_games_predict_*.csv"]
     if allow_combined_fallback:
@@ -32,7 +36,13 @@ def _infer_latest_date(input_dir: Path, allow_combined_fallback: bool = False) -
                 dates.append(m.group(1))
     if not dates:
         raise FileNotFoundError("Could not infer target date: no dated prediction files were found.")
-    return sorted(set(dates))[-1]
+    available = sorted(set(dates))
+    if run_date:
+        upcoming = [date for date in available if date >= run_date]
+        if upcoming:
+            return upcoming[0]
+        return run_date
+    return available[-1]
 
 
 def _coalesce(df: pd.DataFrame, mapping: dict[str, list[str]]) -> pd.DataFrame:
@@ -237,13 +247,22 @@ def main() -> None:
     parser.add_argument("--input-dir", default=str(LGBM_DIR))
     parser.add_argument("--output-dir", default=str(LGBM_DIR / "betting_agent_stage1"))
     parser.add_argument("--target-date", default=None)
+    parser.add_argument(
+        "--run-date",
+        default=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        help="Select the earliest available daily slate on or after this date.",
+    )
     parser.add_argument("--allow-combined-fallback", action="store_true")
     args = parser.parse_args()
 
     input_dir = Path(args.input_dir).resolve()
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    target_date = args.target_date or _infer_latest_date(input_dir, allow_combined_fallback=args.allow_combined_fallback)
+    target_date = args.target_date or _infer_latest_date(
+        input_dir,
+        allow_combined_fallback=args.allow_combined_fallback,
+        run_date=args.run_date,
+    )
 
     daily_required_path = input_dir / f"nba_games_predict_{target_date}.csv"
     if not daily_required_path.exists() and (args.target_date is not None or not args.allow_combined_fallback):

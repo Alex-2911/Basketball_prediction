@@ -73,6 +73,14 @@ def _base_filter(df: pd.DataFrame) -> pd.Series:
     )
 
 
+def _current_candidate_mask(df: pd.DataFrame, run_date: str) -> pd.Series:
+    mask = df["home_win"].isna() & _base_filter(df)
+    game_date_col = "game_date" if "game_date" in df.columns else "date"
+    if game_date_col in df.columns:
+        mask &= pd.to_datetime(df[game_date_col], errors="coerce") >= pd.Timestamp(run_date)
+    return mask
+
+
 def _summary(df: pd.DataFrame) -> dict[str, Any]:
     n = int(len(df))
     wins = int(df["home_win"].sum()) if n else 0
@@ -111,7 +119,7 @@ def main() -> None:
         axis=1,
     )
 
-    candidates = df[df["home_win"].isna() & _base_filter(df)].copy()
+    candidates = df[_current_candidate_mask(df, run_date)].copy()
 
     base_hist = settled[_base_filter(settled)].copy()
 

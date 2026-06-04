@@ -25,9 +25,9 @@ jobs:
       - name: Checkout repository (triggering ref/sha)
         uses: actions/checkout@v4
         with:
-          # For workflow_run, pin to the upstream workflow's head SHA.
-          # For workflow_dispatch, use the manually selected ref.
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
+          # Workflow 3 commits generated predictions after its original head SHA.
+          # Start workflow 4 from the latest branch state so Stage 1 sees them.
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref }}
           fetch-depth: 0
 
       - name: Set up Python 3.11 (with pip cache)
@@ -133,7 +133,8 @@ jobs:
 
           python 2026/scripts/betting_agent_stage1_snapshot.py \
             --input-dir "2026/output/LightGBM" \
-            --output-dir "2026/output/LightGBM/betting_agent_stage1"
+            --output-dir "2026/output/LightGBM/betting_agent_stage1" \
+            --run-date "$(date -u +%F)"
 
           echo "=== Stage 1 snapshot outputs ==="
           ls -la 2026/output/LightGBM/betting_agent_stage1 || true
