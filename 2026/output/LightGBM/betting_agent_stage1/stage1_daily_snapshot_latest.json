@@ -1,9 +1,9 @@
 {
-  "target_date": "2026-06-03",
+  "target_date": "2026-06-05",
   "summary": {
     "games": 1,
     "canonical_model_signals": 0,
-    "raw_underdog_temptations": 0,
+    "raw_underdog_temptations": 1,
     "market_gap_reviews": 0,
     "live_watch_only": 0,
     "no_value_skips": 0
@@ -13,28 +13,33 @@
       "game": "SAS vs NYK",
       "home_team": "SAS",
       "away_team": "NYK",
-      "home_prob_raw": 0.6221537922315877,
-      "home_odds": 1.51,
-      "away_odds": 2.64,
+      "home_prob_raw": 0.6166289078919056,
+      "home_odds": 1.44,
+      "away_odds": 2.85,
       "canonical_signal": false,
-      "stage1_bucket": "LOW_PRICE_FAVORITE_NO_VALUE",
-      "allowed_review_type": "none"
+      "stage1_bucket": "RAW_UNDERDOG_TEMPTATION",
+      "allowed_review_type": "near_miss_review"
     }
   ],
   "manifest": {
-    "target_date": "2026-06-03",
-    "created_utc": "2026-06-04T18:36:58.230507+00:00",
-    "input_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM",
-    "output_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/betting_agent_stage1",
+    "target_date": "2026-06-05",
+    "created_utc": "2026-06-04T20:15:50.924747+00:00",
+    "input_dir": "/private/tmp/basketball_prediction_stage1_fix/2026/output/LightGBM",
+    "output_dir": "/private/tmp/basketball_prediction_stage1_fix/2026/output/LightGBM/betting_agent_stage1",
     "files_found": {
       "daily_predictions": true,
-      "combined_predictions": true,
-      "home_win_rates": true,
+      "combined_predictions": false,
+      "home_win_rates": false,
       "strategy_params": true,
-      "local_matched_export_report": true,
-      "kelly_shortlist": true
+      "local_matched_export_report": false,
+      "kelly_shortlist": false
     },
-    "files_missing": [],
+    "files_missing": [
+      "combined_predictions",
+      "home_win_rates",
+      "local_matched_export_report",
+      "kelly_shortlist"
+    ],
     "canonical_rows_found": 0,
     "daily_games_found": 1,
     "status": "ok_no_canonical_bets"
