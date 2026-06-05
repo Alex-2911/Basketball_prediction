@@ -1,7 +1,7 @@
 {
-  "run_date": "2026-06-04",
-  "created_utc": "2026-06-04T18:37:01.406036+00:00",
-  "input_file": "2026/output/LightGBM/combined_nba_predictions_acc_2026-06-04.csv",
+  "run_date": "2026-06-05",
+  "created_utc": "2026-06-05T18:20:07.454507+00:00",
+  "input_file": "2026/output/LightGBM/combined_nba_predictions_acc_2026-06-05.csv",
   "thresholds": {
     "base": {
       "home_team_prob_min": 0.6,
@@ -16,15 +16,15 @@
   },
   "candidate_count": 0,
   "general_setup_summary": {
-    "n": 112,
-    "wins": 69,
-    "losses": 43,
-    "win_rate_%": 61.61,
-    "avg_odds": 2.0968,
-    "profit_100_flat": 2871.0,
-    "roi_%": 25.63,
-    "avg_home_team_prob": 0.6667,
-    "avg_home_win_rate": 0.6978
+    "n": 44,
+    "wins": 28,
+    "losses": 16,
+    "win_rate_%": 63.64,
+    "avg_odds": 1.9666,
+    "profit_100_flat": 1046.0,
+    "roi_%": 23.77,
+    "avg_home_team_prob": 0.6753,
+    "avg_home_win_rate": 0.6966
   },
   "per_game_summaries": []
 }
