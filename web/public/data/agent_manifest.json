@@ -1,12 +1,12 @@
 {
   "version": 1,
   "mode": "read_only_mvp",
-  "generated_at_utc": "2026-06-07T17:48:24.268Z",
+  "generated_at_utc": "2026-06-08T18:43:34.282Z",
   "read_only_sources": [
     {
       "label": "Combined predictions latest",
       "path": "combined_latest.csv",
-      "source_path": "2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-06-07.csv"
+      "source_path": "2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-06-08.csv"
     },
     {
       "label": "Local matched games latest",
@@ -27,37 +27,37 @@
       "label": "Stage 1 daily snapshot",
       "path": "stage1_daily_snapshot_latest.csv",
       "source_path": "2026/output/LightGBM/betting_agent_stage1/stage1_daily_snapshot_latest.csv",
-      "bytes": 859
+      "bytes": 981
     },
     {
       "label": "Stage 1 daily summary",
       "path": "stage1_daily_snapshot_latest.json",
       "source_path": "2026/output/LightGBM/betting_agent_stage1/stage1_daily_snapshot_latest.json",
-      "bytes": 1357
+      "bytes": 1233
     },
     {
       "label": "Setup profitability scan",
       "path": "setup_profitability_scan_latest.csv",
       "source_path": "2026/output/LightGBM/setup_profitability_scan_latest.csv",
-      "bytes": 293
+      "bytes": 406
     },
     {
       "label": "Setup profitability scan summary",
       "path": "setup_profitability_scan_summary_latest.json",
       "source_path": "2026/output/LightGBM/setup_profitability_scan_summary_latest.json",
-      "bytes": 702
+      "bytes": 1214
     },
     {
       "label": "Script 11 watchlist history",
       "path": "script11_watchlist_history_latest.csv",
       "source_path": "2026/output/LightGBM/script11_watchlist_history_latest.csv",
-      "bytes": 1529
+      "bytes": 1521
     },
     {
       "label": "Script 11 watchlist history summary",
       "path": "script11_watchlist_history_summary_latest.json",
       "source_path": "2026/output/LightGBM/script11_watchlist_history_summary_latest.json",
-      "bytes": 202
+      "bytes": 194
     }
   ],
   "frontend_contract": {

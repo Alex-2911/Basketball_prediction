@@ -1,7 +1,7 @@
 {
-  "run_date": "2026-06-07",
-  "created_utc": "2026-06-07T17:48:23.877064+00:00",
-  "input_file": "2026/output/LightGBM/combined_nba_predictions_acc_2026-06-07.csv",
+  "run_date": "2026-06-08",
+  "created_utc": "2026-06-08T18:43:33.942126+00:00",
+  "input_file": "2026/output/LightGBM/combined_nba_predictions_acc_2026-06-08.csv",
   "thresholds": {
     "base": {
       "home_team_prob_min": 0.6,
@@ -14,17 +14,37 @@
       "home_win_rate": 0.1
     }
   },
-  "candidate_count": 0,
+  "candidate_count": 1,
   "general_setup_summary": {
-    "n": 112,
-    "wins": 69,
-    "losses": 43,
-    "win_rate_%": 61.61,
-    "avg_odds": 2.0968,
-    "profit_100_flat": 2871.0,
-    "roi_%": 25.63,
-    "avg_home_team_prob": 0.6667,
-    "avg_home_win_rate": 0.6978
+    "n": 44,
+    "wins": 28,
+    "losses": 16,
+    "win_rate_%": 63.64,
+    "avg_odds": 1.9666,
+    "profit_100_flat": 1046.0,
+    "roi_%": 23.77,
+    "avg_home_team_prob": 0.6753,
+    "avg_home_win_rate": 0.6966
   },
-  "per_game_summaries": []
+  "per_game_summaries": [
+    {
+      "run_date": "2026-06-08",
+      "setup": "per_game_similar_bucket",
+      "today_home_team": "NYK",
+      "today_away_team": "SAS",
+      "today_home_team_prob": 0.7867206463983442,
+      "today_odds_1": 1.74,
+      "today_odds_2": 2.14,
+      "today_home_win_rate": 0.8,
+      "n": 1,
+      "wins": 1,
+      "losses": 0,
+      "win_rate_%": 100.0,
+      "avg_odds": 1.62,
+      "profit_100_flat": 62.0,
+      "roi_%": 62.0,
+      "avg_home_team_prob": 0.7525,
+      "avg_home_win_rate": 0.8
+    }
+  ]
 }
