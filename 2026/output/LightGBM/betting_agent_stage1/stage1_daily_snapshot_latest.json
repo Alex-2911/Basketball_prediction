@@ -1,5 +1,5 @@
 {
-  "target_date": "2026-06-08",
+  "target_date": "2026-06-10",
   "summary": {
     "games": 1,
     "canonical_model_signals": 0,
@@ -13,28 +13,33 @@
       "game": "NYK vs SAS",
       "home_team": "NYK",
       "away_team": "SAS",
-      "home_prob_raw": 0.7867206463983442,
-      "home_odds": 1.74,
-      "away_odds": 2.14,
+      "home_prob_raw": 0.7325589044334968,
+      "home_odds": 1.8,
+      "away_odds": 2.05,
       "canonical_signal": false,
       "stage1_bucket": "LIVE_WATCH_ONLY",
       "allowed_review_type": "live_watch_review"
     }
   ],
   "manifest": {
-    "target_date": "2026-06-08",
-    "created_utc": "2026-06-08T18:43:28.890960+00:00",
+    "target_date": "2026-06-10",
+    "created_utc": "2026-06-09T18:29:27.298067+00:00",
     "input_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM",
     "output_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/betting_agent_stage1",
     "files_found": {
       "daily_predictions": true,
-      "combined_predictions": true,
-      "home_win_rates": true,
+      "combined_predictions": false,
+      "home_win_rates": false,
       "strategy_params": true,
-      "local_matched_export_report": true,
-      "kelly_shortlist": true
+      "local_matched_export_report": false,
+      "kelly_shortlist": false
     },
-    "files_missing": [],
+    "files_missing": [
+      "combined_predictions",
+      "home_win_rates",
+      "local_matched_export_report",
+      "kelly_shortlist"
+    ],
     "canonical_rows_found": 0,
     "daily_games_found": 1,
     "status": "ok_no_canonical_bets"

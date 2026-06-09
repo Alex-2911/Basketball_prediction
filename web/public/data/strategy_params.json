@@ -1,13 +1,13 @@
 {
-  "as_of_date": "2026-06-05",
+  "as_of_date": "2026-06-08",
   "min_ev": null,
   "stake": null,
   "params_used": {
     "home_win_rate_threshold": 0.55,
-    "odds_min": 1.6,
+    "odds_min": 1.1,
     "odds_max": 3.2,
-    "prob_threshold": 0.45
+    "prob_threshold": 0.5
   },
   "source_type": "metrics_snapshot_dated",
-  "source_file": "2026/output/LightGBM/metrics_snapshot_2026-06-05.json"
+  "source_file": "2026/output/LightGBM/metrics_snapshot_2026-06-08.json"
 }
