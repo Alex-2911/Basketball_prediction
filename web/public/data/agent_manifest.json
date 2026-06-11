@@ -1,22 +1,22 @@
 {
   "version": 1,
   "mode": "read_only_mvp",
-  "generated_at_utc": "2026-06-10T18:50:20.116Z",
+  "generated_at_utc": "2026-06-11T19:20:53.946Z",
   "read_only_sources": [
     {
       "label": "Combined predictions latest",
       "path": "combined_latest.csv",
-      "source_path": "2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-06-10.csv"
+      "source_path": "2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-06-11.csv"
     },
     {
       "label": "Local matched games latest",
       "path": "local_matched_games_latest.csv",
-      "source_path": "2026/output/LightGBM/local_matched_games_2026-06-08.csv"
+      "source_path": "2026/output/LightGBM/local_matched_games_2026-06-10.csv"
     },
     {
       "label": "Metrics snapshot",
       "path": "metrics_snapshot.json",
-      "source_path": "2026/output/LightGBM/metrics_snapshot_2026-06-08.json"
+      "source_path": "2026/output/LightGBM/metrics_snapshot_2026-06-10.json"
     },
     {
       "label": "Real placed bets ledger",
@@ -27,25 +27,25 @@
       "label": "Stage 1 daily snapshot",
       "path": "stage1_daily_snapshot_latest.csv",
       "source_path": "2026/output/LightGBM/betting_agent_stage1/stage1_daily_snapshot_latest.csv",
-      "bytes": 982
+      "bytes": 857
     },
     {
       "label": "Stage 1 daily summary",
       "path": "stage1_daily_snapshot_latest.json",
       "source_path": "2026/output/LightGBM/betting_agent_stage1/stage1_daily_snapshot_latest.json",
-      "bytes": 1232
+      "bytes": 1362
     },
     {
       "label": "Setup profitability scan",
       "path": "setup_profitability_scan_latest.csv",
       "source_path": "2026/output/LightGBM/setup_profitability_scan_latest.csv",
-      "bytes": 406
+      "bytes": 292
     },
     {
       "label": "Setup profitability scan summary",
       "path": "setup_profitability_scan_summary_latest.json",
       "source_path": "2026/output/LightGBM/setup_profitability_scan_summary_latest.json",
-      "bytes": 1214
+      "bytes": 701
     },
     {
       "label": "Script 11 watchlist history",

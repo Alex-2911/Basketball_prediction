@@ -1,3 +1,2 @@
 run_date,setup,today_home_team,today_away_team,today_home_team_prob,today_odds_1,today_odds_2,today_home_win_rate,n,wins,losses,win_rate_%,avg_odds,profit_100_flat,roi_%,avg_home_team_prob,avg_home_win_rate
-2026-06-10,general_base_setup,,,,,,,45,28,17,62.22,1.9616,946.0,21.02,0.6778,0.6989
-2026-06-10,per_game_similar_bucket,NYK,SAS,0.7325589044334968,1.8,2.05,0.8,3,2,1,66.67,1.63,24.0,8.0,0.7211,0.8167
+2026-06-11,general_base_setup,,,,,,,114,70,44,61.4,2.0911,2851.0,25.01,0.6683,0.6996
