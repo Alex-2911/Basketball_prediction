@@ -1,12 +1,12 @@
 {
   "version": 1,
   "mode": "read_only_mvp",
-  "generated_at_utc": "2026-06-11T19:20:53.946Z",
+  "generated_at_utc": "2026-06-12T18:27:08.875Z",
   "read_only_sources": [
     {
       "label": "Combined predictions latest",
       "path": "combined_latest.csv",
-      "source_path": "2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-06-11.csv"
+      "source_path": "2026/output/LightGBM/Kelly/combined_nba_predictions_iso_2026-06-12.csv"
     },
     {
       "label": "Local matched games latest",

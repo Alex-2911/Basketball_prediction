@@ -1,7 +1,7 @@
 {
-  "run_date": "2026-06-11",
-  "created_utc": "2026-06-11T19:20:53.528667+00:00",
-  "input_file": "2026/output/LightGBM/combined_nba_predictions_acc_2026-06-11.csv",
+  "run_date": "2026-06-12",
+  "created_utc": "2026-06-12T18:27:08.469848+00:00",
+  "input_file": "2026/output/LightGBM/combined_nba_predictions_acc_2026-06-12.csv",
   "thresholds": {
     "base": {
       "home_team_prob_min": 0.6,
