@@ -1,22 +1,17 @@
 {
   "target_date": "2026-06-13",
-  "created_utc": "2026-06-12T18:27:03.180855+00:00",
+  "created_utc": "2026-06-13T17:53:28.427422+00:00",
   "input_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM",
   "output_dir": "/home/runner/work/Basketball_prediction/Basketball_prediction/2026/output/LightGBM/betting_agent_stage1",
   "files_found": {
     "daily_predictions": true,
-    "combined_predictions": false,
-    "home_win_rates": false,
+    "combined_predictions": true,
+    "home_win_rates": true,
     "strategy_params": true,
-    "local_matched_export_report": false,
-    "kelly_shortlist": false
+    "local_matched_export_report": true,
+    "kelly_shortlist": true
   },
-  "files_missing": [
-    "combined_predictions",
-    "home_win_rates",
-    "local_matched_export_report",
-    "kelly_shortlist"
-  ],
+  "files_missing": [],
   "canonical_rows_found": 0,
   "daily_games_found": 1,
   "status": "ok_no_canonical_bets"
