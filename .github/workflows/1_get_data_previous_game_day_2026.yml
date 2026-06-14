@@ -7,17 +7,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
+# Offseason: automatic schedule disabled. Keep manual dispatch for an explicit restart.
 on:
-  schedule:
-    # 18:18 Europe/Berlin, expressed in UTC for GitHub Actions.
-    # 2026 CET: Jan-Feb, Mar 1-28, Oct 26-31, Nov-Dec => 17:18 UTC.
-    # 2026 CEST: Mar 29-31, Apr-Sep, Oct 1-25 => 16:18 UTC.
-    - cron: "18 17 * 1,2,11,12 *"
-    - cron: "18 17 1-28 3 *"
-    - cron: "18 16 29-31 3 *"
-    - cron: "18 16 * 4-9 *"
-    - cron: "18 16 1-25 10 *"
-    - cron: "18 17 26-31 10 *"
   workflow_dispatch: {}
 
 jobs:
