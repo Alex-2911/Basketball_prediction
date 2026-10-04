@@ -1,3 +1,0 @@
-game_date,home_team_raw,away_team_raw,home_team,away_team,tipoff_utc,game_key,source_file
-2026-10-21,Boston Celtics,New York Knicks,BOS,NYK,2026-10-21T23:00:00Z,2026-10-21|BOS|NYK,tests/fixtures/verified_schedule_2027.csv
-2026-10-22,Los Angeles Lakers,Golden State Warriors,LAL,GSW,2026-10-22T02:00:00Z,2026-10-22|LAL|GSW,tests/fixtures/verified_schedule_2027.csv

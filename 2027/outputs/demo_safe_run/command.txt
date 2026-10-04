@@ -1,4 +1,0 @@
-.venv/bin/nba-pregame \
-  --input outputs/demo_safe_run/pregame_demo_input.json \
-  --now 2026-10-20T12:00:01Z \
-  --output-dir outputs/demo_safe_run

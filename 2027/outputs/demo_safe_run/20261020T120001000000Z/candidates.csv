@@ -1,3 +1,0 @@
-game_key,game_date,home_team,away_team,canonical_decision,watch_label,engine_state,paper_only,execution_enabled,rules_passed,blocked_by,as_of_utc,input_as_of_utc,tipoff_utc,prob_base,prob_used,ev_per_100,model_market_gap,model_market_gap_guard
-2026-10-20__BOS__NYK,2026-10-20,BOS,NYK,NO_BET,PASS_FILTERS_ONLY,NO_BET,True,False,4,['ENGINE_NO_BET'],2026-10-20T12:00:01+00:00,2026-10-20T11:00:00Z,2026-10-20T23:00:00Z,0.63,0.593018173967737,0.8130895745152911,0.06589743589743591,False
-2026-10-20__LAL__GSW,2026-10-20,LAL,GSW,NO_BET,DATA_INCOMPLETE,NO_BET,True,False,0,['STALE_OR_FUTURE_INPUT'],2026-10-20T12:00:01+00:00,2026-10-18T11:00:00Z,2026-10-20T23:00:00Z,,,,,
