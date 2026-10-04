@@ -1,0 +1,37 @@
+{
+  "guard": {
+    "existing_2027_stat_file_count": 0,
+    "existing_2027_stat_files": [],
+    "final_2026_snapshot": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/data/baseline_2026/Gathering_Data/Whole_Statistic/nba_games_2026-06-14.csv",
+    "final_2026_snapshot_exists": true,
+    "final_2026_snapshot_rows": 27318,
+    "final_2026_snapshot_sha256": "a361f9f029ec9b3665c45785803a1391f790cef73b4180a4419d0c08e2b6ca5d",
+    "statistics_dir_2027": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/data/raw/Gathering_Data/Whole_Statistic"
+  },
+  "message": "Final 2026 statistics snapshot is already present and no 2027 played-game statistics snapshot exists yet. The script will not rerun the last 2026 game state.",
+  "reason_code": "WAITING_FOR_FIRST_2027_PLAYED_GAME",
+  "results": {
+    "duplicates_checked": false,
+    "files_created": [],
+    "files_modified": [],
+    "games_imported": 0,
+    "teams_normalized": "NOT_RUN_WAITING_FOR_FIRST_2027_PLAYED_GAME",
+    "timezone_tipoff_checked": false
+  },
+  "run_utc": "2026-10-03T13:10:31.312784Z",
+  "safety": {
+    "betting_signals_created": false,
+    "canonical_unlock": false,
+    "execution_path_created": false,
+    "manifold_path_created": false,
+    "metadata_statistics_only": true,
+    "network_attempted": false,
+    "odds_created": false,
+    "parser_executed": false,
+    "predictions_created": false
+  },
+  "script": "get_data_previous_game_day_2027",
+  "season_end_year": 2027,
+  "status": "SKIPPED",
+  "target_collect_date": "2026-10-02"
+}

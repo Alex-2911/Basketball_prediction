@@ -1,0 +1,24 @@
+{
+  "parameters": {
+    "objective": "binary",
+    "metric": "auc",
+    "num_leaves": 10,
+    "learning_rate": 0.1,
+    "feature_fraction": 0.9,
+    "bagging_fraction": 0.9,
+    "bagging_freq": 10,
+    "boosting_type": "gbdt",
+    "verbosity": -1,
+    "random_state": 42,
+    "lambda_l1": 0.5,
+    "lambda_l2": 0.5,
+    "max_depth": 7,
+    "min_child_weight": 5
+  },
+  "legacy_split": {
+    "test_size": 0.2,
+    "random_state": 42
+  },
+  "training_enabled": false,
+  "note": "Legacy model parameters retained. Random split is historical only; chronological paper validation is required before activation."
+}

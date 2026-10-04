@@ -1,0 +1,14 @@
+{
+  "verified_source_files_unchanged": 2967,
+  "verified_destination_files": 2967,
+  "baseline_bytes": 4586469666,
+  "tests_passed": 10,
+  "parquet_tables_roundtrip_verified": 4,
+  "historical_unique_agent_cases": 4,
+  "installed_cli_verified": true,
+  "execution_enabled": false,
+  "model_pipeline_validation": "pending chronological paper validation",
+  "full_script7_notebook_parity": "pending",
+  "source_root": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2026",
+  "workspace": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027"
+}

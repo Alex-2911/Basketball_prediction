@@ -1,0 +1,2 @@
+# NBA 2027
+2026 is read-only. Never execute archived notebooks or shell launchers: they may write 2026 paths or call external services. Baseline files are immutable references. Keep execution disabled; canonical BET is a paper signal only. Do not enable network trading or import credentials. Freeze historical defaults until chronological paper validation and user review. Keep discretionary watch labels separate from canonical decisions. Do not publish local data or cases.

@@ -1,0 +1,129 @@
+{
+  "scope": "Fresh 2027 input dry-run contract validation",
+  "model_unlock": false,
+  "execution_unlock": false,
+  "profitability_claim": false,
+  "fixture": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/outputs/input_contract/20261020T120001000000Z/pregame_contract_fixture.json",
+  "cli_run_dir": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/outputs/input_contract/20261020T120001000000Z/cli_run/20261020T120001000000Z",
+  "checks": {
+    "cli_completed": true,
+    "no_bets_created": true,
+    "execution_disabled": true,
+    "valid_row_no_input_reason_codes": true,
+    "invalid_rows_no_bet": true,
+    "invalid_rows_have_expected_reasons": true,
+    "no_history_fallback": true,
+    "paper_mode_manifest": true,
+    "input_hash_recorded": true
+  },
+  "passed": true,
+  "expected_reason_codes": {
+    "stale_input": "STALE_OR_FUTURE_INPUT",
+    "timezone_missing": "MISSING_OR_INVALID_TIMESTAMPS",
+    "already_played": "PLAYED_STATUS_NOT_CONFIRMED",
+    "outside_36h_window": "OUTSIDE_PREGAME_WINDOW",
+    "missing_required_odds": "DATA_INCOMPLETE",
+    "game_started": "GAME_STARTED",
+    "future_input": "STALE_OR_FUTURE_INPUT",
+    "postgame_input": "POSTGAME_INPUT",
+    "invalid_probability": "INVALID_PROBABILITY"
+  },
+  "case_results": [
+    {
+      "case_id": "valid_fresh_complete",
+      "game_key": "2026-10-20__BOS__NYK",
+      "canonical_decision": "NO_BET",
+      "watch_label": "PASS_FILTERS_ONLY",
+      "blocked_by": [
+        "ENGINE_NO_BET"
+      ]
+    },
+    {
+      "case_id": "stale_input",
+      "game_key": "2026-10-20__LAL__GSW",
+      "canonical_decision": "NO_BET",
+      "watch_label": "DATA_INCOMPLETE",
+      "blocked_by": [
+        "STALE_OR_FUTURE_INPUT"
+      ]
+    },
+    {
+      "case_id": "timezone_missing",
+      "game_key": "2026-10-20__DAL__PHX",
+      "canonical_decision": "NO_BET",
+      "watch_label": "DATA_INCOMPLETE",
+      "blocked_by": [
+        "MISSING_OR_INVALID_TIMESTAMPS"
+      ]
+    },
+    {
+      "case_id": "already_played",
+      "game_key": "2026-10-20__MIA__ORL",
+      "canonical_decision": "NO_BET",
+      "watch_label": "DATA_INCOMPLETE",
+      "blocked_by": [
+        "PLAYED_STATUS_NOT_CONFIRMED"
+      ]
+    },
+    {
+      "case_id": "outside_36h_window",
+      "game_key": "2026-10-20__MIL__CHI",
+      "canonical_decision": "NO_BET",
+      "watch_label": "DATA_INCOMPLETE",
+      "blocked_by": [
+        "OUTSIDE_PREGAME_WINDOW"
+      ]
+    },
+    {
+      "case_id": "missing_required_odds",
+      "game_key": "2026-10-20__DEN__UTA",
+      "canonical_decision": "NO_BET",
+      "watch_label": "DATA_INCOMPLETE",
+      "blocked_by": [
+        "DATA_INCOMPLETE"
+      ]
+    },
+    {
+      "case_id": "game_started",
+      "game_key": "2026-10-20__SAC__POR",
+      "canonical_decision": "NO_BET",
+      "watch_label": "DATA_INCOMPLETE",
+      "blocked_by": [
+        "GAME_STARTED"
+      ]
+    },
+    {
+      "case_id": "future_input",
+      "game_key": "2026-10-20__TOR__CLE",
+      "canonical_decision": "NO_BET",
+      "watch_label": "DATA_INCOMPLETE",
+      "blocked_by": [
+        "STALE_OR_FUTURE_INPUT"
+      ]
+    },
+    {
+      "case_id": "postgame_input",
+      "game_key": "2026-10-20__ATL__WAS",
+      "canonical_decision": "NO_BET",
+      "watch_label": "DATA_INCOMPLETE",
+      "blocked_by": [
+        "STALE_OR_FUTURE_INPUT",
+        "POSTGAME_INPUT"
+      ]
+    },
+    {
+      "case_id": "invalid_probability",
+      "game_key": "2026-10-20__HOU__SAS",
+      "canonical_decision": "NO_BET",
+      "watch_label": "DATA_INCOMPLETE",
+      "blocked_by": [
+        "INVALID_PROBABILITY"
+      ]
+    }
+  ],
+  "notes": [
+    "The valid row remains NO_BET because the baseline engine is still frozen.",
+    "Invalid rows return reason codes in candidate output; the CLI does not crash.",
+    "No history file was supplied and no historical fallback was used."
+  ]
+}

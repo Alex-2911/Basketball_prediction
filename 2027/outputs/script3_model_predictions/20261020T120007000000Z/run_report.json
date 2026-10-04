@@ -1,0 +1,56 @@
+{
+  "anchor_date": "2026-10-03",
+  "inputs": {
+    "next_game_file": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/data/raw/Gathering_Data/Next_Game/games_df_2026-10-03.csv",
+    "next_game_file_exists": true,
+    "next_game_file_sha256": "c70ff41461e310c3fe15d110cfc6a9c98db16768ade9da8c158033dffcf774c1",
+    "prediction_artifact": null,
+    "prediction_artifact_sha256": null,
+    "stat_files_2027": [],
+    "stats_dir": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/data/raw/Gathering_Data/Whole_Statistic"
+  },
+  "issues": [
+    "NO_2027_STATISTICS_AVAILABLE"
+  ],
+  "reason_code": "WAITING_FOR_FIRST_2027_PLAYED_GAME_STATS",
+  "results": {
+    "next_games": [
+      {
+        "away_team": "BOS",
+        "game_date": "2026-10-20",
+        "home_team": "DET"
+      },
+      {
+        "away_team": "PHI",
+        "game_date": "2026-10-20",
+        "home_team": "NYK"
+      },
+      {
+        "away_team": "OKC",
+        "game_date": "2026-10-20",
+        "home_team": "SAS"
+      }
+    ],
+    "next_games_found": 3,
+    "predictions_created": false,
+    "predictions_file": null,
+    "predictions_rows": 0
+  },
+  "run_utc": "2026-10-03T16:05:11.703310Z",
+  "safety": {
+    "betting_signals_created": false,
+    "canonical_unlock": false,
+    "execution_path_created": false,
+    "lightgbm_fit_called": false,
+    "manifold_path_created": false,
+    "model_step_only": true,
+    "network_attempted": false,
+    "odds_created": false,
+    "predictions_generated_by_script": false,
+    "stats_fallback_to_2026_used": false,
+    "training_executed": false
+  },
+  "script": "run_lightgbm_predictions_2027",
+  "season_end_year": 2027,
+  "status": "SKIPPED"
+}

@@ -1,0 +1,141 @@
+{
+  "created_utc": "2026-10-03T13:26:59.248981Z",
+  "duplicates": 0,
+  "games_found": 1200,
+  "imported_file": "outputs/verified_schedule_import/20261020T120005000000Z/schedule_metadata.csv",
+  "issues": [],
+  "safety": {
+    "betting_signals_created": false,
+    "canonical_unlock": false,
+    "execution_path_created": false,
+    "manifold_path_created": false,
+    "network_attempted": false,
+    "odds_created": false,
+    "predictions_created": false,
+    "previous_game_statistics_modified": false,
+    "schedule_metadata_only": true,
+    "source_discovery_used": false,
+    "stats_parser_executed": false
+  },
+  "sample_rows": [
+    {
+      "away_team": "BOS",
+      "away_team_raw": "Boston Celtics",
+      "game_date": "2026-10-20",
+      "game_key": "2026-10-20|DET|BOS",
+      "home_team": "DET",
+      "home_team_raw": "Detroit Pistons",
+      "source_file": "outputs/bbr_schedule_source/20261020T120005000000Z/bbr_nba_2027_schedule_explicit_source.csv",
+      "tipoff_raw": "2026-10-20T19:00:00Z",
+      "tipoff_utc": "2026-10-20T19:00:00Z"
+    },
+    {
+      "away_team": "PHI",
+      "away_team_raw": "Philadelphia 76ers",
+      "game_date": "2026-10-20",
+      "game_key": "2026-10-20|NYK|PHI",
+      "home_team": "NYK",
+      "home_team_raw": "New York Knicks",
+      "source_file": "outputs/bbr_schedule_source/20261020T120005000000Z/bbr_nba_2027_schedule_explicit_source.csv",
+      "tipoff_raw": "2026-10-20T23:00:00Z",
+      "tipoff_utc": "2026-10-20T23:00:00Z"
+    },
+    {
+      "away_team": "OKC",
+      "away_team_raw": "Oklahoma City Thunder",
+      "game_date": "2026-10-20",
+      "game_key": "2026-10-20|SAS|OKC",
+      "home_team": "SAS",
+      "home_team_raw": "San Antonio Spurs",
+      "source_file": "outputs/bbr_schedule_source/20261020T120005000000Z/bbr_nba_2027_schedule_explicit_source.csv",
+      "tipoff_raw": "2026-10-21T01:30:00Z",
+      "tipoff_utc": "2026-10-21T01:30:00Z"
+    },
+    {
+      "away_team": "CHO",
+      "away_team_raw": "Charlotte Hornets",
+      "game_date": "2026-10-21",
+      "game_key": "2026-10-21|BRK|CHO",
+      "home_team": "BRK",
+      "home_team_raw": "Brooklyn Nets",
+      "source_file": "outputs/bbr_schedule_source/20261020T120005000000Z/bbr_nba_2027_schedule_explicit_source.csv",
+      "tipoff_raw": "2026-10-21T23:30:00Z",
+      "tipoff_utc": "2026-10-21T23:30:00Z"
+    },
+    {
+      "away_team": "DAL",
+      "away_team_raw": "Dallas Mavericks",
+      "game_date": "2026-10-21",
+      "game_key": "2026-10-21|HOU|DAL",
+      "home_team": "HOU",
+      "home_team_raw": "Houston Rockets",
+      "source_file": "outputs/bbr_schedule_source/20261020T120005000000Z/bbr_nba_2027_schedule_explicit_source.csv",
+      "tipoff_raw": "2026-10-22T00:30:00Z",
+      "tipoff_utc": "2026-10-22T00:30:00Z"
+    },
+    {
+      "away_team": "SAC",
+      "away_team_raw": "Sacramento Kings",
+      "game_date": "2026-10-21",
+      "game_key": "2026-10-21|LAC|SAC",
+      "home_team": "LAC",
+      "home_team_raw": "Los Angeles Clippers",
+      "source_file": "outputs/bbr_schedule_source/20261020T120005000000Z/bbr_nba_2027_schedule_explicit_source.csv",
+      "tipoff_raw": "2026-10-22T02:30:00Z",
+      "tipoff_utc": "2026-10-22T02:30:00Z"
+    },
+    {
+      "away_team": "GSW",
+      "away_team_raw": "Golden State Warriors",
+      "game_date": "2026-10-21",
+      "game_key": "2026-10-21|LAL|GSW",
+      "home_team": "LAL",
+      "home_team_raw": "Los Angeles Lakers",
+      "source_file": "outputs/bbr_schedule_source/20261020T120005000000Z/bbr_nba_2027_schedule_explicit_source.csv",
+      "tipoff_raw": "2026-10-22T02:00:00Z",
+      "tipoff_utc": "2026-10-22T02:00:00Z"
+    },
+    {
+      "away_team": "UTA",
+      "away_team_raw": "Utah Jazz",
+      "game_date": "2026-10-21",
+      "game_key": "2026-10-21|MEM|UTA",
+      "home_team": "MEM",
+      "home_team_raw": "Memphis Grizzlies",
+      "source_file": "outputs/bbr_schedule_source/20261020T120005000000Z/bbr_nba_2027_schedule_explicit_source.csv",
+      "tipoff_raw": "2026-10-22T00:00:00Z",
+      "tipoff_utc": "2026-10-22T00:00:00Z"
+    },
+    {
+      "away_team": "MIN",
+      "away_team_raw": "Minnesota Timberwolves",
+      "game_date": "2026-10-21",
+      "game_key": "2026-10-21|MIA|MIN",
+      "home_team": "MIA",
+      "home_team_raw": "Miami Heat",
+      "source_file": "outputs/bbr_schedule_source/20261020T120005000000Z/bbr_nba_2027_schedule_explicit_source.csv",
+      "tipoff_raw": "2026-10-21T23:30:00Z",
+      "tipoff_utc": "2026-10-21T23:30:00Z"
+    },
+    {
+      "away_team": "IND",
+      "away_team_raw": "Indiana Pacers",
+      "game_date": "2026-10-21",
+      "game_key": "2026-10-21|NOP|IND",
+      "home_team": "NOP",
+      "home_team_raw": "New Orleans Pelicans",
+      "source_file": "outputs/bbr_schedule_source/20261020T120005000000Z/bbr_nba_2027_schedule_explicit_source.csv",
+      "tipoff_raw": "2026-10-22T00:00:00Z",
+      "tipoff_utc": "2026-10-22T00:00:00Z"
+    }
+  ],
+  "scope": "NBA 2027 verified local schedule import adapter - metadata only",
+  "season": "2026-27",
+  "source": "explicit local file",
+  "source_file": "outputs/bbr_schedule_source/20261020T120005000000Z/bbr_nba_2027_schedule_explicit_source.csv",
+  "source_file_exists": true,
+  "source_file_sha256": "5dd1acf405e2f274e497ec4f2abb109550812c1aed7593202e74b7005f4cec80",
+  "status": "OK",
+  "teams_normalized": "OK",
+  "timezone_checked": "OK"
+}

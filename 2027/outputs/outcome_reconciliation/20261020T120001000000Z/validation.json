@@ -1,0 +1,49 @@
+{
+  "scope": "Outcome reconciliation validation only",
+  "model_unlock": false,
+  "execution_unlock": false,
+  "profitability_claim": false,
+  "checks": {
+    "reconciler_matched_all_cases": true,
+    "reconciler_left_no_unmatched_cases": true,
+    "reconciled_file_has_win_column": true,
+    "original_cases_remain_pending": true,
+    "original_case_files_unchanged": true,
+    "canonical_decisions_unchanged": true,
+    "actions_remain_paper_observation": true,
+    "stakes_remain_zero": true
+  },
+  "passed": true,
+  "cases_dir": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/outputs/replay_validations/20261020T120001000000Z",
+  "results_fixture": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/outputs/outcome_reconciliation/20261020T120001000000Z/settled_results_fixture.csv",
+  "reconciled_output": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/outputs/outcome_reconciliation/20261020T120001000000Z/reconciled_cases.csv",
+  "reconcile_summary": {
+    "cases": 1,
+    "settled_matches": 1,
+    "unmatched": 0
+  },
+  "hashes": {
+    "case_sha256": "ba96add45fc3b479dc4a2bbee5fd4361ac37e67f5b46f00a2d40463c41ea42a5",
+    "candidate_sha256": "be5e7d1045e71f8fd054abb74a44ab07fc321479cff13a3629216b7118a6fd25",
+    "manifest_sha256": "1a53e7802161c93541adaa3d63e7462d55247594861c0c8f4aae93008bfcb1c6",
+    "config_sha256": "c028ad488bb766c246bed9d01702e7147744e8872cf4ccc4d4f858b186955b20"
+  },
+  "reconciled_decisions": [
+    {
+      "date": "2026-10-20",
+      "home_team": "BOS",
+      "away_team": "NYK",
+      "canonical_decision": "NO_BET",
+      "watchlist_decision": "PASS_FILTERS_ONLY",
+      "actual_action": "PAPER_OBSERVATION",
+      "stake": 0.0,
+      "result": "PENDING",
+      "win": 1
+    }
+  ],
+  "notes": [
+    "Settled result is joined into a separate reconciliation output only.",
+    "Original JSONL case remains PENDING and unchanged.",
+    "Pregame candidate output, manifest, and baseline config hashes are unchanged."
+  ]
+}

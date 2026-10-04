@@ -1,0 +1,60 @@
+{
+  "chosen": {
+    "chosen": "NO_BET",
+    "global_hits": 1,
+    "local_hits": 1,
+    "global_largestN": 300,
+    "local_largestN": 300,
+    "global_largest": {
+      "profit": 1923.0,
+      "roi": 27.47,
+      "trades": 70
+    },
+    "local_largest": {
+      "profit": 2359.0,
+      "roi": 34.69,
+      "trades": 68
+    }
+  },
+  "walk_forward": {
+    "gate_pass": true,
+    "reason": "ok",
+    "score_mode": "lcb_roi",
+    "score_label": "LCB(mean_test_ROI - 0.5*std)",
+    "score_value": 21.051404841456378,
+    "splits_used": 8,
+    "test_trades_total": 102,
+    "active_splits": 7,
+    "q_trades": 6.0,
+    "wf_test_profit_total": 4187.0,
+    "top_k": 400,
+    "candidates_considered": 400,
+    "full_trades": 68,
+    "full_roi": 34.69,
+    "full_profit": 2359.0,
+    "local_tail_used": 300,
+    "local_ladder_attempts": [
+      {
+        "tail_n": 300,
+        "rows": 300,
+        "date_min": "2026-03-16 00:00:00",
+        "date_max": "2026-06-10 00:00:00",
+        "gate_pass": true,
+        "reason": "ok",
+        "score_value": 21.051404841456378,
+        "splits_used": 8,
+        "test_trades_total": 102,
+        "active_splits": 7,
+        "q_trades": 6.0,
+        "best_possible_test_trades_total": null,
+        "best_possible_active_splits": null,
+        "best_possible_qtrades": null
+      }
+    ]
+  },
+  "calibration_rebuilt": true,
+  "same_date_outcomes_excluded": true,
+  "history_rows": 1315,
+  "proxy_ready": true,
+  "history_cutoff_utc": "2026-10-20T12:00:01+00:00"
+}

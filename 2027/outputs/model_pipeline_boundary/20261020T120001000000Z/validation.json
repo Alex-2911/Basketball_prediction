@@ -1,0 +1,165 @@
+{
+  "scope": "Model-pipeline boundary validation",
+  "model_unlock": false,
+  "execution_unlock": false,
+  "profitability_claim": false,
+  "checks": {
+    "runtime_has_no_network_or_browser_imports": true,
+    "runtime_has_no_process_spawning": true,
+    "runtime_has_no_model_generation_markers_outside_legacy_history_rules": true,
+    "no_history_run_does_not_use_archived_history": true,
+    "explicit_history_run_records_history_hash": true,
+    "explicit_history_is_opt_in_only": true,
+    "manifest_records_prediction_input_hashes": true,
+    "supplied_prediction_row_is_consumed_not_generated": true,
+    "model_less_input_fails_closed": true,
+    "stale_model_less_input_fails_closed_with_reasons": true,
+    "explicit_history_still_does_not_unlock_execution": true
+  },
+  "passed": true,
+  "source_scan": {
+    "network_or_browser_imports": [],
+    "process_spawning": [],
+    "model_generation_markers": []
+  },
+  "runs": {
+    "no_history": {
+      "summary": {
+        "run_dir": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/outputs/model_pipeline_boundary/20261020T120001000000Z/cli_no_history/20261020T120001000000Z",
+        "rows": 1,
+        "bets": 0,
+        "execution_enabled": false
+      },
+      "run_dir": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/outputs/model_pipeline_boundary/20261020T120001000000Z/cli_no_history/20261020T120001000000Z",
+      "history_sha256": null,
+      "input_sha256": "4c7608e8ebb048597531e66709bea860183d53764b2a1f4f1b36ca8d5afa84ca",
+      "candidate": {
+        "game_key": "2026-10-20__BOS__NYK",
+        "game_date": "2026-10-20",
+        "home_team": "BOS",
+        "away_team": "NYK",
+        "canonical_decision": "NO_BET",
+        "watch_label": "PASS_FILTERS_ONLY",
+        "engine_state": "NO_BET",
+        "paper_only": true,
+        "execution_enabled": false,
+        "rules_passed": 4,
+        "blocked_by": [
+          "ENGINE_NO_BET"
+        ],
+        "as_of_utc": "2026-10-20T12:00:01+00:00",
+        "input_as_of_utc": "2026-10-20T11:00:00Z",
+        "tipoff_utc": "2026-10-20T23:00:00Z",
+        "prob_base": 0.63,
+        "prob_used": 0.593018173967737,
+        "ev_per_100": 0.8130895745152911,
+        "model_market_gap": 0.06589743589743591,
+        "model_market_gap_guard": false
+      }
+    },
+    "model_less": {
+      "summary": {
+        "run_dir": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/outputs/model_pipeline_boundary/20261020T120001000000Z/cli_model_less/20261020T120001000000Z",
+        "rows": 1,
+        "bets": 0,
+        "execution_enabled": false
+      },
+      "run_dir": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/outputs/model_pipeline_boundary/20261020T120001000000Z/cli_model_less/20261020T120001000000Z",
+      "candidate": {
+        "game_key": "2026-10-20__LAL__GSW",
+        "game_date": "2026-10-20",
+        "home_team": "LAL",
+        "away_team": "GSW",
+        "canonical_decision": "NO_BET",
+        "watch_label": "DATA_INCOMPLETE",
+        "engine_state": "NO_BET",
+        "paper_only": true,
+        "execution_enabled": false,
+        "rules_passed": 0,
+        "blocked_by": [
+          "DATA_INCOMPLETE"
+        ],
+        "as_of_utc": "2026-10-20T12:00:01+00:00",
+        "input_as_of_utc": "2026-10-20T11:00:00Z",
+        "tipoff_utc": "2026-10-20T23:00:00Z"
+      }
+    },
+    "stale_model_less": {
+      "summary": {
+        "run_dir": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/outputs/model_pipeline_boundary/20261020T120001000000Z/cli_stale_model_less/20261020T120001000000Z",
+        "rows": 1,
+        "bets": 0,
+        "execution_enabled": false
+      },
+      "run_dir": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/outputs/model_pipeline_boundary/20261020T120001000000Z/cli_stale_model_less/20261020T120001000000Z",
+      "candidate": {
+        "game_key": "2026-10-20__DAL__PHX",
+        "game_date": "2026-10-20",
+        "home_team": "DAL",
+        "away_team": "PHX",
+        "canonical_decision": "NO_BET",
+        "watch_label": "DATA_INCOMPLETE",
+        "engine_state": "NO_BET",
+        "paper_only": true,
+        "execution_enabled": false,
+        "rules_passed": 0,
+        "blocked_by": [
+          "DATA_INCOMPLETE",
+          "STALE_OR_FUTURE_INPUT"
+        ],
+        "as_of_utc": "2026-10-20T12:00:01+00:00",
+        "input_as_of_utc": "2026-10-18T11:00:00Z",
+        "tipoff_utc": "2026-10-20T23:00:00Z"
+      }
+    },
+    "explicit_history": {
+      "summary": {
+        "run_dir": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/outputs/model_pipeline_boundary/20261020T120001000000Z/cli_explicit_history/20261020T120001000000Z",
+        "rows": 1,
+        "bets": 0,
+        "execution_enabled": false
+      },
+      "run_dir": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/outputs/model_pipeline_boundary/20261020T120001000000Z/cli_explicit_history/20261020T120001000000Z",
+      "history_sha256": "9825cdfa32b1f9930ab6ad3852334b7b632c971c89b1ba2b5f0af8e1f4b4a637",
+      "input_sha256": "4c7608e8ebb048597531e66709bea860183d53764b2a1f4f1b36ca8d5afa84ca",
+      "candidate": {
+        "game_key": "2026-10-20__BOS__NYK",
+        "game_date": "2026-10-20",
+        "home_team": "BOS",
+        "away_team": "NYK",
+        "canonical_decision": "NO_BET",
+        "watch_label": "PASS_FILTERS_ONLY",
+        "engine_state": "NO_BET",
+        "paper_only": true,
+        "execution_enabled": false,
+        "rules_passed": 4,
+        "blocked_by": [
+          "ENGINE_NO_BET"
+        ],
+        "as_of_utc": "2026-10-20T12:00:01+00:00",
+        "input_as_of_utc": "2026-10-20T11:00:00Z",
+        "tipoff_utc": "2026-10-20T23:00:00Z",
+        "prob_base": 0.6201325306175289,
+        "prob_used": 0.5919158017717863,
+        "ev_per_100": 0.625686301203654,
+        "model_market_gap": 0.056029966514964835,
+        "model_market_gap_guard": false
+      },
+      "evidence_keys": [
+        "calibration_rebuilt",
+        "chosen",
+        "history_cutoff_utc",
+        "history_rows",
+        "proxy_ready",
+        "same_date_outcomes_excluded",
+        "walk_forward"
+      ]
+    }
+  },
+  "notes": [
+    "nba-pregame reads supplied JSON/Parquet prediction rows from --input.",
+    "Archived 2026 history is used only when --history is supplied.",
+    "Model-less and stale model-less inputs fail closed as NO_BET with reason codes.",
+    "No network, browser, process-spawn, or model-training path exists in active runtime files outside the explicit history/rule replay helpers."
+  ]
+}

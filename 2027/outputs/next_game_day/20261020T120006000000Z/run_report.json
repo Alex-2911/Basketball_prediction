@@ -1,0 +1,56 @@
+{
+  "anchor_date": "2026-10-03",
+  "message": "Found 3 games for next local schedule date 2026-10-20.",
+  "reason_code": "NEXT_GAME_DAY_METADATA_READY",
+  "results": {
+    "files_copied": [
+      "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/data/raw/Gathering_Data_Backup/Next_Game/games_df_2026-10-03.csv"
+    ],
+    "files_created": [
+      "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/data/raw/Gathering_Data/Next_Game/games_df_2026-10-03.csv"
+    ],
+    "games": [
+      {
+        "away_team": "BOS",
+        "game_date": "2026-10-20",
+        "home_team": "DET",
+        "tipoff_raw": "2026-10-20T19:00:00Z"
+      },
+      {
+        "away_team": "PHI",
+        "game_date": "2026-10-20",
+        "home_team": "NYK",
+        "tipoff_raw": "2026-10-20T23:00:00Z"
+      },
+      {
+        "away_team": "OKC",
+        "game_date": "2026-10-20",
+        "home_team": "SAS",
+        "tipoff_raw": "2026-10-21T01:30:00Z"
+      }
+    ],
+    "games_found": 3,
+    "output_csv": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/data/raw/Gathering_Data/Next_Game/games_df_2026-10-03.csv"
+  },
+  "run_utc": "2026-10-03T16:01:31.889808Z",
+  "safety": {
+    "betting_signals_created": false,
+    "canonical_unlock": false,
+    "execution_path_created": false,
+    "manifold_path_created": false,
+    "network_attempted": false,
+    "odds_created": false,
+    "predictions_created": false,
+    "previous_game_statistics_modified": false,
+    "schedule_metadata_only": true,
+    "stats_parser_executed": false
+  },
+  "script": "get_data_next_game_day_2027",
+  "season_end_year": 2027,
+  "source": {
+    "schedule_metadata": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/outputs/verified_schedule_import/20261020T120005000000Z/schedule_metadata.csv",
+    "schedule_metadata_exists": true,
+    "schedule_metadata_sha256": "bcc5e209f81eec8ad514445e5bf5ed20f3a561d79006417f863be7023d84b9e8"
+  },
+  "status": "READY"
+}

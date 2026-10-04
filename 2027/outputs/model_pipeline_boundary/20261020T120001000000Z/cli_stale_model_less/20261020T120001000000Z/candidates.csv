@@ -1,0 +1,2 @@
+game_key,game_date,home_team,away_team,canonical_decision,watch_label,engine_state,paper_only,execution_enabled,rules_passed,blocked_by,as_of_utc,input_as_of_utc,tipoff_utc
+2026-10-20__DAL__PHX,2026-10-20,DAL,PHX,NO_BET,DATA_INCOMPLETE,NO_BET,True,False,0,"['DATA_INCOMPLETE', 'STALE_OR_FUTURE_INPUT']",2026-10-20T12:00:01+00:00,2026-10-18T11:00:00Z,2026-10-20T23:00:00Z

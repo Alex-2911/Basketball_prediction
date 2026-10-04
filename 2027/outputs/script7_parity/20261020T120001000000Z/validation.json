@@ -1,0 +1,130 @@
+{
+  "scope": "Script 7 parity / data normalization validation only",
+  "model_unlock": false,
+  "execution_unlock": false,
+  "source_root": "/Users/alexanderrazmyslov/1. Python/1. NBA Script/2027/data/baseline_2026/LightGBM",
+  "checks": {
+    "team_aliases_match_expected": true,
+    "latest_jsonl_loaded": true,
+    "all_jsonl_rows_reconstruct": true,
+    "latest_cases_have_game_keys": true,
+    "latest_cases_match_latest_snapshot": true,
+    "latest_snapshot_has_script11_columns": true,
+    "script11_latest_has_rule_columns": true
+  },
+  "passed": true,
+  "team_alias_results": {
+    "Knicks": "NYK",
+    "New York Knicks": "NYK",
+    "LA Lakers": "LAL",
+    "San Antonio Spurs": "SAS",
+    "Phoenix Suns": "PHX",
+    "BKN": "BRK",
+    "CHA": "CHO"
+  },
+  "matchup_parse_results": {
+    "SAS @ NYK": [
+      "NYK",
+      "SAS"
+    ],
+    "New York Knicks vs San Antonio Spurs": [
+      "NYK",
+      "SAS"
+    ],
+    "LAL at BOS": [
+      "BOS",
+      "LAL"
+    ]
+  },
+  "jsonl_files": [
+    {
+      "file": "betting_agent_training_cases_2026-04-26.jsonl",
+      "rows": 3,
+      "sha256": "41e2b2d2e5f8346bd4228b06aeba1c3be14f20292777257c53dd02a08360220f"
+    },
+    {
+      "file": "betting_agent_training_cases_latest.jsonl",
+      "rows": 4,
+      "sha256": "35b8f0dd281e6ac79fff5dc2042027c34361d1034f35591256f431b7cbcb3fb7"
+    }
+  ],
+  "latest_cases": {
+    "rows": 4,
+    "unique_game_keys": 4,
+    "canonical_decisions": {
+      "NO_BET": 4
+    },
+    "watchlist_decisions": {
+      "WATCHLIST": 1,
+      "LIVE_ONLY": 1,
+      "LIVE_WATCH": 1,
+      "NA": 1
+    }
+  },
+  "case_reconstruction_against_latest_snapshot": {
+    "cases": 4,
+    "matched": 4,
+    "unmatched": 0,
+    "matched_keys": [
+      {
+        "date": "2026-04-25",
+        "home_team": "ATL",
+        "away_team": "NYK",
+        "canonical_decision": "NO_BET",
+        "watchlist_decision": "WATCHLIST",
+        "script11_decision": null,
+        "decision_bucket": "NO_BET_OTHER"
+      },
+      {
+        "date": "2026-04-25",
+        "home_team": "MIN",
+        "away_team": "DEN",
+        "canonical_decision": "NO_BET",
+        "watchlist_decision": "LIVE_ONLY",
+        "script11_decision": null,
+        "decision_bucket": "NO_BET_OTHER"
+      },
+      {
+        "date": "2026-04-26",
+        "home_team": "TOR",
+        "away_team": "CLE",
+        "canonical_decision": "NO_BET",
+        "watchlist_decision": "LIVE_WATCH",
+        "script11_decision": null,
+        "decision_bucket": "NO_BET_OTHER"
+      },
+      {
+        "date": "2026-05-19",
+        "home_team": "NYK",
+        "away_team": "CLE",
+        "canonical_decision": "NO_BET",
+        "watchlist_decision": null,
+        "script11_decision": "NO_BET",
+        "decision_bucket": "WATCH_ONLY_3_OF_4"
+      }
+    ]
+  },
+  "historical_snapshot_handling": {
+    "model_vs_actual_snapshot_files": 22,
+    "script11_watchlist_snapshot_files": 44,
+    "model_vs_actual_latest": {
+      "file": "model_vs_actual_vs_user_bets_latest.csv",
+      "rows": 1313,
+      "columns": 81,
+      "sha256": "e5e54897b80d2f0ffe01e2439decef222f477ca9986cf1eb7be9e218a74cc904"
+    },
+    "script11_watchlist_latest": {
+      "file": "script11_watchlist_history_latest.csv",
+      "rows": 110,
+      "columns": 80,
+      "sha256": "60b78879aebec30d21ef00c18de2a1b1b98a2e73d8c8edd8dc1a75ba90fdb40b"
+    },
+    "model_vs_actual_latest_unique_game_keys": 1313,
+    "script11_latest_unique_game_keys": 43
+  },
+  "notes": [
+    "Latest JSONL loader intentionally prefers betting_agent_training_cases_latest.jsonl when present.",
+    "Daily snapshot files are counted as archived snapshots, not concatenated independent games.",
+    "This validates normalization and reconstruction only; profitability and model unlock remain out of scope."
+  ]
+}

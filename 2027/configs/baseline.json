@@ -1,0 +1,39 @@
+{
+  "season": "2026-27",
+  "execution_enabled": false,
+  "paper_only": true,
+  "baseline_engine_state": "NO_BET",
+  "canonical_params": null,
+  "watch_reference_params": {
+    "home_win_rate_threshold": 0.5,
+    "odds_min": 1.3,
+    "odds_max": 3.4,
+    "prob_threshold": 0.55
+  },
+  "last_local_candidate": {
+    "home_win_rate_threshold": 0.5,
+    "odds_min": 1.3,
+    "odds_max": 2.6,
+    "prob_threshold": 0.5
+  },
+  "saved_april_strategy": {
+    "as_of_date": null,
+    "params_used_type": "CHOSEN (ROBUST)",
+    "params_used": {
+      "home_win_rate_threshold": 0.65,
+      "odds_min": 1.3,
+      "odds_max": 2.5,
+      "prob_threshold": 0.4,
+      "min_ev": 0.0
+    },
+    "valid_window_size": 400,
+    "valid_window_source": "local_tail_used",
+    "valid_window_start": "2026-02-21",
+    "valid_window_end": "2026-04-19",
+    "local_tail_used": 400
+  },
+  "min_ev": 0.0,
+  "max_input_age_hours": 24,
+  "lookahead_hours": 36,
+  "note": "Final June 13 Script 11 selected NO_BET: one positive stability window, two required. Watch parameters are diagnostics only. Canonical params remain null until reviewed paper validation."
+}

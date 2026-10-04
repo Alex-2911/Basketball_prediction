@@ -1,0 +1,15 @@
+[
+  {
+    "game_date": "2026-10-20",
+    "home_team": "BOS",
+    "away_team": "NYK",
+    "tipoff_utc": "2026-10-20T23:00:00Z",
+    "as_of_utc": "2026-10-20T11:00:00Z",
+    "is_played": false,
+    "home_team_prob": 0.63,
+    "prob_iso": 0.63,
+    "home_win_rate": 0.7,
+    "odds_1": 1.7,
+    "odds_2": 2.2
+  }
+]

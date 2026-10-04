@@ -1,0 +1,32 @@
+{
+  "created_utc": "2026-10-03T13:21:54.838864Z",
+  "duplicates": null,
+  "games_found": 0,
+  "imported_file": null,
+  "issues": [
+    "MISSING_TIPOFF_TIME"
+  ],
+  "safety": {
+    "betting_signals_created": false,
+    "canonical_unlock": false,
+    "execution_path_created": false,
+    "manifold_path_created": false,
+    "network_attempted": false,
+    "odds_created": false,
+    "predictions_created": false,
+    "previous_game_statistics_modified": false,
+    "schedule_metadata_only": true,
+    "source_discovery_used": false,
+    "stats_parser_executed": false
+  },
+  "sample_rows": [],
+  "scope": "NBA 2027 verified local schedule import adapter - metadata only",
+  "season": "2026-27",
+  "source": "explicit local file",
+  "source_file": "/Users/alexanderrazmyslov/1. Python/Basketball_prediction/2026/output/Gathering_Data/Next_Game/games_df_2026-04-12.csv",
+  "source_file_exists": true,
+  "source_file_sha256": "36ba05ec18a1effe65891f51afb9fa9b07a9a953d2ca9e3a678add564a22825b",
+  "status": "SKIPPED",
+  "teams_normalized": "NOT_OK",
+  "timezone_checked": "NOT_OK"
+}

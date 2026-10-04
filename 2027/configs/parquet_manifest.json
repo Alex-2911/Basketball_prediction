@@ -1,0 +1,42 @@
+[
+  {
+    "table": "whole_statistics_2026",
+    "source": "data/baseline_2026/Gathering_Data/Whole_Statistic/nba_games_2026-06-14.csv",
+    "rows": 27318,
+    "columns": 149,
+    "source_sha256": "a361f9f029ec9b3665c45785803a1391f790cef73b4180a4419d0c08e2b6ca5d",
+    "parquet_sha256": "ff0d3ad77fd552848fdab11528c24df817e9636ec0587399d6611b8b32d44b09",
+    "parquet_bytes": 3071831,
+    "roundtrip_verified": true
+  },
+  {
+    "table": "combined_predictions_2026",
+    "source": "data/baseline_2026/LightGBM/combined_nba_predictions_acc_2026-06-13.csv",
+    "rows": 1330,
+    "columns": 20,
+    "source_sha256": "1b60d02f4f5315a7be4a063e0e0635bf44b70bb016c9ba8eb8fed49a990325de",
+    "parquet_sha256": "9825cdfa32b1f9930ab6ad3852334b7b632c971c89b1ba2b5f0af8e1f4b4a637",
+    "parquet_bytes": 88618,
+    "roundtrip_verified": true
+  },
+  {
+    "table": "script11_history_2026",
+    "source": "data/baseline_2026/LightGBM/script11_watchlist_history_latest.csv",
+    "rows": 110,
+    "columns": 80,
+    "source_sha256": "60b78879aebec30d21ef00c18de2a1b1b98a2e73d8c8edd8dc1a75ba90fdb40b",
+    "parquet_sha256": "cbe2d087b9ec28439e77146d86bdcee1d942a64b89c43add49616e0d0f3d4e77",
+    "parquet_bytes": 64269,
+    "roundtrip_verified": true
+  },
+  {
+    "table": "script7_reconciliation_2026",
+    "source": "data/baseline_2026/LightGBM/model_vs_actual_vs_user_bets_latest.csv",
+    "rows": 1313,
+    "columns": 81,
+    "source_sha256": "e5e54897b80d2f0ffe01e2439decef222f477ca9986cf1eb7be9e218a74cc904",
+    "parquet_sha256": "e29252aab60cb546070655317bd8615bf85900fe06cd7a31641698297966eca2",
+    "parquet_bytes": 87647,
+    "roundtrip_verified": true
+  }
+]

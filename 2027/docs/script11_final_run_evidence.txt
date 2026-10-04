@@ -1,0 +1,43 @@
+
+Min EV applied = 0
+[LIVE OOS PROXY] ready=True train_rows=1265 source=prob_iso_oos_time fallback=False fallback_reason=none in_col=prob_iso
+Historical prob column: prob_iso_oos_time | Live prob column: prob_live_safe
+[LOCAL] Using df_all played base for ladder (rows=1315)
+
+Prepared hist_df from: hist_df (fresh)
+hist_df rows: 300 | date range: 2026-03-16 -> 2026-06-10
+hist raw tail unique rows (before OOS filter): 300 | duplicates removed in raw source: 0
+hist prepped rows (after OOS/NaN filters): 300 | duplicates in prepped: 0
+
+=== [ROBUST++++] LOCAL PARAMS (WALK-FORWARD on FULL hist_df, coverage gate) ===
+score_mode             : lcb_roi
+LCB(mean_test_ROI - 0.5*std): 25.44
+params: {'home_win_rate_threshold': 0.5, 'odds_min': 1.3, 'odds_max': 2.6, 'prob_threshold': 0.5}
+LOCAL tail used        : 300
+splits_used: 8 | test_trades_total: 82 | active_splits: 7 | q20_trades: 6.00
+wf_test_profit_total: 3487.00 | FULL profit: 2199.00 | FULL ROI: 39.98% | FULL trades: 55
+LOCAL ladder attempts summary:
+  tail=300 | rows=300 | gate_pass=True | score=25.44
+
+=== [ROBUST++++] PROFIT/STABILITY EVAL (GLOBAL vs LOCAL) ===
+Windows: [300, 400, 500] | stability hits needed: 2 | min trades per window: 25
+GLOBAL eval rows      : 300
+LOCAL eval rows       : 300
+LOCAL tail found      : 300
+LOCAL tail evaluated  : 300
+NO_BET -> neither GLOBAL nor LOCAL meets stability+profit constraints.
+details: {'chosen': 'NO_BET', 'global_hits': 1, 'local_hits': 1, 'global_largestN': 300, 'local_largestN': 300, 'global_largest': {'profit': 2323.0, 'roi': 38.72, 'trades': 60}, 'local_largest': {'profit': 2199.0, 'roi': 39.98, 'trades': 55}}
+
+=== UPCOMING (DEDUPED) ===
+      date home_team away_team  home_win_rate  odds_1  odds_2  home_team_prob  prob_iso  prob_live_oos_proxy  prob_base  prob_used  market_implied_p_raw  market_implied_p_devig  model_market_gap  EV_base_€_per_100  EV_live_€_per_100 blocked_by
+2026-06-13       SAS       NYK            0.5    1.51    2.64           0.513     0.475                0.468      0.468      0.598                 0.662                   0.636            -0.168             -29.37              -9.66           
+[LIVE DEBUG] wrote /Users/alexanderrazmyslov/1. Python/1. NBA Script/2026/LightGBM/live_oos_debug_report_2026-06-13.csv
+
+=== TODAY SHORTLIST (if profitable params found) ===
+NO_BET today (no profitable param set found by stability rules).
+
+=== WATCHLIST / NEAR MISSES ===
+[WATCHLIST] Engine state: NO_BET
+[WATCHLIST] Reference params used (best_params): HWR>=0.50 | Odds=[1.30, 3.40] | Prob>=0.55 | EV>0.00
+      date home_team away_team  home_win_rate  odds_1  odds_2  home_team_prob  prob_iso  prob_iso_oos_time  prob_live_oos_proxy  prob_live_safe_pre_clip  prob_base  prob_used  EV_€_per_100  market_implied_p_raw  market_implied_p_devig  model_market_gap  model_market_gap_flag  live_oos_proxy_ready  live_oos_proxy_used  live_oos_proxy_train_rows  live_oos_proxy_bin_n  live_oos_proxy_bin_winrate  live_underdog_upscale_guard_triggered  live_shrink_triggered  rules_passed blocked_by  margin_hw  margin_odds  margin_prob  margin_ev
+2026-06-13       SAS       NYK            0.5    1.51    2.64           0.513     0.475                NaN                0.468                    0.468      0.468      0.598         -9.66                 0.662                   0.636            -0.168                  False                  True                 True                       1265                    51                    0.322673                                  False                   True             3   EV<=0.00        0.0          0.0        0.048      -9.66
